@@ -1,0 +1,84 @@
+#  Proyecto SCT - ETL Bench STC
+
+Este proyecto implementa un proceso **ETL (Extract, Transform, Load)** para la carga de datos desde archivos Excel hacia **SQL Server**, incorporando limpieza avanzada de datos.
+
+---
+
+## 📂 Estructura del proyecto
+
+```
+Proyecto_SCT/
+│
+├── ETL/
+│   ├── etl_bench_stc.py
+│   ├── data_cleaners.py
+│
+├── .env                    # Variables de entorno (no incluido)
+├── .gitignore
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## ⚙️ Requisitos
+
+* Python 3.10+
+* SQL Server
+* ODBC Driver (17 o 18)
+
+---
+
+## 📦 Instalación
+
+1. Clonar repositorio:
+
+```bash
+git clone https://github.com/TU_USUARIO/TU_REPO.git
+cd Proyecto_SCT
+```
+
+2. Crear entorno virtual:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+3. Instalar dependencias:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+---
+
+## 🔐 Configuración
+
+Crear archivo `.env` en la raíz:
+
+```
+DB_SERVER=tu_servidor
+DB_NAME=tu_base_de_datos
+DB_USER=tu_usuario
+DB_PASSWORD=tu_password
+DB_DRIVER=ODBC Driver 17 for SQL Server
+```
+
+---
+
+## ▶️ Ejecución
+
+```bash
+python ETL/etl_bench_stc.py
+```
+
+---
+
+## 📊 Tecnologías utilizadas
+
+* `pandas`
+* `pyodbc`
+* `python-dotenv`
+* `thefuzz` + `python-Levenshtein`
+* `openpyxl`
