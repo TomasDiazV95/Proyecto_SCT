@@ -265,6 +265,9 @@ def main():
     found_numeric = [c for c in df.columns if col_is_numeric(c)]
     print("Columnas numéricas detectadas:", found_numeric if found_numeric else "ninguna")
 
+    ensure_table_and_columns(df)
+    insert_append(df, Path(EXCEL_PATH).name)
+
 
 if __name__ == "__main__":
     main()
