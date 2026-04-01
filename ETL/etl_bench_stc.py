@@ -1,5 +1,6 @@
 import os
 import re
+import data_cleaners
 from pathlib import Path
 from io import BytesIO
 from decimal import Decimal
@@ -18,7 +19,8 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
 # ========= BENCH (hardcodeado, NO .env) =========
-EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
+#EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
+EXCEL_PATH = "C:\\Users\\Analista de Datos\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
 SHEET_NAME = "PHOENIX"
 
 TABLE = "dbo.tmp_bench_STC"
@@ -256,7 +258,10 @@ def main():
     df = read_excel(EXCEL_PATH, SHEET_NAME)
 
     print(f"Archivo: {Path(EXCEL_PATH).name}")
-    print(f"Filas: {len(df):,} | Columnas: {len(df.columns)}")
+    print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
+
+    df = data_cleaners.apply_fuzzy_matching_to_cobrador(df, threshold=90)
+
     found_numeric = [c for c in df.columns if col_is_numeric(c)]
     print("Columnas numéricas detectadas:", found_numeric if found_numeric else "ninguna")
 
