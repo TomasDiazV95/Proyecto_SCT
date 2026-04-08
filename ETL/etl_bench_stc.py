@@ -19,8 +19,8 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
 # ========= BENCH (hardcodeado, NO .env) =========
-#EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
-EXCEL_PATH = "C:\\Users\\Analista de Datos\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
+EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260331 - BENCH MORA TARDIA - PHOENIX.xlsx"
+#EXCEL_PATH = "C:\\Users\\Analista de Datos\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
 SHEET_NAME = "PHOENIX"
 
 TABLE = "dbo.tmp_bench_STC"
@@ -72,13 +72,13 @@ def col_is_numeric(col: str) -> bool:
 
 
 def sql_type_for(col: str) -> str:
-    # Para SQL Server 2016, DECIMAL(38,2) es seguro para montos grandes
-    return "DECIMAL(38,2) NULL" if col_is_numeric(col) else "NVARCHAR(MAX) NULL"
+    # Para saldos enteros, usar DECIMAL(38,0) evita guardar .00
+    return "DECIMAL(38,0) NULL" if col_is_numeric(col) else "NVARCHAR(MAX) NULL"
 
 
 def clean_numeric_to_str(x):
     """
-    Normaliza número a string con punto decimal (ej: '1234.56').
+    Normaliza número a string para saldos enteros (ej: '1234').
     Si viene basura -> None.
     """
     if x is None or x is pd.NA:
@@ -111,11 +111,12 @@ def clean_numeric_to_str(x):
 
     # valida que sea número
     try:
-        Decimal(s)
+        d = Decimal(s)
     except Exception:
         return None
 
-    return s
+    # Saldo entero: elimina cualquier parte decimal
+    return str(int(d))
 
 
 def read_excel(path: str, sheet: str | None) -> pd.DataFrame:
@@ -188,11 +189,11 @@ def ensure_table_and_columns(df: pd.DataFrame):
                 cur.execute(stmt)
             cn.commit()
 
-        # 4) asegurar que las 4 numéricas queden DECIMAL(38,2)
+        # 4) asegurar que las 4 numéricas queden DECIMAL(38,0)
         for n in NUMERIC_COLS:
             colname = f"fld_{n}"
             if colname in existing or colname in fld_cols:
-                cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(colname)} DECIMAL(38,2) NULL;")
+                cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(colname)} DECIMAL(38,0) NULL;")
         cn.commit()
 
 
@@ -213,7 +214,7 @@ def insert_append(df: pd.DataFrame, source_file: str):
         out = [source_file]
         for c, v in zip(excel_cols, row):
             if col_is_numeric(c):
-                out.append(clean_numeric_to_str(v))  # '1234.56' o None
+                out.append(clean_numeric_to_str(v))  # '1234' o None
             else:
                 if v is None or v is pd.NA:
                     out.append(None)
