@@ -1,0 +1,387 @@
+import os
+import re
+from dataclasses import dataclass
+
+from database import run_query
+
+
+@dataclass
+class ColumnMap:
+    table_name: str
+    date_col: str
+    fecha_col: str | None
+    tramo_col: str
+    apertura_col: str
+    ejecutivo_col: str
+    zona_col: str | None
+    deuda_col: str
+    contenido_col: str
+    normalizado_col: str
+    meta_cont_col: str
+    meta_norm_col: str
+
+
+def _is_safe_table_name(name: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_\.\[\]]+", name))
+
+
+def _table_name() -> str:
+    name = os.getenv("PRODUCTIVIDAD_TABLE", "dbo.tmp_bench_STC")
+    if not _is_safe_table_name(name):
+        raise RuntimeError("PRODUCTIVIDAD_TABLE contiene caracteres no permitidos")
+    return name
+
+
+def _runtime_columns(table_name: str) -> set[str]:
+    if "." not in table_name:
+        raise RuntimeError("La tabla debe incluir esquema, por ejemplo dbo.tmp_bench_STC")
+
+    schema, table = table_name.split(".", 1)
+    schema = schema.replace("[", "").replace("]", "")
+    table = table.replace("[", "").replace("]", "")
+
+    sql = """
+    SELECT c.name
+    FROM sys.columns c
+    INNER JOIN sys.tables t ON c.object_id = t.object_id
+    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+    WHERE s.name = ? AND t.name = ?
+    """
+    rows = run_query(sql, (schema, table))
+    return {r["name"] for r in rows}
+
+
+def _pick_first(available: set[str], candidates: list[str], label: str) -> str:
+    for col in candidates:
+        if col in available:
+            return col
+    raise RuntimeError(f"No se encontró columna para {label}. Probadas: {candidates}")
+
+
+def _pick_optional(available: set[str], candidates: list[str]) -> str | None:
+    for col in candidates:
+        if col in available:
+            return col
+    return None
+
+
+def resolve_columns() -> ColumnMap:
+    table_name = _table_name()
+    available = _runtime_columns(table_name)
+
+    return ColumnMap(
+        table_name=table_name,
+        date_col=_pick_first(available, ["fecha_carga", "ts_carga"], "fecha"),
+        fecha_col=_pick_optional(available, ["fld_FECHA"]),
+        tramo_col=_pick_first(available, ["fld_TRAMO_MORA"], "tramo"),
+        apertura_col=_pick_first(available, ["fld_APERTURA"], "apertura"),
+        ejecutivo_col=_pick_first(
+            available,
+            ["fld_EJECUTIVO", "fld_COBRADOR", "fld_GESTOR", "fld_ASESOR"],
+            "ejecutivo",
+        ),
+        zona_col=next((c for c in ["fld_ZONA", "fld_REGION", "fld_SUCURSAL"] if c in available), None),
+        deuda_col=_pick_first(available, ["fld_DEUDA_INI"], "deuda asignada"),
+        contenido_col=_pick_first(available, ["fld_CONTENIDO"], "saldo contenido"),
+        normalizado_col=_pick_first(available, ["fld_NORMALIZADO"], "saldo normalizado"),
+        meta_cont_col=_pick_first(available, ["meta_contencion_pct"], "meta contención"),
+        meta_norm_col=_pick_first(available, ["meta_normalizacion_pct"], "meta normalización"),
+    )
+
+
+def _clean_text(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().upper()
+
+
+def _period_expr(cols: ColumnMap) -> str:
+    if cols.fecha_col:
+        return f"RIGHT('00000000' + LTRIM(RTRIM(CONVERT(varchar(20), {cols.fecha_col}))), 8)"
+    return f"CONVERT(char(7), {cols.date_col}, 126)"
+
+
+def _build_filters(filters: dict, cols: ColumnMap) -> tuple[str, list]:
+    clauses = []
+    params: list = []
+    period_expr = _period_expr(cols)
+
+    if filters.get("periodo"):
+        clauses.append(f"{period_expr} = ?")
+        params.append(_clean_text(filters["periodo"]))
+
+    if filters.get("tramo"):
+        clauses.append(f"UPPER(LTRIM(RTRIM({cols.tramo_col}))) = ?")
+        params.append(_clean_text(filters["tramo"]))
+
+    if filters.get("apertura"):
+        clauses.append(f"UPPER(LTRIM(RTRIM({cols.apertura_col}))) = ?")
+        params.append(_clean_text(filters["apertura"]))
+
+    if filters.get("ejecutivo"):
+        clauses.append(f"UPPER(LTRIM(RTRIM({cols.ejecutivo_col}))) = ?")
+        params.append(_clean_text(filters["ejecutivo"]))
+
+    if filters.get("zona") and cols.zona_col:
+        clauses.append(f"UPPER(LTRIM(RTRIM({cols.zona_col}))) = ?")
+        params.append(_clean_text(filters["zona"]))
+
+    where_sql = ""
+    if clauses:
+        where_sql = "WHERE " + " AND ".join(clauses)
+
+    return where_sql, params
+
+
+def _safe_div(num: float, den: float) -> float:
+    if den is None or den == 0:
+        return 0.0
+    return (num / den) * 100.0
+
+
+def _cumplimiento_final(pct_cont: float, meta_cont: float, pct_norm: float, meta_norm: float) -> float:
+    if meta_norm and meta_norm > 0:
+        return _safe_div(pct_cont + pct_norm, meta_cont + meta_norm)
+    return _safe_div(pct_cont, meta_cont)
+
+
+def _general_bucket(tramo: str, apertura: str) -> str | None:
+    tramo = _clean_text(tramo)
+    apertura = _clean_text(apertura)
+
+    if tramo in {"C6", "C7", "C8"} and apertura == "SUSCEPTIBLE CASTIGO":
+        return "PRE CASTIGO"
+    if tramo == "C6" and apertura != "SUSCEPTIBLE CASTIGO":
+        return "C6"
+    if tramo == "C3":
+        return "C3"
+    if apertura == "SUSCEPTIBLE CV":
+        return "SUSCEPTIBLE CV"
+    if tramo == "C5":
+        return "C5"
+    return None
+
+
+def get_cycle_rows(filters: dict) -> list[dict]:
+    cols = resolve_columns()
+    where_sql, params = _build_filters(filters, cols)
+    period_expr = _period_expr(cols)
+
+    zona_expr = f"UPPER(LTRIM(RTRIM({cols.zona_col})))" if cols.zona_col else "NULL"
+
+    sql = f"""
+    SELECT
+        {period_expr} AS periodo,
+        UPPER(LTRIM(RTRIM({cols.tramo_col}))) AS tramo,
+        UPPER(LTRIM(RTRIM({cols.apertura_col}))) AS apertura,
+        UPPER(LTRIM(RTRIM({cols.ejecutivo_col}))) AS ejecutivo,
+        {zona_expr} AS zona,
+        SUM(CAST({cols.deuda_col} AS FLOAT)) AS deuda_asignada,
+        SUM(CAST({cols.contenido_col} AS FLOAT)) AS saldo_contenido,
+        SUM(CAST({cols.normalizado_col} AS FLOAT)) AS saldo_normalizado,
+        COUNT_BIG(1) AS casos_asignados,
+        AVG(CAST({cols.meta_cont_col} AS FLOAT)) AS meta_contencion_pct,
+        AVG(CAST({cols.meta_norm_col} AS FLOAT)) AS meta_normalizacion_pct
+    FROM {cols.table_name}
+    {where_sql}
+    GROUP BY
+        {period_expr},
+        UPPER(LTRIM(RTRIM({cols.tramo_col}))),
+        UPPER(LTRIM(RTRIM({cols.apertura_col}))),
+        UPPER(LTRIM(RTRIM({cols.ejecutivo_col}))),
+        {zona_expr}
+    ORDER BY ejecutivo, tramo
+    """
+
+    raw_rows = run_query(sql, tuple(params))
+    rows = []
+
+    for row in raw_rows:
+        deuda = float(row["deuda_asignada"] or 0)
+        contenido = float(row["saldo_contenido"] or 0)
+        normalizado = float(row["saldo_normalizado"] or 0)
+        meta_cont = float(row["meta_contencion_pct"] or 0)
+        meta_norm = float(row["meta_normalizacion_pct"] or 0)
+
+        pct_cont = _safe_div(contenido, deuda)
+        pct_norm = _safe_div(normalizado, deuda)
+        cumpl_final = _cumplimiento_final(pct_cont, meta_cont, pct_norm, meta_norm)
+
+        rows.append(
+            {
+                "periodo": row["periodo"],
+                "zona": row["zona"],
+                "tramo": row["tramo"],
+                "apertura": row["apertura"],
+                "ejecutivo": row["ejecutivo"],
+                "deuda_asignada": deuda,
+                "saldo_contenido": contenido,
+                "porcentaje_contenido": pct_cont,
+                "saldo_normalizado": normalizado,
+                "porcentaje_normalizado": pct_norm,
+                "meta_contencion_pct": meta_cont,
+                "meta_normalizacion_pct": meta_norm,
+                "cumplimiento_final": cumpl_final,
+                "casos_asignados": int(row["casos_asignados"] or 0),
+            }
+        )
+
+    return rows
+
+
+def get_cycle_view(filters: dict) -> list[dict]:
+    rows = get_cycle_rows(filters)
+    ciclo = filters.get("ciclo")
+    ciclo = _clean_text(ciclo) if ciclo else ""
+
+    grouped: dict[tuple, dict] = {}
+    for row in rows:
+        bucket = _general_bucket(row["tramo"], row["apertura"])
+        if not bucket:
+            continue
+        if ciclo and bucket != ciclo:
+            continue
+
+        key = (row["periodo"], row["zona"], bucket, row["ejecutivo"])
+        current = grouped.setdefault(
+            key,
+            {
+                "periodo": row["periodo"],
+                "zona": row["zona"],
+                "tramo": bucket,
+                "apertura": "TODAS",
+                "ejecutivo": row["ejecutivo"],
+                "deuda_asignada": 0.0,
+                "saldo_contenido": 0.0,
+                "saldo_normalizado": 0.0,
+                "casos_asignados": 0,
+                "meta_cont_pond": 0.0,
+                "meta_norm_pond": 0.0,
+            },
+        )
+
+        deuda = row["deuda_asignada"]
+        current["deuda_asignada"] += deuda
+        current["saldo_contenido"] += row["saldo_contenido"]
+        current["saldo_normalizado"] += row["saldo_normalizado"]
+        current["casos_asignados"] += row["casos_asignados"]
+        current["meta_cont_pond"] += row["meta_contencion_pct"] * deuda
+        current["meta_norm_pond"] += row["meta_normalizacion_pct"] * deuda
+
+    response = []
+    for item in grouped.values():
+        deuda = item["deuda_asignada"]
+        meta_cont = (item["meta_cont_pond"] / deuda) if deuda else 0.0
+        meta_norm = (item["meta_norm_pond"] / deuda) if deuda else 0.0
+        pct_cont = _safe_div(item["saldo_contenido"], deuda)
+        pct_norm = _safe_div(item["saldo_normalizado"], deuda)
+        response.append(
+            {
+                "periodo": item["periodo"],
+                "zona": item["zona"],
+                "tramo": item["tramo"],
+                "apertura": item["apertura"],
+                "ejecutivo": item["ejecutivo"],
+                "deuda_asignada": deuda,
+                "saldo_contenido": item["saldo_contenido"],
+                "porcentaje_contenido": pct_cont,
+                "saldo_normalizado": item["saldo_normalizado"],
+                "porcentaje_normalizado": pct_norm,
+                "meta_contencion_pct": meta_cont,
+                "meta_normalizacion_pct": meta_norm,
+                "cumplimiento_final": _cumplimiento_final(pct_cont, meta_cont, pct_norm, meta_norm),
+                "casos_asignados": item["casos_asignados"],
+            }
+        )
+
+    response.sort(key=lambda x: (x["ejecutivo"], x["tramo"]))
+    return response
+
+
+def get_general_view(filters: dict) -> list[dict]:
+    rows = get_cycle_rows(filters)
+    by_exec: dict[str, dict] = {}
+
+    for row in rows:
+        key = row["ejecutivo"] or "SIN_EJECUTIVO"
+        current = by_exec.setdefault(
+            key,
+            {
+                "ejecutivo": key,
+                "zona": row["zona"],
+                "deuda_total": 0.0,
+                "casos_asignados": 0,
+                "ponderado": 0.0,
+                "ciclos": {},
+                "bucket_deuda": {},
+                "bucket_ponderado": {},
+            },
+        )
+
+        deuda = row["deuda_asignada"]
+        current["deuda_total"] += deuda
+        current["casos_asignados"] += row["casos_asignados"]
+        current["ponderado"] += row["cumplimiento_final"] * deuda
+
+        bucket = _general_bucket(row["tramo"], row["apertura"])
+        if bucket:
+            current["bucket_deuda"][bucket] = current["bucket_deuda"].get(bucket, 0.0) + deuda
+            current["bucket_ponderado"][bucket] = (
+                current["bucket_ponderado"].get(bucket, 0.0) + (row["cumplimiento_final"] * deuda)
+            )
+
+    response = []
+    for item in by_exec.values():
+        deuda_total = item["deuda_total"]
+        cumplimiento_final = (item["ponderado"] / deuda_total) if deuda_total else 0.0
+        ciclos = {}
+        for bucket, bucket_deuda in item["bucket_deuda"].items():
+            ciclos[bucket] = (item["bucket_ponderado"][bucket] / bucket_deuda) if bucket_deuda else 0.0
+
+        response.append(
+            {
+                "ejecutivo": item["ejecutivo"],
+                "zona": item["zona"],
+                "deuda_total": deuda_total,
+                "casos_asignados": item["casos_asignados"],
+                "cumplimiento_final": cumplimiento_final,
+                "ciclos": ciclos,
+            }
+        )
+
+    response.sort(key=lambda x: x["cumplimiento_final"], reverse=True)
+    return response
+
+
+def get_filter_values() -> dict:
+    cols = resolve_columns()
+    period_expr = _period_expr(cols)
+
+    data = {
+        "periodos": run_query(
+            f"SELECT DISTINCT {period_expr} AS valor FROM {cols.table_name} WHERE {period_expr} IS NOT NULL ORDER BY valor DESC"
+        ),
+        "tramos": run_query(
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.tramo_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+        ),
+        "aperturas": run_query(
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.apertura_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+        ),
+        "ejecutivos": run_query(
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.ejecutivo_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+        ),
+        "zonas": [],
+    }
+
+    if cols.zona_col:
+        data["zonas"] = run_query(
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.zona_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+        )
+
+    return {
+        "periodos": [r["valor"] for r in data["periodos"] if r["valor"]],
+        "tramos": [r["valor"] for r in data["tramos"] if r["valor"]],
+        "aperturas": [r["valor"] for r in data["aperturas"] if r["valor"]],
+        "ejecutivos": [r["valor"] for r in data["ejecutivos"] if r["valor"]],
+        "zonas": [r["valor"] for r in data["zonas"] if r["valor"]],
+    }

@@ -1,0 +1,17 @@
+body {
+  background: linear-gradient(180deg, #f2f5fb 0%, #e9eef7 100%);
+  min-height: 100vh;
+}
+
+.app-shell {
+  max-width: 1600px;
+}
+
+.card {
+  border: 0;
+  border-radius: 0.9rem;
+}
+
+th {
+  white-space: nowrap;
+}
