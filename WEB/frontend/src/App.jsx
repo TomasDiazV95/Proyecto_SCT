@@ -40,6 +40,7 @@ export default function App() {
         setOptions(data);
         setFilters((prev) => ({
           ...prev,
+          periodo: data.periodos?.[0] || "",
           ciclo: cycleBuckets[0],
         }));
       } catch (err) {
@@ -118,7 +119,6 @@ export default function App() {
             <div className="col-12 col-md-2">
               <label className="form-label">Periodo</label>
               <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
-                <option value="">Todos</option>
                 {options.periodos.map((v) => (
                   <option key={v} value={v}>
                     {v}

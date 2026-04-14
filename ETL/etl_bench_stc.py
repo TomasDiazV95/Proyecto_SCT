@@ -20,7 +20,7 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
 # ========= BENCH (hardcodeado, NO .env) =========
-EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260331 - BENCH MORA TARDIA - PHOENIX.xlsx"
+EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260413 - BENCH MORA TARDIA - PHOENIX.xlsx"
 #EXCEL_PATH = "C:\\Users\\Analista de Datos\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
 SHEET_NAME = "PHOENIX"
 
@@ -144,13 +144,13 @@ def compute_meta_values(tramo_raw, apertura_raw) -> tuple[int | None, int | None
     if tramo in {"C6", "C7", "C8"} and apertura == "SUSCEPTIBLE CASTIGO":
         return 42, meta_normalizacion
     if tramo == "C6" and apertura != "SUSCEPTIBLE CASTIGO":
-        return 46, meta_normalizacion
+        return 30, meta_normalizacion
     if tramo == "C3":
         return 74, meta_normalizacion
     if tramo == "C4" and apertura == "SUSCEPTIBLE CV":
         return 67, meta_normalizacion
     if tramo == "C5":
-        return 57, meta_normalizacion
+        return 34, meta_normalizacion
 
     return None, meta_normalizacion
 

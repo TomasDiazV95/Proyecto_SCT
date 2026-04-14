@@ -101,14 +101,25 @@ def _period_expr(cols: ColumnMap) -> str:
     return f"CONVERT(char(7), {cols.date_col}, 126)"
 
 
+def _exclude_f_tramos_clause(cols: ColumnMap) -> str:
+    return f"UPPER(LTRIM(RTRIM({cols.tramo_col}))) NOT IN ('F1','F2','F3','F4')"
+
+
 def _build_filters(filters: dict, cols: ColumnMap) -> tuple[str, list]:
     clauses = []
     params: list = []
     period_expr = _period_expr(cols)
 
+    # Excluir completamente F1-F4 en todos los calculos
+    clauses.append(_exclude_f_tramos_clause(cols))
+
     if filters.get("periodo"):
         clauses.append(f"{period_expr} = ?")
         params.append(_clean_text(filters["periodo"]))
+    else:
+        clauses.append(
+            f"{period_expr} = (SELECT MAX({period_expr}) FROM {cols.table_name} WHERE {period_expr} IS NOT NULL)"
+        )
 
     if filters.get("tramo"):
         clauses.append(f"UPPER(LTRIM(RTRIM({cols.tramo_col}))) = ?")
@@ -139,10 +150,33 @@ def _safe_div(num: float, den: float) -> float:
     return (num / den) * 100.0
 
 
-def _cumplimiento_final(pct_cont: float, meta_cont: float, pct_norm: float, meta_norm: float) -> float:
-    if meta_norm and meta_norm > 0:
-        return _safe_div(pct_cont + pct_norm, meta_cont + meta_norm)
-    return _safe_div(pct_cont, meta_cont)
+def _cap_pct(value: float) -> float:
+    return max(0.0, min(130.0, value))
+
+
+def _cumplimiento_variable(pct_real: float, meta: float) -> float:
+    if meta is None or meta <= 0:
+        return 0.0
+    return _cap_pct(_safe_div(pct_real, meta))
+
+
+def _cumplimiento_final(
+    pct_cont: float,
+    meta_cont: float,
+    pct_norm: float,
+    meta_norm: float,
+    tramo: str,
+    apertura: str,
+) -> float:
+    cumpl_cont = _cumplimiento_variable(pct_cont, meta_cont)
+    cumpl_norm = _cumplimiento_variable(pct_norm, meta_norm)
+
+    bucket = _general_bucket(tramo, apertura)
+    is_c3 = _clean_text(tramo) == "C3" or bucket == "C3"
+
+    if is_c3:
+        return _cap_pct((cumpl_cont * 0.40) + (cumpl_norm * 0.60))
+    return cumpl_cont
 
 
 def _general_bucket(tramo: str, apertura: str) -> str | None:
@@ -205,7 +239,14 @@ def get_cycle_rows(filters: dict) -> list[dict]:
 
         pct_cont = _safe_div(contenido, deuda)
         pct_norm = _safe_div(normalizado, deuda)
-        cumpl_final = _cumplimiento_final(pct_cont, meta_cont, pct_norm, meta_norm)
+        cumpl_final = _cumplimiento_final(
+            pct_cont,
+            meta_cont,
+            pct_norm,
+            meta_norm,
+            row["tramo"],
+            row["apertura"],
+        )
 
         rows.append(
             {
@@ -289,7 +330,14 @@ def get_cycle_view(filters: dict) -> list[dict]:
                 "porcentaje_normalizado": pct_norm,
                 "meta_contencion_pct": meta_cont,
                 "meta_normalizacion_pct": meta_norm,
-                "cumplimiento_final": _cumplimiento_final(pct_cont, meta_cont, pct_norm, meta_norm),
+                "cumplimiento_final": _cumplimiento_final(
+                    pct_cont,
+                    meta_cont,
+                    pct_norm,
+                    meta_norm,
+                    item["tramo"],
+                    item["apertura"],
+                ),
                 "casos_asignados": item["casos_asignados"],
             }
         )
@@ -356,26 +404,27 @@ def get_general_view(filters: dict) -> list[dict]:
 def get_filter_values() -> dict:
     cols = resolve_columns()
     period_expr = _period_expr(cols)
+    base_where = f"WHERE {_exclude_f_tramos_clause(cols)}"
 
     data = {
         "periodos": run_query(
-            f"SELECT DISTINCT {period_expr} AS valor FROM {cols.table_name} WHERE {period_expr} IS NOT NULL ORDER BY valor DESC"
+            f"SELECT DISTINCT {period_expr} AS valor FROM {cols.table_name} {base_where} AND {period_expr} IS NOT NULL ORDER BY valor DESC"
         ),
         "tramos": run_query(
-            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.tramo_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.tramo_col}))) AS valor FROM {cols.table_name} {base_where} ORDER BY valor"
         ),
         "aperturas": run_query(
-            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.apertura_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.apertura_col}))) AS valor FROM {cols.table_name} {base_where} ORDER BY valor"
         ),
         "ejecutivos": run_query(
-            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.ejecutivo_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.ejecutivo_col}))) AS valor FROM {cols.table_name} {base_where} ORDER BY valor"
         ),
         "zonas": [],
     }
 
     if cols.zona_col:
         data["zonas"] = run_query(
-            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.zona_col}))) AS valor FROM {cols.table_name} ORDER BY valor"
+            f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.zona_col}))) AS valor FROM {cols.table_name} {base_where} ORDER BY valor"
         )
 
     return {
