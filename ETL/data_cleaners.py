@@ -31,8 +31,14 @@ def extract_first_name_and_surname(name: str | None) -> str | None:
         return None  # Devolver None si no es string o está vacío
 
     words = name.split()
-    if len(words) >= 2:
+    if len(words) == 2:
         return f"{words[0]} {words[1]}"
+    elif len(words) == 3:
+        return f"{words[0]} {words[1]}"
+    elif len(words) == 4:
+        return f"{words[0]} {words[2]}"
+    elif len(words) == 5:
+        return f"{words[0]} {words[3]}"
     elif len(words) == 1:
         return words[0]
     return None  # Devolver None si no se puede extraer
@@ -71,7 +77,7 @@ def apply_fuzzy_matching_to_cobrador(
         for match_key in potential_matches_keys:
             canonical_map[match_key] = canonical_name
 
-    # ✅ Reemplazar COBRADOR con el nombre canónico YA normalizado
+    #  Reemplazar COBRADOR con el nombre canónico YA normalizado
     df[col_name] = (
         df["_fuzzy_key"]
         .map(canonical_map)
@@ -81,6 +87,6 @@ def apply_fuzzy_matching_to_cobrador(
 
     df = df.drop(columns=["_normalized_cobrador", "_fuzzy_key"])
 
-    print(f"✅ Limpieza de la columna '{col_name}' completada.")
+    print(f"Limpieza de la columna '{col_name}' completada.")
     return df
  
