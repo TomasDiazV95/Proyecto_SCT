@@ -31,17 +31,17 @@ def extract_first_name_and_surname(name: str | None) -> str | None:
         return None  # Devolver None si no es string o está vacío
 
     words = name.split()
-    if len(words) == 2:
-        return f"{words[0]} {words[1]}"
-    elif len(words) == 3:
-        return f"{words[0]} {words[1]}"
-    elif len(words) == 4:
-        return f"{words[0]} {words[2]}"
-    elif len(words) == 5:
-        return f"{words[0]} {words[3]}"
-    elif len(words) == 1:
+    num_words = len(words)
+
+    if num_words == 0:
+        return None
+    elif num_words == 1:
         return words[0]
-    return None  # Devolver None si no se puede extraer
+    elif num_words == 2:
+        return f"{words[0]} {words[1]}"
+    else:
+        # Para más de dos palabras, primer nombre y penúltimo (primer apellido)
+        return f"{words[0]} {words[num_words - 2]}"
 
 
 def apply_fuzzy_matching_to_cobrador(
@@ -55,38 +55,35 @@ def apply_fuzzy_matching_to_cobrador(
     print(f"Aplicando limpieza y fuzzy matching a la columna '{col_name}'...")
 
     df["_normalized_cobrador"] = df[col_name].apply(normalize_text)
-    df["_fuzzy_key"] = df["_normalized_cobrador"].apply(extract_first_name_and_surname)
 
-    unique_keys = df["_fuzzy_key"].dropna().unique()
+    unique_names = df["_normalized_cobrador"].dropna().unique()
     canonical_map = {}
 
-    for key in unique_keys:
-        if key in canonical_map:
+    for name in unique_names:
+        if name in canonical_map:
             continue
-        potential_matches_keys = [
-            k for k in unique_keys if fuzz.token_set_ratio(key, k) >= threshold
+        # Fuzzing sobre el nombre completo normalizado
+        matches = [
+            n for n in unique_names if fuzz.token_set_ratio(name, n) >= threshold
         ]
-        candidates_for_canonical = (
-            df[df["_fuzzy_key"].isin(potential_matches_keys)][col_name]
-            .dropna()
-            .unique()
-            .tolist()
-        )
-        candidates_for_canonical.sort()
-        canonical_name = candidates_for_canonical[0] if candidates_for_canonical else key
-        for match_key in potential_matches_keys:
-            canonical_map[match_key] = canonical_name
 
-    #  Reemplazar COBRADOR con el nombre canónico YA normalizado
+        # Elegimos el canónico (nombre completo normalizado) del grupo
+        # Podríamos elegir el más corto, o el que aparece primero alfabéticamente
+        canonical_full_name = sorted(matches)[0]
+
+        # El mapa almacena el nombre canónico COMPLETO normalizado
+        for m in matches:
+            canonical_map[m] = canonical_full_name
+
+    # Aplicamos el mapeo al nombre COMPLETO normalizado
     df[col_name] = (
-        df["_fuzzy_key"]
+        df["_normalized_cobrador"]
         .map(canonical_map)
-        .fillna(df[col_name])
-        .apply(normalize_text)      # <- normaliza el canónico final
+        .fillna(df[col_name])  # Fallback al original si no hay match
+        .apply(extract_first_name_and_surname)  # <- Recorte FINAL a Nombre + Apellido
     )
 
-    df = df.drop(columns=["_normalized_cobrador", "_fuzzy_key"])
+    df = df.drop(columns=["_normalized_cobrador"])
 
     print(f"Limpieza de la columna '{col_name}' completada.")
     return df
- 
