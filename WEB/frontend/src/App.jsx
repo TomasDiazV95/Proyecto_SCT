@@ -40,6 +40,7 @@ export default function App() {
         setOptions(data);
         setFilters((prev) => ({
           ...prev,
+          periodo: data.periodos?.[0] || "",
           ciclo: cycleBuckets[0],
         }));
       } catch (err) {
