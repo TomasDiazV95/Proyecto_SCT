@@ -117,14 +117,12 @@ export default function App() {
           <div className="row g-2">
             <div className="col-12 col-md-2">
               <label className="form-label">Periodo</label>
-              <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
-                <option value="">Todos</option>
-                {options.periodos.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
+              <input
+                type="date"
+                className="form-control"
+                value={filters.periodo}
+                onChange={(e) => onChange("periodo", e.target.value)}
+              />
             </div>
             <div className="col-12 col-md-2">
               <label className="form-label">Zona</label>
