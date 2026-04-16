@@ -1,6 +1,6 @@
-#  Proyecto SCT - ETL Bench STC
+# Proyecto SCT - ETL & Web App para Productividad de Ejecutivos
 
-Este proyecto implementa un proceso **ETL (Extract, Transform, Load)** para la carga de datos desde archivos Excel hacia **SQL Server**, incorporando limpieza avanzada de datos.
+Este proyecto integra un proceso **ETL (Extract, Transform, Load)** para la carga y limpieza de datos desde archivos Excel hacia **SQL Server**, con una **aplicación web** que permite visualizar y analizar la productividad de ejecutivos.
 
 ---
 
@@ -12,6 +12,19 @@ Proyecto_SCT/
 ├── ETL/
 │   ├── etl_bench_stc.py
 │   ├── data_cleaners.py
+│
+├── WEB/
+│   ├── backend/
+│   │   ├── main.py
+│   │   ├── requirements.txt
+│   │   └── ...
+│   ├── frontend/
+│   │   ├── src/
+│   │   ├── public/
+│   │   ├── index.html
+│   │   ├── package.json
+│   │   └── ...
+│   └── start_web.bat
 │
 ├── .env                    # Variables de entorno (no incluido)
 ├── .gitignore
@@ -34,7 +47,7 @@ Proyecto_SCT/
 1. Clonar repositorio:
 
 ```bash
-git clone https://github.com/TU_USUARIO/TU_REPO.git
+git clone https://github.com/TomasDiazV95/Proyecto_SCT.git
 cd Proyecto_SCT
 ```
 
@@ -82,3 +95,9 @@ python ETL/etl_bench_stc.py
 * `python-dotenv`
 * `thefuzz` + `python-Levenshtein`
 * `openpyxl`
+* `FastAPI`
+* `uvicorn`
+* `React`
+* `Bootstrap`
+* `Node.js`
+* `npm`
