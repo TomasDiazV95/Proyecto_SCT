@@ -34,7 +34,9 @@ def _table_name() -> str:
 
 def _runtime_columns(table_name: str) -> set[str]:
     if "." not in table_name:
-        raise RuntimeError("La tabla debe incluir esquema, por ejemplo dbo.tmp_bench_STC")
+        raise RuntimeError(
+            "La tabla debe incluir esquema, por ejemplo dbo.tmp_bench_STC"
+        )
 
     schema, table = table_name.split(".", 1)
     schema = schema.replace("[", "").replace("]", "")
@@ -80,12 +82,21 @@ def resolve_columns() -> ColumnMap:
             ["fld_EJECUTIVO", "fld_COBRADOR", "fld_GESTOR", "fld_ASESOR"],
             "ejecutivo",
         ),
-        zona_col=next((c for c in ["fld_ZONA", "fld_REGION", "fld_SUCURSAL"] if c in available), None),
+        zona_col=next(
+            (c for c in ["fld_ZONA", "fld_REGION", "fld_SUCURSAL"] if c in available),
+            None,
+        ),
         deuda_col=_pick_first(available, ["fld_DEUDA_INI"], "deuda asignada"),
         contenido_col=_pick_first(available, ["fld_CONTENIDO"], "saldo contenido"),
-        normalizado_col=_pick_first(available, ["fld_NORMALIZADO"], "saldo normalizado"),
-        meta_cont_col=_pick_first(available, ["meta_contencion_pct"], "meta contención"),
-        meta_norm_col=_pick_first(available, ["meta_normalizacion_pct"], "meta normalización"),
+        normalizado_col=_pick_first(
+            available, ["fld_NORMALIZADO"], "saldo normalizado"
+        ),
+        meta_cont_col=_pick_first(
+            available, ["meta_contencion_pct"], "meta contención"
+        ),
+        meta_norm_col=_pick_first(
+            available, ["meta_normalizacion_pct"], "meta normalización"
+        ),
     )
 
 
@@ -97,8 +108,10 @@ def _clean_text(value) -> str:
 
 def _period_expr(cols: ColumnMap) -> str:
     if cols.fecha_col:
-        return f"RIGHT('00000000' + LTRIM(RTRIM(CONVERT(varchar(20), {cols.fecha_col}))), 8)"
-    return f"CONVERT(char(7), {cols.date_col}, 126)"
+        # Intenta convertir YYYYMMDD a fecha y luego a YYYY-MM-DD
+        return f"FORMAT(CONVERT(date, {cols.fecha_col}, 112), 'yyyy-MM-dd')"
+    # Convierte fecha_carga (DATE) a YYYY-MM-DD
+    return f"CONVERT(char(10), {cols.date_col}, 126)"
 
 
 def _exclude_f_tramos_clause(cols: ColumnMap) -> str:
@@ -330,14 +343,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
                 "porcentaje_normalizado": pct_norm,
                 "meta_contencion_pct": meta_cont,
                 "meta_normalizacion_pct": meta_norm,
-                "cumplimiento_final": _cumplimiento_final(
-                    pct_cont,
-                    meta_cont,
-                    pct_norm,
-                    meta_norm,
-                    item["tramo"],
-                    item["apertura"],
-                ),
+                "cumplimiento_final": _cumplimiento_final(pct_cont, meta_cont, pct_norm, meta_norm),
                 "casos_asignados": item["casos_asignados"],
             }
         )
@@ -373,10 +379,12 @@ def get_general_view(filters: dict) -> list[dict]:
 
         bucket = _general_bucket(row["tramo"], row["apertura"])
         if bucket:
-            current["bucket_deuda"][bucket] = current["bucket_deuda"].get(bucket, 0.0) + deuda
-            current["bucket_ponderado"][bucket] = (
-                current["bucket_ponderado"].get(bucket, 0.0) + (row["cumplimiento_final"] * deuda)
+            current["bucket_deuda"][bucket] = (
+                current["bucket_deuda"].get(bucket, 0.0) + deuda
             )
+            current["bucket_ponderado"][bucket] = current["bucket_ponderado"].get(
+                bucket, 0.0
+            ) + (row["cumplimiento_final"] * deuda)
 
     response = []
     for item in by_exec.values():
@@ -384,7 +392,11 @@ def get_general_view(filters: dict) -> list[dict]:
         cumplimiento_final = (item["ponderado"] / deuda_total) if deuda_total else 0.0
         ciclos = {}
         for bucket, bucket_deuda in item["bucket_deuda"].items():
-            ciclos[bucket] = (item["bucket_ponderado"][bucket] / bucket_deuda) if bucket_deuda else 0.0
+            ciclos[bucket] = (
+                (item["bucket_ponderado"][bucket] / bucket_deuda)
+                if bucket_deuda
+                else 0.0
+            )
 
         response.append(
             {
