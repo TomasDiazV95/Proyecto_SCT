@@ -343,7 +343,14 @@ def get_cycle_view(filters: dict) -> list[dict]:
                 "porcentaje_normalizado": pct_norm,
                 "meta_contencion_pct": meta_cont,
                 "meta_normalizacion_pct": meta_norm,
-                "cumplimiento_final": _cumplimiento_final(pct_cont, meta_cont, pct_norm, meta_norm),
+                "cumplimiento_final": _cumplimiento_final(
+                    pct_cont,
+                    meta_cont,
+                    pct_norm,
+                    meta_norm,
+                    item["tramo"],
+                    item["apertura"],
+                ),
                 "casos_asignados": item["casos_asignados"],
             }
         )
