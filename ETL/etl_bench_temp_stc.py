@@ -1,57 +1,31 @@
 import os
 import re
 import unicodedata
-import data_cleaners
-from pathlib import Path
-from io import BytesIO
 from decimal import Decimal
+from io import BytesIO
+from pathlib import Path
+
+import data_cleaners
 import pandas as pd
 import pyodbc
 from dotenv import load_dotenv
 
-
-
-def load_env_files() -> None:
-    root_dir = Path(__file__).resolve().parents[1]
-    load_dotenv(root_dir / ".env")
-    load_dotenv(root_dir / "ETL" / ".env")
-
-
-load_env_files()
+load_dotenv()
 
 # ========= DB desde .env =========
 SERVER = os.getenv("DB_SERVER")
 DATABASE = os.getenv("DB_NAME")
 USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
-DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
+DRIVER_ENV = os.getenv("DB_DRIVER")
 
-# ========= BENCH =========
-BENCH_FOLDER = Path(r"C:\\Users\\Analista de Datos\\Desktop\\SCT BENCH\\extraido")
-BENCH_PATTERN = "*BENCH MORA TARDIA - PHOENIX*.xlsx"
+# ========= BENCH MORA TEMPRANA =========
+DEFAULT_EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260420 - BENCH MORA TEMPRANA - PHOENIX (TELEFONIA).xlsx"
+EXCEL_PATH = os.getenv("BENCH_TEMP_EXCEL_PATH", "").strip()
 SHEET_NAME = "PHOENIX"
+FILE_NAME_CONTAINS = os.getenv("BENCH_TEMP_NAME_CONTAINS", "BENCH MORA TEMPRANA")
 
-
-def get_latest_bench_file(folder: Path, pattern: str) -> str:
-    if not folder.exists():
-        raise FileNotFoundError(f"La carpeta no existe: {folder}")
-
-    files = list(folder.glob(pattern))
-
-    if not files:
-        raise FileNotFoundError(
-            f"No se encontró ningún archivo que cumpla el patrón '{pattern}' en {folder}"
-        )
-
-    latest_file = max(files, key=lambda f: f.stat().st_mtime)
-    return str(latest_file)
-
-
-EXCEL_PATH = get_latest_bench_file(BENCH_FOLDER, BENCH_PATTERN)
-
-print(f"Archivo BENCH encontrado: {EXCEL_PATH}")
-
-TABLE = "dbo.tmp_bench_STC"
+TABLE = "dbo.tmp_bench_temp_STC"
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
 BATCH_SIZE = 200
 META_CONTENCION_COL = "meta_contencion_pct"
@@ -77,22 +51,6 @@ def pick_driver() -> str:
 def connect():
     driver = pick_driver()
     print(f"ODBC driver usado: {driver}")
-
-    missing = [
-        name
-        for name, value in {
-            "DB_SERVER": SERVER,
-            "DB_NAME": DATABASE,
-            "DB_USER": USER,
-            "DB_PASSWORD": PASSWORD,
-        }.items()
-        if not value
-    ]
-    if missing:
-        raise RuntimeError(
-            "Faltan variables en .env: " + ", ".join(missing)
-        )
-
     conn_str = (
         f"Driver={{{driver}}};"
         f"Server={SERVER};"
@@ -106,7 +64,7 @@ def connect():
 
 
 def sql_ident(name: str) -> str:
-    return "[" + str(name).replace("]", "]]") + "]"
+    return "[" + str(name).replace("]", "]]" ) + "]"
 
 
 def normalize_excel_col(c: str) -> str:
@@ -118,27 +76,20 @@ def col_is_numeric(col: str) -> bool:
 
 
 def sql_type_for(col: str) -> str:
-    # Para saldos enteros, usar DECIMAL(38,0) evita guardar .00
     return "DECIMAL(38,0) NULL" if col_is_numeric(col) else "NVARCHAR(MAX) NULL"
 
 
 def clean_numeric_to_str(x):
-    """
-    Normaliza número a string para saldos enteros (ej: '1234').
-    Si viene basura -> None.
-    """
     if x is None or x is pd.NA:
         return None
     s = str(x).strip()
     if s == "" or s.lower() == "nan":
         return None
 
-    # deja dígitos, punto, coma, signo
     s = re.sub(r"[^0-9,\.\-]", "", s)
     if s in ("", "-", ".", ","):
         return None
 
-    # '.' y ',' -> el último separador es decimal
     if "." in s and "," in s:
         if s.rfind(",") > s.rfind("."):
             s = s.replace(".", "")
@@ -155,13 +106,11 @@ def clean_numeric_to_str(x):
             if s.count(".") > 1:
                 s = s.replace(".", "")
 
-    # valida que sea número
     try:
         d = Decimal(s)
     except Exception:
         return None
 
-    # Saldo entero: elimina cualquier parte decimal
     return str(int(d))
 
 
@@ -180,10 +129,8 @@ def compute_meta_values(tramo_raw, apertura_raw) -> tuple[int | None, int | None
     tramo = normalize_rule_text(tramo_raw)
     apertura = normalize_rule_text(apertura_raw)
 
-    # Normalización solo aplica a C3 según regla de negocio
     meta_normalizacion = 24 if tramo == "C3" else None
 
-    # Contención: reglas con prioridad (más específicas primero)
     if tramo in {"C6", "C7", "C8"} and apertura == "SUSCEPTIBLE CASTIGO":
         return 42, meta_normalizacion
     if tramo == "C6" and apertura != "SUSCEPTIBLE CASTIGO":
@@ -211,7 +158,6 @@ def read_excel(path: str, sheet: str | None) -> pd.DataFrame:
 
     df.columns = [normalize_excel_col(c) for c in df.columns]
 
-    # limpiar \x00 sin applymap
     for col in df.columns:
         if df[col].dtype == object:
             df[col] = df[col].map(lambda v: v.replace("\x00", "") if isinstance(v, str) else v)
@@ -227,36 +173,36 @@ def ensure_table_and_columns(df: pd.DataFrame):
     with connect() as cn:
         cur = cn.cursor()
 
-        # 1) crear tabla base si no existe
         cur.execute(f"""
         IF OBJECT_ID('{TABLE}', 'U') IS NULL
         BEGIN
             CREATE TABLE {TABLE} (
-                id_bench_stc BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                fecha_carga  DATE        NOT NULL CONSTRAINT DF_tmp_bench_STC_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
-                ts_carga     DATETIME2(0) NOT NULL CONSTRAINT DF_tmp_bench_STC_ts_carga    DEFAULT (SYSDATETIME()),
+                id_bench_temp_stc BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                fecha_carga  DATE         NOT NULL CONSTRAINT DF_tmp_bench_temp_STC_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
+                ts_carga     DATETIME2(0) NOT NULL CONSTRAINT DF_tmp_bench_temp_STC_ts_carga    DEFAULT (SYSDATETIME()),
                 source_file  NVARCHAR(260) NULL
             );
-            CREATE INDEX IX_tmp_bench_STC_fecha_carga ON {TABLE}(fecha_carga);
+            CREATE INDEX IX_tmp_bench_temp_STC_fecha_carga ON {TABLE}(fecha_carga);
         END
         """)
         cn.commit()
 
-        # 2) columnas existentes
         schema, table_name = TABLE.split(".")
         schema = schema.replace("[", "").replace("]", "")
         table_name = table_name.replace("[", "").replace("]", "")
 
-        cur.execute("""
+        cur.execute(
+            """
             SELECT c.name
             FROM sys.columns c
             INNER JOIN sys.tables t ON c.object_id = t.object_id
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
             WHERE s.name = ? AND t.name = ?
-        """, (schema, table_name))
+            """,
+            (schema, table_name),
+        )
         existing = {row[0] for row in cur.fetchall()}
 
-        # 3) agregar columnas faltantes
         alters = []
         for original, fld in zip(excel_cols, fld_cols):
             if fld not in existing:
@@ -268,29 +214,19 @@ def ensure_table_and_columns(df: pd.DataFrame):
                 cur.execute(stmt)
             cn.commit()
 
-        # 3.1) asegurar columnas de metas
         if META_CONTENCION_COL not in existing:
-            cur.execute(
-                f"ALTER TABLE {TABLE} ADD {sql_ident(META_CONTENCION_COL)} DECIMAL(5,2) NULL;"
-            )
+            cur.execute(f"ALTER TABLE {TABLE} ADD {sql_ident(META_CONTENCION_COL)} DECIMAL(5,2) NULL;")
         if META_NORMALIZACION_COL not in existing:
-            cur.execute(
-                f"ALTER TABLE {TABLE} ADD {sql_ident(META_NORMALIZACION_COL)} DECIMAL(5,2) NULL;"
-            )
+            cur.execute(f"ALTER TABLE {TABLE} ADD {sql_ident(META_NORMALIZACION_COL)} DECIMAL(5,2) NULL;")
         cn.commit()
 
-        # 4) asegurar que las 4 numéricas queden DECIMAL(38,0)
         for n in NUMERIC_COLS:
             colname = f"fld_{n}"
             if colname in existing or colname in fld_cols:
                 cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(colname)} DECIMAL(38,0) NULL;")
 
-        cur.execute(
-            f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(META_CONTENCION_COL)} DECIMAL(5,2) NULL;"
-        )
-        cur.execute(
-            f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(META_NORMALIZACION_COL)} DECIMAL(5,2) NULL;"
-        )
+        cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(META_CONTENCION_COL)} DECIMAL(5,2) NULL;")
+        cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(META_NORMALIZACION_COL)} DECIMAL(5,2) NULL;")
         cn.commit()
 
 
@@ -302,7 +238,7 @@ def insert_append(df: pd.DataFrame, source_file: str):
     placeholders = ",".join(["?"] * len(insert_cols))
 
     sql = f"""
-    INSERT INTO {TABLE} ({",".join(map(sql_ident, insert_cols))})
+    INSERT INTO {TABLE} ({','.join(map(sql_ident, insert_cols))})
     VALUES ({placeholders})
     """
 
@@ -315,7 +251,7 @@ def insert_append(df: pd.DataFrame, source_file: str):
         out = [source_file]
         for c, v in zip(excel_cols, row):
             if col_is_numeric(c):
-                out.append(clean_numeric_to_str(v))  # '1234' o None
+                out.append(clean_numeric_to_str(v))
             else:
                 if v is None or v is pd.NA:
                     out.append(None)
@@ -328,26 +264,24 @@ def insert_append(df: pd.DataFrame, source_file: str):
         meta_contencion, meta_normalizacion = compute_meta_values(tramo_val, apertura_val)
         out.append(meta_contencion)
         out.append(meta_normalizacion)
-
         rows.append(tuple(out))
 
     with connect() as cn:
         cn.autocommit = False
         cur = cn.cursor()
-        cur.fast_executemany = False  # evita crashes/segfault
+        cur.fast_executemany = False
 
         inserted = 0
         for i in range(0, len(rows), BATCH_SIZE):
-            batch = rows[i:i+BATCH_SIZE]
+            batch = rows[i : i + BATCH_SIZE]
             try:
                 cur.executemany(sql, batch)
                 cn.commit()
                 inserted += len(batch)
-                print(f"OK batch {i+1}-{i+len(batch)}")
+                print(f"OK batch {i + 1}-{i + len(batch)}")
             except pyodbc.Error as e:
                 cn.rollback()
-                print(f"Error en batch {i+1}-{i+len(batch)}: {e}")
-                # aislar filas malas
+                print(f"Error en batch {i + 1}-{i + len(batch)}: {e}")
                 for j, r in enumerate(batch):
                     try:
                         cur.execute(sql, r)
@@ -356,29 +290,64 @@ def insert_append(df: pd.DataFrame, source_file: str):
                     except pyodbc.Error as e2:
                         cn.rollback()
                         global_idx = i + j
-                        print(f"Saltando fila problemática global #{global_idx} (Excel aprox fila {global_idx+2})")
+                        print(f"Saltando fila problematica global #{global_idx} (Excel aprox fila {global_idx + 2})")
                         print("Detalle:", e2)
                         continue
 
     print(f"OK: insertadas {inserted} filas")
 
 
+def source_file_exists(source_file: str) -> bool:
+    try:
+        with connect() as cn:
+            cur = cn.cursor()
+            cur.execute(f"SELECT COUNT(1) FROM {TABLE} WHERE source_file = ?", (source_file,))
+            return (cur.fetchone()[0] or 0) > 0
+    except pyodbc.Error:
+        return False
+
+
+def pick_files_to_process() -> list[Path]:
+    if EXCEL_PATH:
+        return [Path(EXCEL_PATH)]
+
+    paso_dir = Path(DEFAULT_EXCEL_PATH).parent
+    files = [
+        p
+        for p in paso_dir.glob("*.xlsx")
+        if FILE_NAME_CONTAINS.upper() in p.name.upper() and not p.name.startswith("~$")
+    ]
+    files.sort(key=lambda p: p.name)
+    return files
+
+
 def main():
-    if not EXCEL_PATH:
-        raise RuntimeError("No se definio BENCH_EXCEL_PATH y no hay ruta por defecto")
+    files = pick_files_to_process()
+    if not files:
+        raise FileNotFoundError("No se encontraron archivos de BENCH MORA TEMPRANA para procesar")
 
-    df = read_excel(EXCEL_PATH, SHEET_NAME)
+    for excel_file in files:
+        if not excel_file.exists():
+            print(f"No existe archivo: {excel_file}")
+            continue
 
-    print(f"Archivo: {Path(EXCEL_PATH).name}")
-    print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
+        source_file = excel_file.name
+        if source_file_exists(source_file):
+            print(f"Ya cargado, se omite: {source_file}")
+            continue
 
-    df = data_cleaners.apply_fuzzy_matching_to_cobrador(df, threshold=90)
+        df = read_excel(str(excel_file), SHEET_NAME)
 
-    found_numeric = [c for c in df.columns if col_is_numeric(c)]
-    print("Columnas numéricas detectadas:", found_numeric if found_numeric else "ninguna")
+        print(f"Archivo: {source_file}")
+        print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
 
-    ensure_table_and_columns(df)
-    insert_append(df, Path(EXCEL_PATH).name)
+        df = data_cleaners.apply_fuzzy_matching_to_cobrador(df, threshold=90)
+
+        found_numeric = [c for c in df.columns if col_is_numeric(c)]
+        print("Columnas numericas detectadas:", found_numeric if found_numeric else "ninguna")
+
+        ensure_table_and_columns(df)
+        insert_append(df, source_file)
 
 
 if __name__ == "__main__":
