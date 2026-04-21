@@ -5,12 +5,19 @@ import data_cleaners
 from pathlib import Path
 from io import BytesIO
 from decimal import Decimal
-
 import pandas as pd
 import pyodbc
 from dotenv import load_dotenv
 
-load_dotenv()
+
+
+def load_env_files() -> None:
+    root_dir = Path(__file__).resolve().parents[1]
+    load_dotenv(root_dir / ".env")
+    load_dotenv(root_dir / "ETL" / ".env")
+
+
+load_env_files()
 
 # ========= DB desde .env =========
 SERVER = os.getenv("DB_SERVER")
@@ -20,9 +27,29 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
 # ========= BENCH =========
-DEFAULT_EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260417 - BENCH MORA TARDIA - PHOENIX.xlsx"
-EXCEL_PATH = os.getenv("BENCH_EXCEL_PATH", DEFAULT_EXCEL_PATH)
-SHEET_NAME = os.getenv("BENCH_SHEET_NAME", "PHOENIX")
+BENCH_FOLDER = Path(r"C:\\Users\\Analista de Datos\\Desktop\\SCT BENCH\\extraido")
+BENCH_PATTERN = "*BENCH MORA TARDIA - PHOENIX*.xlsx"
+SHEET_NAME = "PHOENIX"
+
+
+def get_latest_bench_file(folder: Path, pattern: str) -> str:
+    if not folder.exists():
+        raise FileNotFoundError(f"La carpeta no existe: {folder}")
+
+    files = list(folder.glob(pattern))
+
+    if not files:
+        raise FileNotFoundError(
+            f"No se encontró ningún archivo que cumpla el patrón '{pattern}' en {folder}"
+        )
+
+    latest_file = max(files, key=lambda f: f.stat().st_mtime)
+    return str(latest_file)
+
+
+EXCEL_PATH = get_latest_bench_file(BENCH_FOLDER, BENCH_PATTERN)
+
+print(f"Archivo BENCH encontrado: {EXCEL_PATH}")
 
 TABLE = "dbo.tmp_bench_STC"
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
@@ -50,6 +77,22 @@ def pick_driver() -> str:
 def connect():
     driver = pick_driver()
     print(f"ODBC driver usado: {driver}")
+
+    missing = [
+        name
+        for name, value in {
+            "DB_SERVER": SERVER,
+            "DB_NAME": DATABASE,
+            "DB_USER": USER,
+            "DB_PASSWORD": PASSWORD,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            "Faltan variables en .env: " + ", ".join(missing)
+        )
+
     conn_str = (
         f"Driver={{{driver}}};"
         f"Server={SERVER};"
@@ -303,7 +346,7 @@ def insert_append(df: pd.DataFrame, source_file: str):
                 print(f"OK batch {i+1}-{i+len(batch)}")
             except pyodbc.Error as e:
                 cn.rollback()
-                print(f"❌ Error en batch {i+1}-{i+len(batch)}: {e}")
+                print(f"Error en batch {i+1}-{i+len(batch)}: {e}")
                 # aislar filas malas
                 for j, r in enumerate(batch):
                     try:
@@ -313,11 +356,11 @@ def insert_append(df: pd.DataFrame, source_file: str):
                     except pyodbc.Error as e2:
                         cn.rollback()
                         global_idx = i + j
-                        print(f"🚫 Saltando fila problemática global #{global_idx} (Excel aprox fila {global_idx+2})")
+                        print(f"Saltando fila problemática global #{global_idx} (Excel aprox fila {global_idx+2})")
                         print("Detalle:", e2)
                         continue
 
-    print(f"✅ OK: insertadas {inserted} filas")
+    print(f"OK: insertadas {inserted} filas")
 
 
 def main():
