@@ -13,7 +13,7 @@ function withQuery(url, params = {}) {
 }
 
 export async function fetchFilters() {
-  const res = await fetch(`${API_BASE}/api/filtros`);
+  const res = await fetch(`${API_BASE}/api/sc-tardia/filtros`);
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros");
   }
@@ -21,7 +21,7 @@ export async function fetchFilters() {
 }
 
 export async function fetchGeneral(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/productividad/general`, filters));
+  const res = await fetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general");
   }
@@ -30,7 +30,7 @@ export async function fetchGeneral(filters) {
 }
 
 export async function fetchCycle(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/productividad/ciclo`, filters));
+  const res = await fetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/ciclo`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por ciclo");
   }

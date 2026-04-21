@@ -4,3 +4,5 @@ __pycache__/
 node_modules/
 dist/
 .pytest_cache/
+downloads/
+WEB/automation/logs/

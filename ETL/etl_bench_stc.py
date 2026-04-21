@@ -19,10 +19,10 @@ USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
-# ========= BENCH (hardcodeado, NO .env) =========
-EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260416 - BENCH MORA TARDIA - PHOENIX.xlsx"
-#EXCEL_PATH = "C:\\Users\\Analista de Datos\\Desktop\\Paso\\20260323 - BENCH MORA TARDIA - PHOENIX.xlsx"
-SHEET_NAME = "PHOENIX"
+# ========= BENCH =========
+DEFAULT_EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260417 - BENCH MORA TARDIA - PHOENIX.xlsx"
+EXCEL_PATH = os.getenv("BENCH_EXCEL_PATH", DEFAULT_EXCEL_PATH)
+SHEET_NAME = os.getenv("BENCH_SHEET_NAME", "PHOENIX")
 
 TABLE = "dbo.tmp_bench_STC"
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
@@ -321,6 +321,9 @@ def insert_append(df: pd.DataFrame, source_file: str):
 
 
 def main():
+    if not EXCEL_PATH:
+        raise RuntimeError("No se definio BENCH_EXCEL_PATH y no hay ruta por defecto")
+
     df = read_excel(EXCEL_PATH, SHEET_NAME)
 
     print(f"Archivo: {Path(EXCEL_PATH).name}")
