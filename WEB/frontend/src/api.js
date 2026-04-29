@@ -37,3 +37,19 @@ export async function fetchCycle(filters) {
   const body = await res.json();
   return body.data || [];
 }
+
+export async function fetchPorscheFilters() {
+  const res = await fetch(`${API_BASE}/api/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de Porsche");
+  }
+  return res.json();
+}
+
+export async function fetchPorscheDashboard(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/dashboard`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el dashboard de Porsche");
+  }
+  return res.json();
+}

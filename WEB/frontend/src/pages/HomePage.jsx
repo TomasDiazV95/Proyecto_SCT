@@ -19,6 +19,12 @@ const modules = [
     path: "/gm",
     btn: "Ir a GM",
   },
+  {
+    title: "Porsche",
+    description: "Modulo en construccion para integrar la nueva vista de Porsche.",
+    path: "/porsche",
+    btn: "Ir a Porsche",
+  },
 ];
 
 export default function HomePage() {

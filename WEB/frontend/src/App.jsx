@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
+import PorschePage from "./pages/PorschePage";
 import ScTardiaPage from "./pages/ScTardiaPage";
 import ScTempranaPage from "./pages/ScTempranaPage";
 
@@ -11,6 +12,7 @@ export default function App() {
       <Route path="/sc-tardia" element={<ScTardiaPage />} />
       <Route path="/sc-temprana" element={<ScTempranaPage />} />
       <Route path="/gm" element={<GmPage />} />
+      <Route path="/porsche" element={<PorschePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
