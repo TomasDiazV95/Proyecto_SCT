@@ -21,7 +21,7 @@ const modules = [
   },
   {
     title: "Porsche",
-    description: "Modulo en construccion para integrar la nueva vista de Porsche.",
+    description: "Cumplimiento de Porsche",
     path: "/porsche",
     btn: "Ir a Porsche",
   },

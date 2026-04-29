@@ -469,7 +469,7 @@ export default function PorschePage() {
     <div className="container-fluid py-4 app-shell porsche-page">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
-          <h1 className="h3 m-0">Porsche - Dashboard KPI</h1>
+          <h1 className="h3 m-0">Cumplimientos Porsche</h1>
           <Link to="/" className="small text-decoration-none">
             Volver al Home
           </Link>
