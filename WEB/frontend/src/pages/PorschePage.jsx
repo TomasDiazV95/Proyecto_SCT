@@ -377,7 +377,7 @@ export default function PorschePage() {
         }
 
         const availableMonths = data.filters?.meses || [];
-        const defaultMonth = data.filters?.default_mes || availableMonths.at(-1) || "";
+        const defaultMonth = data.filters?.default_mes || (availableMonths.length ? availableMonths[availableMonths.length - 1] : "") || "";
         setMonths(availableMonths);
         setSelectedMonth(defaultMonth);
       } catch (err) {

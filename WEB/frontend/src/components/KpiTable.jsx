@@ -44,7 +44,7 @@ function aggregateValue(rows, column) {
   }
 
   if (column.aggregate === "last") {
-    return rows.at(-1)?.[column.key] ?? "-";
+    return rows.length ? rows[rows.length - 1]?.[column.key] ?? "-" : "-";
   }
 
   const numericValues = rows
