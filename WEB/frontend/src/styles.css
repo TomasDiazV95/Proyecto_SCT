@@ -12,6 +12,45 @@ body {
   border-radius: 0.9rem;
 }
 
+.porsche-hero {
+  background: linear-gradient(135deg, #ffffff 0%, #f5f7ff 100%);
+  border: 1px solid rgba(13, 110, 253, 0.08);
+}
+
+.porsche-page .kpi-block {
+  overflow: hidden;
+}
+
+.porsche-page .porsche-kpi-title {
+  background: #0b1f4d;
+  color: #ffffff;
+  border-bottom: 1px solid #081735;
+}
+
+.porsche-page .porsche-kpi-title h2 {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.porsche-page .kpi-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.porsche-page .kpi-table th,
+.porsche-page .kpi-table td {
+  white-space: nowrap;
+  text-align: center;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.porsche-page .kpi-total-row {
+  font-weight: 700;
+  border-top: 2px solid #6c757d;
+}
+
 th {
   white-space: nowrap;
 }
