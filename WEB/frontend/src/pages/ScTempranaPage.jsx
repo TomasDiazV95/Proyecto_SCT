@@ -20,6 +20,25 @@ function formatMoney(value) {
   }).format(Number(value || 0));
 }
 
+import { fetchScTempranaCycle, fetchScTempranaFilters, fetchScTempranaGeneral } from "../api";
+
+const initialFilters = {
+  periodo: "",
+  zona: "",
+  ejecutivo: "",
+  ciclo: "",
+};
+
+function formatPct(value) {
+  return `${Number(value || 0).toFixed(2)}%`;
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat("es-CL", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number(value || 0));
+}
 export default function ScTempranaPage() {
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
