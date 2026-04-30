@@ -53,3 +53,28 @@ export async function fetchPorscheDashboard(filters) {
   }
   return res.json();
 }
+export async function fetchScTempranaFilters() {
+  const res = await fetch(`${API_BASE}/api/sc-temprana/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de SC Temprana");
+  }
+  return res.json();
+}
+
+export async function fetchScTempranaGeneral(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de SC Temprana");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchScTempranaCycle(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/ciclo`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista por ciclo de SC Temprana");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
