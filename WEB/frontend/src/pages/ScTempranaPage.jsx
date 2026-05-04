@@ -1,6 +1,5 @@
-import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-
+import { Link } from "react-router-dom";
 import { fetchScTempranaCycle, fetchScTempranaFilters, fetchScTempranaGeneral } from "../api";
 
 const initialFilters = {
@@ -20,6 +19,7 @@ function formatMoney(value) {
     maximumFractionDigits: 0,
   }).format(Number(value || 0));
 }
+
 export default function ScTempranaPage() {
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
@@ -77,7 +77,9 @@ export default function ScTempranaPage() {
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
-    return (<div className="container-fluid py-4 app-shell">
+
+  return (
+    <div className="container-fluid py-4 app-shell">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
           <h1 className="h3 m-0">SC Temprana - Productividad</h1>

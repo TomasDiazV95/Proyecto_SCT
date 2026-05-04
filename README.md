@@ -86,6 +86,18 @@ DB_DRIVER=ODBC Driver 17 for SQL Server
 python ETL/etl_bench_stc.py
 ```
 
+Para mora temprana:
+
+```bash
+python ETL/etl_bench_temp_stc.py
+```
+
+Para asignar mejor gestión (cartera 526) usando `archivos/orden_gest.txt`:
+
+```bash
+python ETL/etl_asigna_gestion_temp_stc.py
+```
+
 ---
 
 ## 📊 Tecnologías utilizadas
