@@ -53,6 +53,22 @@ export async function fetchPorscheDashboard(filters) {
   }
   return res.json();
 }
+
+export async function fetchLaAraucanaFilters() {
+  const res = await fetch(`${API_BASE}/api/la-araucana/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de La Araucana");
+  }
+  return res.json();
+}
+
+export async function fetchLaAraucanaResumen(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/la-araucana/resumen`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el resumen de La Araucana");
+  }
+  return res.json();
+}
 export async function fetchScTempranaFilters() {
   const res = await fetch(`${API_BASE}/api/sc-temprana/filtros`);
   if (!res.ok) {
