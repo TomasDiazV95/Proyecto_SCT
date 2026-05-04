@@ -21,12 +21,12 @@ const labelForSection = {
   promesas_pago: "Promesas de pagos",
   promesas_cumplidas: "Promesas cumplidas",
   promesas_incumplidas: "Promesas Incumplidas",
-  recuperacion: "Recuperacion",
-  contenido: "Composicion Recupero Contenido",
-  normalizado: "Composicion Recupero Normalizado",
-  campana_renegociacion: "Campana Renegociacion",
+  recuperacion: "Recuperación",
+  contenido: "Composición Recupero Contenido",
+  normalizado: "Composición Recupero Normalizado",
+  campana_renegociacion: "Campaña Renegociación",
   tpr: "TPR",
-  reiteracion_contacto: "Reiteracion Contacto (RC)",
+  reiteracion_contacto: "Reiteración Contacto (RC)",
 };
 
 const columnsForSection = {
@@ -96,7 +96,7 @@ const columnsForSection = {
   campana_renegociacion: [
     { key: "tramo", label: "Tramo", type: "text" },
     { key: "meta", label: "Meta", type: "percent" },
-    { key: "asignado", label: "Casos Campana", type: "number" },
+    { key: "asignado", label: "Casos Campaña", type: "number" },
     { key: "kpi", label: "KPI", type: "number" },
     { key: "pct_kpi", label: "% KPI", type: "percent" },
     { key: "brecha", label: "Brecha", type: "percent" },
@@ -469,7 +469,7 @@ export default function PorschePage() {
     <div className="container-fluid py-4 app-shell porsche-page">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
-          <h1 className="h3 m-0">Cumplimientos Porsche</h1>
+          <h1 className="h3 m-0">Seguimiento Porsche</h1>
           <Link to="/" className="small text-decoration-none">
             Volver al Home
           </Link>

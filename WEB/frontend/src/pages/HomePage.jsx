@@ -21,9 +21,15 @@ const modules = [
   },
   {
     title: "Porsche",
-    description: "Cumplimiento de Porsche",
+    description: "Seguimiento y cumplimiento de Porsche",
     path: "/porsche",
     btn: "Ir a Porsche",
+  },
+  {
+    title: "La Araucana",
+    description: "Modulo en construccion para el negocio de La Araucana.",
+    path: "/la-araucana",
+    btn: "Ir a La Araucana",
   },
 ];
 
