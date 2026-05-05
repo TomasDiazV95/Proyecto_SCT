@@ -94,3 +94,38 @@ export async function fetchScTempranaCycle(filters) {
   const body = await res.json();
   return body.data || [];
 }
+
+export async function fetchGmFilters() {
+  const res = await fetch(`${API_BASE}/api/gm/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de GM");
+  }
+  return res.json();
+}
+
+export async function fetchGmCycle(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/gm/productividad/ciclo`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la productividad de GM");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchGmGeneral(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/gm/productividad/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de GM");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchGmBucket(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista por bucket de GM");
+  }
+  const body = await res.json();
+  return body.data || [];
+}

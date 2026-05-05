@@ -54,3 +54,45 @@ body {
 th {
   white-space: nowrap;
 }
+
+.gm-page .gm-meta-card {
+  border: 1px dashed #a8b3c6;
+}
+
+.gm-page .gm-meta-table th,
+.gm-page .gm-meta-table td {
+  text-align: center;
+  white-space: nowrap;
+  font-size: 0.92rem;
+}
+
+.gm-page .gm-meta-table thead th {
+  background: #f4f7fc;
+  color: #1f355b;
+}
+
+.gm-page .gm-data-table thead th {
+  background: #2f67aa;
+  color: #fff;
+}
+
+.gm-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.gm-dot-ok {
+  background: #2f9f5f;
+}
+
+.gm-dot-warn {
+  background: #e1b12c;
+}
+
+.gm-dot-bad {
+  background: #db6b2d;
+}
