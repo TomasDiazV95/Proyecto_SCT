@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import KpiTable from "../components/KpiTable";
-import { fetchPorscheDashboard, fetchPorscheFilters } from "../api";
+import { fetchPorscheCuadroContenido, fetchPorscheDashboard, fetchPorscheFilters } from "../api";
 
 const order = [
   "contactabilidad",
@@ -123,13 +123,86 @@ const columnsForSection = {
 };
 
 function DashboardSection({ sectionKey, rows, totalRow }) {
+  const cumplimientoMode = (sectionKey === "tpr" || sectionKey === "reiteracion_contacto") ? "one" : "meta";
   return (
     <section className="card shadow-sm kpi-block">
       <div className="card-header porsche-kpi-title">
         <h2 className="h5 mb-0 text-center w-100">KPI: {labelForSection[sectionKey]}</h2>
       </div>
       <div className="card-body p-0">
-        <KpiTable columns={columnsForSection[sectionKey]} rows={rows} totalRow={totalRow} />
+        <KpiTable columns={columnsForSection[sectionKey]} rows={rows} totalRow={totalRow} cumplimientoMode={cumplimientoMode} />
+      </div>
+    </section>
+  );
+}
+
+function formatPercent0(value) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
+function CuadroContenido({ data }) {
+  const rows = data?.rows || [];
+  const total = data?.resultado_total;
+  const row3160 = rows.find((row) => row.negocio_pw === "31-60");
+  const row6190 = rows.find((row) => row.negocio_pw === "61-90");
+  const rowFinal = rows.find((row) => row.negocio_pw === "121-150");
+  return (
+    <section className="card shadow-sm porsche-cuadro-box">
+      <div className="card-body p-0">
+        <table className="table mb-0 porsche-cuadro-table">
+          <thead>
+            <tr>
+              <th>NegocioPW</th>
+              <th>Ponderador</th>
+              <th>Meta total</th>
+              <th>Real Total</th>
+              <th>Cumplimiento</th>
+              <th>Resultado</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>31-60</td>
+              <td>{formatPercent0(row3160?.ponderador)}</td>
+              <td>{formatPercent0(row3160?.meta_total)}</td>
+              <td>{formatPercent0(row3160?.real_total)}</td>
+              <td>{formatPercent0(row3160?.cumplimiento)}</td>
+              <td>{formatPercent0(row3160?.resultado)}</td>
+            </tr>
+            <tr>
+              <td>61-90</td>
+              <td>{formatPercent0(row6190?.ponderador)}</td>
+              <td>{formatPercent0(row6190?.meta_total)}</td>
+              <td>{formatPercent0(row6190?.real_total)}</td>
+              <td>{formatPercent0(row6190?.cumplimiento)}</td>
+              <td>{formatPercent0(row6190?.resultado)}</td>
+            </tr>
+            <tr>
+              <td>91-120</td>
+              <td rowSpan={4} className="align-middle">{formatPercent0(rowFinal?.ponderador)}</td>
+              <td rowSpan={4} className="align-middle">{formatPercent0(rowFinal?.meta_total)}</td>
+              <td rowSpan={4} className="align-middle">{formatPercent0(rowFinal?.real_total)}</td>
+              <td rowSpan={4} className="align-middle">{formatPercent0(rowFinal?.cumplimiento)}</td>
+              <td rowSpan={4} className="align-middle">{formatPercent0(rowFinal?.resultado)}</td>
+            </tr>
+            <tr>
+              <td>121-150</td>
+            </tr>
+            <tr>
+              <td>151-180</td>
+            </tr>
+            <tr>
+              <td>181-210</td>
+            </tr>
+            <tr>
+              <td colSpan={5}></td>
+              <td className="fw-bold">{formatPercent0(total)}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
   );
@@ -361,6 +434,7 @@ function buildReiteracionTotal(rows) {
 
 export default function PorschePage() {
   const [dashboard, setDashboard] = useState({ sections: {} });
+  const [cuadroContenido, setCuadroContenido] = useState({ rows: [], resultado_total: 0 });
   const [months, setMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState("");
   const [loading, setLoading] = useState(true);
@@ -407,7 +481,10 @@ export default function PorschePage() {
       setLoading(true);
       setError("");
       try {
-        const dashboardData = await fetchPorscheDashboard({ mes: selectedMonth });
+        const [dashboardData, cuadroData] = await Promise.all([
+          fetchPorscheDashboard({ mes: selectedMonth }),
+          fetchPorscheCuadroContenido({ mes: selectedMonth }),
+        ]);
         if (!alive) {
           return;
         }
@@ -415,6 +492,7 @@ export default function PorschePage() {
           summary: dashboardData.summary || {},
           sections: dashboardData.sections || {},
         });
+        setCuadroContenido(cuadroData.cuadro || { rows: [], resultado_total: 0 });
       } catch (err) {
         if (!alive) {
           return;
@@ -500,6 +578,7 @@ export default function PorschePage() {
         </div>
       ) : (
         <div className="d-grid gap-3">
+          <CuadroContenido data={cuadroContenido} />
           {sections.map(({ sectionKey, rows, totalRow }) => (
             <DashboardSection key={sectionKey} sectionKey={sectionKey} rows={rows} totalRow={totalRow} />
           ))}
