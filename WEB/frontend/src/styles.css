@@ -51,6 +51,31 @@ body {
   border-top: 2px solid #6c757d;
 }
 
+.porsche-page .porsche-cuadro-box {
+  border: 1px dashed #1f2a44;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.porsche-page .porsche-cuadro-table {
+  table-layout: fixed;
+}
+
+.porsche-page .porsche-cuadro-table thead th {
+  background: #0b1f4d;
+  color: #fff;
+  text-align: center;
+  font-weight: 700;
+  border-bottom: 1px solid #000;
+}
+
+.porsche-page .porsche-cuadro-table td,
+.porsche-page .porsche-cuadro-table th {
+  border: 1px solid #000;
+  text-align: center;
+  background: #fff;
+}
+
 th {
   white-space: nowrap;
 }

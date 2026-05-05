@@ -1,7 +1,7 @@
 import os
 from ftplib import FTP, error_perm
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,9 +28,9 @@ MESES = {
     12: "Diciembre",
 }
 
-hoy = datetime.now()
-anio = hoy.year
-mes_num = hoy.month
+fecha_referencia = datetime.now() - timedelta(days=1)
+anio = fecha_referencia.year
+mes_num = fecha_referencia.month
 mes_texto = MESES[mes_num]
 mes_num_str = str(mes_num).zfill(2)
 

@@ -113,12 +113,13 @@ def _resolved_cols() -> dict:
 
 def get_filtros() -> dict:
     c = _resolved_cols()
-    periodos = [
+    periodos_raw = [
         r["v"]
         for r in run_query(
             f"SELECT DISTINCT CONVERT(varchar(50), {c['fecha_negocio_pago']}, 23) AS v FROM {PAGOS_TABLE} WHERE {c['fecha_negocio_pago']} IS NOT NULL ORDER BY v DESC"
         )
     ]
+    periodos = sorted({str(v)[:7] for v in periodos_raw if v and len(str(v)) >= 7}, reverse=True)
     tipos = [
         r["v"]
         for r in run_query(
@@ -143,7 +144,7 @@ def get_filtros() -> dict:
 
 def get_resumen(filters: dict) -> dict:
     c = _resolved_cols()
-    period_month, period_day, month_start, _month_end, file_tokens = _parse_period(str(filters.get("periodo") or ""))
+    period_month, _period_day, month_start, month_end, file_tokens = _parse_period(str(filters.get("periodo") or ""))
     asignacion_file, recuperacion_file = file_tokens.split("|")
     payment_type = _norm_payment_expr(c["tipo_pago"])
     where = ["base.incluir_en_resumen = 1"]
@@ -164,7 +165,8 @@ def get_resumen(filters: dict) -> dict:
             SUM(COALESCE(CAST({c['recupero']} AS float), 0)) AS recupero
         FROM {PAGOS_TABLE} p
         WHERE {payment_type} IN ('E-ACTSEGCES', 'E-MANUAL', 'E-INTER-CC', 'E-CC')
-          AND CAST(p.{c['fecha_negocio_pago']} AS date) = CAST(? AS date)
+          AND CAST(p.{c['fecha_negocio_pago']} AS date) >= CAST(? AS date)
+          AND CAST(p.{c['fecha_negocio_pago']} AS date) <= CAST(? AS date)
           {f"AND (UPPER(CONVERT(varchar(300), p.{c['source_file_pago']})) LIKE UPPER(?) OR UPPER(CONVERT(varchar(300), p.{c['source_file_pago']})) LIKE UPPER(?))" if c['source_file_pago'] else ""}
         GROUP BY CONVERT(varchar(100), {c['contrato_pago']})
     ),
@@ -266,10 +268,10 @@ def get_resumen(filters: dict) -> dict:
     ORDER BY CASE WHEN r.mejor_ejecutivo = 'SIN EJECUTIVO' THEN 1 ELSE 0 END, r.mejor_ejecutivo
     """
 
-    pre_params: list = [period_day]
+    pre_params: list = [month_start, month_end]
     if c["source_file_pago"]:
         pre_params.extend(_source_file_like_values(recuperacion_file, period_month))
-    pre_params.extend([month_start, period_day])
+    pre_params.extend([month_start, month_end])
     if c["source_file_asig"]:
         pre_params.append(f"%{asignacion_file}%")
     rows = run_query(sql, tuple(pre_params + params))
@@ -299,7 +301,7 @@ def get_resumen(filters: dict) -> dict:
 
 def get_validacion(periodo: str) -> dict:
     c = _resolved_cols()
-    period_month, period_day, month_start, _month_end, file_tokens = _parse_period(periodo)
+    period_month, _period_day, month_start, month_end, file_tokens = _parse_period(periodo)
     asignacion_file, recuperacion_file = file_tokens.split("|")
     payment_type = _norm_payment_expr(c["tipo_pago"])
     sql = f"""
@@ -309,7 +311,8 @@ def get_validacion(periodo: str) -> dict:
             SUM(COALESCE(CAST({c['recupero']} AS float), 0)) AS recupero
         FROM {PAGOS_TABLE} p
         WHERE {payment_type} IN ('E-ACTSEGCES', 'E-MANUAL', 'E-INTER-CC', 'E-CC')
-          AND CAST(p.{c['fecha_negocio_pago']} AS date) = CAST(? AS date)
+          AND CAST(p.{c['fecha_negocio_pago']} AS date) >= CAST(? AS date)
+          AND CAST(p.{c['fecha_negocio_pago']} AS date) <= CAST(? AS date)
           {f"AND (UPPER(CONVERT(varchar(300), p.{c['source_file_pago']})) LIKE UPPER(?) OR UPPER(CONVERT(varchar(300), p.{c['source_file_pago']})) LIKE UPPER(?))" if c['source_file_pago'] else ""}
         GROUP BY CONVERT(varchar(100), {c['contrato_pago']})
     ),
@@ -361,10 +364,10 @@ def get_validacion(periodo: str) -> dict:
         SUM(CASE WHEN incluir_en_resumen = 1 THEN flag_titular ELSE 0 END) AS q_titular_incluido_resumen
     FROM base
     """
-    params: list = [period_day]
+    params: list = [month_start, month_end]
     if c["source_file_pago"]:
         params.extend(_source_file_like_values(recuperacion_file, period_month))
-    params.extend([month_start, period_day])
+    params.extend([month_start, month_end])
     if c["source_file_asig"]:
         params.append(f"%{asignacion_file}%")
     row = run_query(sql, tuple(params))[0]

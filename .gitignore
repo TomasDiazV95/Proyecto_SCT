@@ -6,7 +6,4 @@ dist/
 .pytest_cache/
 downloads/
 WEB/automation/logs/
-Productividad La araucana.md
-insert.py
-insert2.py
 sql/create_dashboard_view.sql

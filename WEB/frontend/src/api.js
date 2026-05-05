@@ -54,6 +54,14 @@ export async function fetchPorscheDashboard(filters) {
   return res.json();
 }
 
+export async function fetchPorscheCuadroContenido(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/cuadro-contenido`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el cuadro de cumplimiento Porsche");
+  }
+  return res.json();
+}
+
 export async function fetchLaAraucanaFilters() {
   const res = await fetch(`${API_BASE}/api/la-araucana/filtros`);
   if (!res.ok) {
