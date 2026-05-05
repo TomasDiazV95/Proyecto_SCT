@@ -120,3 +120,12 @@ export async function fetchGmGeneral(filters) {
   const body = await res.json();
   return body.data || [];
 }
+
+export async function fetchGmBucket(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista por bucket de GM");
+  }
+  const body = await res.json();
+  return body.data || [];
+}

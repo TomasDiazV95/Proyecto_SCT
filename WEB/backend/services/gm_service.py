@@ -128,7 +128,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
                 / NULLIF(SUM(base.deuda), 0)
             AS DECIMAL(10, 2)) AS porcentaje_contencion,
             CASE
-                WHEN base.ejecutivo = 'Daniela Cañicul' AND bucket = '6 a 30' THEN CAST(19.0 AS DECIMAL(10, 2))
+                WHEN base.ejecutivo = 'Daniela Cañicul' AND bucket = '6 a 30' THEN CAST(24.58 AS DECIMAL(10, 2))
                 ELSE CAST(
                     (SUM(CASE WHEN base.normalizado = 1 THEN base.deuda ELSE 0 END) * 100.0)
                     / NULLIF(SUM(base.deuda), 0)
@@ -251,4 +251,92 @@ def get_general_view(filters: dict) -> list[dict]:
             "buckets": {},
         }
     )
+    return response
+
+
+def get_bucket_view(filters: dict) -> list[dict]:
+    cycle_rows = get_cycle_view({"periodo": filters.get("periodo"), "ejecutivo": ""})
+
+    grouped: dict[str, dict] = {}
+    for row in cycle_rows:
+        bucket = row["bucket"]
+        current = grouped.setdefault(
+            bucket,
+            {
+                "bucket": bucket,
+                "deuda_asignada": 0.0,
+                "saldo_contenido": 0.0,
+                "saldo_normalizado": 0.0,
+                "meta_contencion_pct": float(row.get("meta_contencion_pct") or 0),
+                "meta_normalizacion_pct": float(row.get("meta_normalizacion_pct") or 0),
+                "ponderador_contencion_pct": float(row.get("ponderador_contencion_pct") or 0),
+                "ponderador_normalizacion_pct": float(row.get("ponderador_normalizacion_pct") or 0),
+            },
+        )
+        current["deuda_asignada"] += float(row.get("deuda_asignada") or 0)
+        current["saldo_contenido"] += float(row.get("saldo_contenido") or 0)
+        current["saldo_normalizado"] += float(row.get("saldo_normalizado") or 0)
+
+    response: list[dict] = []
+    total_deuda = 0.0
+    total_contenido = 0.0
+    total_normalizado = 0.0
+    total_ponderado = 0.0
+
+    for bucket in BUCKET_ORDER:
+        item = grouped.get(bucket)
+        if not item:
+            continue
+
+        deuda = item["deuda_asignada"]
+        contenido = item["saldo_contenido"]
+        normalizado = item["saldo_normalizado"]
+        pct_cont = _safe_div(contenido, deuda)
+        pct_norm = _safe_div(normalizado, deuda)
+        meta_cont = float(item["meta_contencion_pct"])
+        meta_norm = float(item["meta_normalizacion_pct"])
+        pond_cont = float(item["ponderador_contencion_pct"])
+        pond_norm = float(item["ponderador_normalizacion_pct"])
+
+        cumpl_cont = _cumpl_variable(pct_cont, meta_cont)
+        cumpl_norm = _cumpl_variable(pct_norm, meta_norm)
+        cumplimiento = _cap((cumpl_cont * (pond_cont / 100.0)) + (cumpl_norm * (pond_norm / 100.0)))
+
+        response.append(
+            {
+                "bucket": bucket,
+                "deuda_asignada": deuda,
+                "saldo_contenido": contenido,
+                "porcentaje_contencion": pct_cont,
+                "saldo_normalizado": normalizado,
+                "porcentaje_normalizado": pct_norm,
+                "meta_contencion_pct": meta_cont,
+                "meta_normalizacion_pct": meta_norm,
+                "ponderador_contencion_pct": pond_cont,
+                "ponderador_normalizacion_pct": pond_norm,
+                "cumplimiento_final": cumplimiento,
+            }
+        )
+
+        total_deuda += deuda
+        total_contenido += contenido
+        total_normalizado += normalizado
+        total_ponderado += cumplimiento * deuda
+
+    response.append(
+        {
+            "bucket": "Total general",
+            "deuda_asignada": total_deuda,
+            "saldo_contenido": total_contenido,
+            "porcentaje_contencion": _safe_div(total_contenido, total_deuda),
+            "saldo_normalizado": total_normalizado,
+            "porcentaje_normalizado": _safe_div(total_normalizado, total_deuda),
+            "meta_contencion_pct": 0.0,
+            "meta_normalizacion_pct": 0.0,
+            "ponderador_contencion_pct": 0.0,
+            "ponderador_normalizacion_pct": 0.0,
+            "cumplimiento_final": (total_ponderado / total_deuda) if total_deuda else 0.0,
+        }
+    )
+
     return response

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchGmCycle, fetchGmFilters, fetchGmGeneral } from "../api";
+import { fetchGmBucket, fetchGmCycle, fetchGmFilters } from "../api";
 
 const initialFilters = {
   periodo: "",
@@ -35,10 +35,11 @@ function percentile(sortedValues, p) {
 }
 
 export default function GmPage() {
+  const [view, setView] = useState("detalle");
   const [filters, setFilters] = useState(initialFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
-  const [generalRows, setGeneralRows] = useState([]);
+  const [bucketRows, setBucketRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -67,9 +68,12 @@ export default function GmPage() {
       setLoading(true);
       setError("");
       try {
-        const [cycleData, genData] = await Promise.all([fetchGmCycle(filters), fetchGmGeneral(filters)]);
+        const [cycleData, bucketData] = await Promise.all([
+          fetchGmCycle(filters),
+          fetchGmBucket({ periodo: filters.periodo }),
+        ]);
         setRows(cycleData);
-        setGeneralRows(genData);
+        setBucketRows(bucketData);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -112,20 +116,21 @@ export default function GmPage() {
   }, [rows]);
 
   const dynamicThresholds = useMemo(() => {
-    const values = rows
+    const sourceRows = view === "bucket" ? bucketRows.filter((row) => row.bucket !== "Total general") : rows;
+    const dynamicValues = sourceRows
       .map((row) => Number(row.cumplimiento_final || 0))
       .filter((value) => Number.isFinite(value))
       .sort((a, b) => a - b);
 
-    if (!values.length) {
+    if (!dynamicValues.length) {
       return { p33: 0, p66: 0 };
     }
 
     return {
-      p33: percentile(values, 0.33),
-      p66: percentile(values, 0.66),
+      p33: percentile(dynamicValues, 0.33),
+      p66: percentile(dynamicValues, 0.66),
     };
-  }, [rows]);
+  }, [rows, bucketRows, view]);
 
   function dynamicComplianceClass(value) {
     const num = Number(value || 0);
@@ -150,6 +155,14 @@ export default function GmPage() {
           <Link to="/" className="small text-decoration-none">
             Volver al Home
           </Link>
+        </div>
+        <div className="btn-group">
+          <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => setView("detalle")}>
+            Vista Detalle
+          </button>
+          <button className={`btn btn-${view === "bucket" ? "primary" : "outline-primary"}`} onClick={() => setView("bucket")}>
+            Vista Bucket
+          </button>
         </div>
       </div>
 
@@ -177,6 +190,7 @@ export default function GmPage() {
                 ))}
               </select>
             </div>
+            {view === "bucket" && <div className="col-12 col-md-4 small text-muted d-flex align-items-end">La vista bucket consolida todos los ejecutivos del periodo.</div>}
           </div>
         </div>
       </div>
@@ -221,7 +235,7 @@ export default function GmPage() {
         <div className="card-body table-responsive">
           {loading ? (
             <div className="text-center py-4">Cargando...</div>
-          ) : (
+          ) : view === "detalle" ? (
             <table className="table table-striped table-hover align-middle gm-data-table">
               <thead>
                 <tr>
@@ -263,13 +277,40 @@ export default function GmPage() {
                 )}
               </tbody>
             </table>
+          ) : (
+            <table className="table table-striped table-hover align-middle gm-data-table">
+              <thead>
+                <tr>
+                  <th>Bucket</th>
+                  <th>Deuda Asignada</th>
+                  <th>Saldo Contenido</th>
+                  <th>% Contenido</th>
+                  <th>% Normalizado</th>
+                  <th>Meta Cont.</th>
+                  <th>Meta Norm.</th>
+                  <th>Cumplimiento de meta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bucketRows.map((row, idx) => (
+                  <tr key={`${row.bucket}-${idx}`} className={row.bucket === "Total general" ? "table-primary fw-semibold" : ""}>
+                    <td>{row.bucket}</td>
+                    <td>${formatMoney(row.deuda_asignada)} M</td>
+                    <td>${formatMoney(row.saldo_contenido)} M</td>
+                    <td>{formatPct(row.porcentaje_contencion)}</td>
+                    <td>{formatPct(row.porcentaje_normalizado)}</td>
+                    <td>{row.bucket === "Total general" ? "-" : formatPct(row.meta_contencion_pct)}</td>
+                    <td>{row.bucket === "Total general" ? "-" : formatPct(row.meta_normalizacion_pct)}</td>
+                    <td className="fw-semibold">
+                      <span className={dynamicComplianceClass(row.cumplimiento_final)} /> {formatPct(row.cumplimiento_final)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
-
-      {!!generalRows.length && (
-        <div className="mt-2 small text-muted">Vista general cargada: {generalRows.length} filas.</div>
-      )}
       <div className="mt-1 small text-muted">
         Umbrales dinamicos: Rojo &lt; {formatPct(dynamicThresholds.p33)} | Amarillo &gt;= {formatPct(dynamicThresholds.p33)} y &lt; {formatPct(dynamicThresholds.p66)} | Verde &gt;= {formatPct(dynamicThresholds.p66)}
       </div>

@@ -1,7 +1,12 @@
 from fastapi import APIRouter, HTTPException, Query
 
 from schemas import ApiEnvelope
-from services.gm_service import get_cycle_view, get_filter_values, get_general_view
+from services.gm_service import (
+    get_bucket_view,
+    get_cycle_view,
+    get_filter_values,
+    get_general_view,
+)
 
 
 router = APIRouter()
@@ -52,5 +57,15 @@ def productividad_general(
                 }
             )
         )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/productividad/bucket", response_model=ApiEnvelope)
+def productividad_bucket(
+    periodo: str | None = Query(default=None),
+) -> ApiEnvelope:
+    try:
+        return ApiEnvelope(data=get_bucket_view({"periodo": periodo}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
