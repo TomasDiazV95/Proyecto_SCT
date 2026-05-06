@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchGmBucket, fetchGmCycle, fetchGmFilters } from "../api";
+import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmFilters } from "../api";
 
 const initialFilters = {
   periodo: "",
@@ -41,6 +41,7 @@ export default function GmPage() {
   const [rows, setRows] = useState([]);
   const [bucketRows, setBucketRows] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -147,6 +148,30 @@ export default function GmPage() {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
 
+  async function onDownload() {
+    if (!filters.periodo) {
+      return;
+    }
+
+    setDownloading(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadGmMonthlyExcel(filters.periodo);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="container-fluid py-4 app-shell gm-page">
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -162,6 +187,9 @@ export default function GmPage() {
           </button>
           <button className={`btn btn-${view === "bucket" ? "primary" : "outline-primary"}`} onClick={() => setView("bucket")}>
             Vista Bucket
+          </button>
+          <button className="btn btn-success" onClick={onDownload} disabled={!filters.periodo || downloading}>
+            {downloading ? "Descargando..." : "Descargar Excel"}
           </button>
         </div>
       </div>
