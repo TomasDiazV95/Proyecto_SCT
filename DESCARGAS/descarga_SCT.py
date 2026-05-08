@@ -5,6 +5,7 @@ from playwright.sync_api import Playwright, sync_playwright
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
+ROOT_ENV_PATH = BASE_DIR.parent / ".env"
 
 
 def cargar_env(path: Path) -> None:
@@ -20,6 +21,7 @@ def cargar_env(path: Path) -> None:
         os.environ.setdefault(clave.strip(), valor.strip())
 
 
+cargar_env(ROOT_ENV_PATH)
 cargar_env(ENV_PATH)
 
 USUARIO = os.getenv("USUARIO", "")
