@@ -433,6 +433,7 @@ function buildReiteracionTotal(rows) {
 }
 
 export default function PorschePage() {
+  const [view, setView] = useState("general");
   const [dashboard, setDashboard] = useState({ sections: {} });
   const [cuadroContenido, setCuadroContenido] = useState({ rows: [], resultado_total: 0 });
   const [months, setMonths] = useState([]);
@@ -552,21 +553,37 @@ export default function PorschePage() {
             Volver al Home
           </Link>
         </div>
-        <div className="d-flex align-items-center gap-2">
-          <label className="form-label mb-0">Mes</label>
-          <select
-            className="form-select"
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(e.target.value)}
-            style={{ minWidth: 140 }}
+        <div className="btn-group">
+          <button
+            className={`btn btn-${view === "general" ? "primary" : "outline-primary"}`}
+            onClick={() => setView("general")}
           >
-            {!months.length && <option value="">Sin meses</option>}
-            {months.map((month) => (
-              <option key={month} value={month}>
-                {month}
-              </option>
-            ))}
-          </select>
+            Vista General
+          </button>
+          <button
+            className={`btn btn-${view === "cierre" ? "primary" : "outline-primary"}`}
+            onClick={() => setView("cierre")}
+          >
+            Cierre
+          </button>
+        </div>
+      </div>
+
+      <div className="card shadow-sm mb-3">
+        <div className="card-body">
+          <div className="row g-2">
+            <div className="col-12 col-md-2">
+              <label className="form-label">Periodo</label>
+              <select className="form-select" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+                {!months.length && <option value="">Sin meses</option>}
+                {months.map((month) => (
+                  <option key={month} value={month}>
+                    {month}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -578,10 +595,13 @@ export default function PorschePage() {
         </div>
       ) : (
         <div className="d-grid gap-3">
-          <CuadroContenido data={cuadroContenido} />
-          {sections.map(({ sectionKey, rows, totalRow }) => (
-            <DashboardSection key={sectionKey} sectionKey={sectionKey} rows={rows} totalRow={totalRow} />
-          ))}
+          {view === "cierre" ? (
+            <CuadroContenido data={cuadroContenido} />
+          ) : (
+            sections.map(({ sectionKey, rows, totalRow }) => (
+              <DashboardSection key={sectionKey} sectionKey={sectionKey} rows={rows} totalRow={totalRow} />
+            ))
+          )}
         </div>
       )}
     </div>

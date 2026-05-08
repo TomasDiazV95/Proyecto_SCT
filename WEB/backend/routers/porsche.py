@@ -266,7 +266,7 @@ def _section_tpr(rows: list[dict]) -> list[dict]:
     cnt_days = defaultdict(int)
     for row in rows:
         v = row.get("dias_habiles")
-        if v is not None:
+        if v is not None and _to_int(row.get("contactabilidad")) == 1:
             tramo = str(row.get("tramo", ""))
             sum_days[tramo] += _to_float(v)
             cnt_days[tramo] += 1

@@ -103,6 +103,7 @@ def _resolved_cols() -> dict:
         "contacto_gest": _pick(g, ["ContactoGestion"], "contacto gestion"),
         "resp_gest": _pick(g, ["RespuestaGestion"], "respuesta gestion"),
         "obs_gest": _pick(g, ["observaciones", "Observaciones"], "observaciones"),
+        "tel_gest": _pick_optional(g, ["telefono", "Telefono", "TelefonoGestion", "telefono_gestion"]),
         "fecha_gest": _pick(g, ["GestionFecha"], "fecha gestion"),
         "hora_gest": _pick(g, ["GestionHora"], "hora gestion"),
         "cartera_gest": _pick(g, ["Cartera", "cartera", "fld_CARTERA", "fld_cartera"], "cartera gestion"),
@@ -218,6 +219,7 @@ def get_resumen(filters: dict) -> dict:
                 ELSE LTRIM(RTRIM(CONVERT(varchar(100), a.{c['tipo_cartera']})))
             END AS tipo_cartera,
             CONVERT(varchar(100), a.{c['segmento']}) AS segmento,
+            COALESCE(CAST(a.{c['capital']} AS float), 0) AS capital,
             COALESCE(CAST(a.{c['deuda']} AS float), 0) AS deuda,
             COALESCE(CAST(p.recupero AS float), 0) AS recupero,
             COALESCE(i.intensidad, 0) AS intensidad,
@@ -241,6 +243,7 @@ def get_resumen(filters: dict) -> dict:
         SELECT
             base.mejor_ejecutivo,
             COUNT(*) AS q_folios,
+            SUM(base.deuda) AS deuda,
             SUM(base.recupero) AS recupero,
             SUM(base.flag_titular) AS q_titular
         FROM base
@@ -255,6 +258,7 @@ def get_resumen(filters: dict) -> dict:
     SELECT
         r.mejor_ejecutivo AS ejecutivo,
         r.q_folios,
+        r.deuda,
         r.recupero,
         r.q_titular,
         CASE WHEN r.q_folios = 0 THEN 0 ELSE CAST(r.q_titular AS float) / r.q_folios END AS pct_contacto_titular,
@@ -276,12 +280,14 @@ def get_resumen(filters: dict) -> dict:
         pre_params.append(f"%{asignacion_file}%")
     rows = run_query(sql, tuple(pre_params + params))
     total_folios = sum(int(r["q_folios"] or 0) for r in rows)
+    total_deuda = sum(float(r["deuda"] or 0) for r in rows)
     total_recupero = sum(float(r["recupero"] or 0) for r in rows)
     total_titular = sum(int(r["q_titular"] or 0) for r in rows)
 
     total = {
         "ejecutivo": "Total general",
         "q_folios": total_folios,
+        "deuda": total_deuda,
         "recupero": total_recupero,
         "q_titular": total_titular,
         "pct_contacto_titular": None,
@@ -291,6 +297,7 @@ def get_resumen(filters: dict) -> dict:
     return {
         "kpis": {
             "q_folios": total_folios,
+            "deuda": total_deuda,
             "recupero": total_recupero,
             "q_titular": total_titular,
         },
@@ -373,3 +380,106 @@ def get_validacion(periodo: str) -> dict:
     row = run_query(sql, tuple(params))[0]
     row["tipos_pago_validos"] = ["E-ACTSEGCES", "E-MANUAL", "E-INTER-CC", "E-CC"]
     return row
+
+
+def get_export_rows(filters: dict) -> tuple[str, list[dict]]:
+    c = _resolved_cols()
+    period_month, _period_day, month_start, month_end, file_tokens = _parse_period(str(filters.get("periodo") or ""))
+    asignacion_file, recuperacion_file = file_tokens.split("|")
+    payment_type = _norm_payment_expr(c["tipo_pago"])
+
+    where_sql = "1 = 1"
+    params: list = []
+    sql = f"""
+    WITH pagos_validos_contrato AS (
+        SELECT
+            CONVERT(varchar(100), {c['contrato_pago']}) AS contrato,
+            SUM(COALESCE(CAST({c['recupero']} AS float), 0)) AS recupero
+        FROM {PAGOS_TABLE} p
+        WHERE {payment_type} IN ('E-ACTSEGCES', 'E-MANUAL', 'E-INTER-CC', 'E-CC')
+          AND CAST(p.{c['fecha_negocio_pago']} AS date) >= CAST(? AS date)
+          AND CAST(p.{c['fecha_negocio_pago']} AS date) <= CAST(? AS date)
+          {f"AND (UPPER(CONVERT(varchar(300), p.{c['source_file_pago']})) LIKE UPPER(?) OR UPPER(CONVERT(varchar(300), p.{c['source_file_pago']})) LIKE UPPER(?))" if c['source_file_pago'] else ""}
+        GROUP BY CONVERT(varchar(100), {c['contrato_pago']})
+    ),
+    gestiones_531 AS (
+        SELECT
+            CONVERT(varchar(50), {c['rut_gest']}) AS rut,
+            CONVERT(varchar(200), {c['usuario_gest']}) AS usuario,
+            CONVERT(varchar(200), {c['contacto_gest']}) AS contacto,
+            CONVERT(varchar(300), {c['resp_gest']}) AS respuesta,
+            {c['fecha_gest']} AS fecha_gestion,
+            CONVERT(varchar(50), {c['hora_gest']}) AS hora_gestion,
+            {f"CONVERT(varchar(100), {c['tel_gest']})" if c['tel_gest'] else "NULL"} AS telefono
+        FROM {GESTION_TABLE}
+        WHERE {c['cartera_gest']} = 531
+          AND CAST({c['fecha_gest']} AS date) >= CAST(? AS date)
+          AND CAST({c['fecha_gest']} AS date) <= CAST(? AS date)
+    ),
+    mejor_gestion AS (
+        SELECT
+            g.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY g.rut
+                ORDER BY
+                    g.fecha_gestion DESC,
+                    g.hora_gestion DESC
+            ) AS rn
+        FROM gestiones_531 g
+        WHERE UPPER(LTRIM(RTRIM(COALESCE(g.contacto, '')))) = 'CONTACTO DIRECTO'
+    ),
+    base AS (
+        SELECT
+            CONVERT(varchar(100), a.{c['folio']}) AS folio_credito,
+            CONVERT(varchar(50), a.{c['rut_asig']}) AS rut,
+            CONVERT(varchar(100), a.{c['tramo']}) AS tramo_mora,
+            COALESCE(CAST(a.{c['capital']} AS float), 0) AS capital,
+            COALESCE(CAST(a.{c['deuda']} AS float), 0) AS total_deuda,
+            COALESCE(CAST(p.recupero AS float), 0) AS recupero,
+            CASE
+                WHEN LTRIM(RTRIM(CONVERT(varchar(100), a.{c['tipo_cartera']}))) = '365' THEN '+365'
+                ELSE LTRIM(RTRIM(CONVERT(varchar(100), a.{c['tipo_cartera']})))
+            END AS tipo_cartera,
+            e.{c['nombre_ej']} AS nombre_ejecutivo,
+            mg.usuario AS usuariogestion,
+            mg.contacto AS contactogestion,
+            mg.respuesta AS respuestagestion,
+            CONVERT(varchar(10), CAST(mg.fecha_gestion AS date), 23) AS gestionfecha,
+            mg.hora_gestion AS gestionhora,
+            mg.telefono AS telefono
+        FROM {ASIGNACION_TABLE} a
+        LEFT JOIN mejor_gestion mg ON CONVERT(varchar(50), a.{c['rut_asig']}) = mg.rut AND mg.rn = 1
+        LEFT JOIN {EJECUTIVOS_TABLE} e ON mg.usuario = e.{c['usuario_ej']}
+        LEFT JOIN pagos_validos_contrato p ON CONVERT(varchar(100), a.{c['folio']}) = p.contrato
+        WHERE 1 = 1
+          AND e.{c['nombre_ej']} IS NOT NULL
+          {f"AND UPPER(CONVERT(varchar(300), a.{c['source_file_asig']})) LIKE UPPER(?)" if c['source_file_asig'] else ""}
+    )
+    SELECT
+        folio_credito,
+        rut,
+        tramo_mora,
+        capital,
+        total_deuda,
+        recupero,
+        tipo_cartera,
+        usuariogestion,
+        CASE WHEN contactogestion IS NULL THEN '' ELSE 'CONTACTO DIRECTO' END AS contactogestion,
+        respuestagestion,
+        gestionfecha,
+        gestionhora,
+        telefono
+    FROM base
+    WHERE {where_sql}
+    ORDER BY tipo_cartera, tramo_mora, rut
+    """
+
+    pre_params: list = [month_start, month_end]
+    if c["source_file_pago"]:
+        pre_params.extend(_source_file_like_values(recuperacion_file, period_month))
+    pre_params.extend([month_start, month_end])
+    if c["source_file_asig"]:
+        pre_params.append(f"%{asignacion_file}%")
+
+    rows = run_query(sql, tuple(pre_params + params))
+    return period_month, rows

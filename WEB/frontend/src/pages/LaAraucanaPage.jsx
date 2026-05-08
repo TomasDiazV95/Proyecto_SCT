@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { fetchLaAraucanaFilters, fetchLaAraucanaResumen } from "../api";
+import { downloadLaAraucanaExcel, fetchLaAraucanaFilters, fetchLaAraucanaResumen } from "../api";
 
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -20,6 +20,7 @@ export default function LaAraucanaPage() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -60,15 +61,41 @@ export default function LaAraucanaPage() {
     setSelected((prev) => ({ ...prev, [name]: value }));
   }
 
+  async function onDownload() {
+    if (!selected.periodo) {
+      return;
+    }
+    setDownloading(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadLaAraucanaExcel(selected.periodo, selected.tipo_cartera || "");
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="container-fluid py-4 app-shell">
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
-          <h1 className="h3 m-0">Resumen Productividad - La Araucana</h1>
+          <h1 className="h3 m-0">La Araucana - Productividad</h1>
           <Link to="/" className="small text-decoration-none">
             Volver al Home
           </Link>
         </div>
+        <button className="btn btn-success" onClick={onDownload} disabled={!selected.periodo || downloading}>
+          {downloading ? "Descargando..." : "Descargar Excel"}
+        </button>
       </div>
 
       <div className="card shadow-sm mb-3">
@@ -108,15 +135,17 @@ export default function LaAraucanaPage() {
           ) : (
             <table className="table table-striped table-hover align-middle">
               <colgroup>
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "20%" }} />
+                <col style={{ width: "16.66%" }} />
+                <col style={{ width: "16.66%" }} />
+                <col style={{ width: "16.66%" }} />
+                <col style={{ width: "16.66%" }} />
+                <col style={{ width: "16.66%" }} />
+                <col style={{ width: "16.66%" }} />
               </colgroup>
               <thead>
                 <tr>
                   <th>Ejecutivo</th>
+                  <th>Deuda</th>
                   <th>Q Folios</th>
                   <th>Recupero</th>
                   <th>% Contacto Titular</th>
@@ -127,6 +156,7 @@ export default function LaAraucanaPage() {
                 {rows.map((row) => (
                   <tr key={row.ejecutivo}>
                     <td>{row.ejecutivo}</td>
+                    <td>${formatMoney(row.deuda)}</td>
                     <td>{formatMoney(row.q_folios)}</td>
                     <td>${formatMoney(row.recupero)}</td>
                     <td>{formatPct(row.pct_contacto_titular)}</td>
@@ -136,6 +166,7 @@ export default function LaAraucanaPage() {
                 {total && (
                   <tr className="fw-semibold">
                     <td>{total.ejecutivo}</td>
+                    <td>${formatMoney(total.deuda)}</td>
                     <td>{formatMoney(total.q_folios)}</td>
                     <td>${formatMoney(total.recupero)}</td>
                     <td>{formatPct(total.pct_contacto_titular)}</td>
