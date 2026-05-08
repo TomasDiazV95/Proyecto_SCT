@@ -54,6 +54,14 @@ export async function fetchPorscheDashboard(filters) {
   return res.json();
 }
 
+export async function fetchPorscheCuadroContenido(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/cuadro-contenido`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el cuadro de cumplimiento Porsche");
+  }
+  return res.json();
+}
+
 export async function fetchLaAraucanaFilters() {
   const res = await fetch(`${API_BASE}/api/la-araucana/filtros`);
   if (!res.ok) {
@@ -68,6 +76,17 @@ export async function fetchLaAraucanaResumen(filters) {
     throw new Error("No se pudo cargar el resumen de La Araucana");
   }
   return res.json();
+}
+
+export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
+  const res = await fetch(withQuery(`${API_BASE}/api/la-araucana/export`, { periodo, tipo_cartera: tipoCartera }));
+  if (!res.ok) {
+    throw new Error("No se pudo descargar el Excel de La Araucana");
+  }
+  const disposition = res.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename=\"?([^\"]+)\"?/i);
+  const filename = match?.[1] || `la_araucana_detalle_${periodo}.xlsx`;
+  return { blob: await res.blob(), filename };
 }
 export async function fetchScTempranaFilters() {
   const res = await fetch(`${API_BASE}/api/sc-temprana/filtros`);

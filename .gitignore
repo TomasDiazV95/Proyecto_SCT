@@ -6,4 +6,4 @@ dist/
 .pytest_cache/
 downloads/
 WEB/automation/logs/
-archivos/
+sql/create_dashboard_view.sql

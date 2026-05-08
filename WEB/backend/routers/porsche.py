@@ -119,6 +119,82 @@ def _to_int(v) -> int:
         return 0
 
 
+def _parse_tramo_start(tramo: str) -> int | None:
+    text = str(tramo or "").strip()
+    m = text.split("-", 1)[0].strip()
+    if not m.isdigit():
+        return None
+    return int(m)
+
+
+def _cuadro_group_for_tramo(tramo: str) -> str | None:
+    start = _parse_tramo_start(tramo)
+    if start is None:
+        return None
+    if start == 31:
+        return "31-60"
+    if start == 61:
+        return "61-90"
+    if start >= 91:
+        return "91+"
+    return None
+
+
+def _build_cuadro_contenido(rows: list[dict]) -> dict:
+    metas = {"31-60": 0.70, "61-90": 0.60, "91+": 0.50}
+    agg = {
+        "31-60": {"contenido": 0.0, "no_contenido": 0.0, "total": 0.0},
+        "61-90": {"contenido": 0.0, "no_contenido": 0.0, "total": 0.0},
+        "91+": {"contenido": 0.0, "no_contenido": 0.0, "total": 0.0},
+    }
+
+    for row in rows:
+        tramo = str(row.get("tramo", ""))
+        group = _cuadro_group_for_tramo(tramo)
+        if not group:
+            continue
+        deuda = _to_float(row.get("deuda"))
+        total_pagado = _to_float(row.get("total_pagado"))
+        if total_pagado > 0:
+            agg[group]["contenido"] += deuda
+            agg[group]["total"] += deuda
+        else:
+            agg[group]["no_contenido"] += deuda
+            agg[group]["total"] += deuda
+
+    total_porsche = sum(v["total"] for v in agg.values())
+
+    calc = {}
+    for group in ("31-60", "61-90", "91+"):
+        total = agg[group]["total"]
+        meta = metas[group]
+        ponderador = (total / total_porsche) if total_porsche else 0.0
+        real_total = (agg[group]["contenido"] / total) if total else 0.0
+        cumplimiento = (real_total / meta) if meta else 0.0
+        resultado = ponderador * cumplimiento
+        calc[group] = {
+            "ponderador": ponderador,
+            "meta_total": meta,
+            "real_total": real_total,
+            "cumplimiento": cumplimiento,
+            "resultado": resultado,
+        }
+
+    rows_visual = [
+        {"negocio_pw": "31-60", **calc["31-60"]},
+        {"negocio_pw": "61-90", **calc["61-90"]},
+        {"negocio_pw": "91-120", "ponderador": None, "meta_total": None, "real_total": None, "cumplimiento": None, "resultado": None},
+        {"negocio_pw": "121-150", **calc["91+"]},
+        {"negocio_pw": "151-180", "ponderador": None, "meta_total": None, "real_total": None, "cumplimiento": None, "resultado": None},
+        {"negocio_pw": "181-210", "ponderador": None, "meta_total": None, "real_total": None, "cumplimiento": None, "resultado": None},
+    ]
+
+    return {
+        "rows": rows_visual,
+        "resultado_total": calc["31-60"]["resultado"] + calc["61-90"]["resultado"] + calc["91+"]["resultado"],
+    }
+
+
 def _read_dashboard_rows() -> list[dict]:
     return run_query(f"SELECT * FROM {DASHBOARD_VIEW}")
 
@@ -190,7 +266,7 @@ def _section_tpr(rows: list[dict]) -> list[dict]:
     cnt_days = defaultdict(int)
     for row in rows:
         v = row.get("dias_habiles")
-        if v is not None:
+        if v is not None and _to_int(row.get("contactabilidad")) == 1:
             tramo = str(row.get("tramo", ""))
             sum_days[tramo] += _to_float(v)
             cnt_days[tramo] += 1
@@ -291,13 +367,14 @@ def dashboard(mes: str | None = None) -> dict:
         for r in rows:
             r["contenido_bin"] = 1 if str(r.get("contenido", "")).upper() == "SI" else 0
             r["normalizado_bin"] = 1 if str(r.get("normaliza", "")).upper() == "SI" else 0
+            r["pago_bin"] = 1 if _to_float(r.get("total_pagado")) > 0 else 0
 
         sections = {
             "contactabilidad": _section_ratio(rows, "contactabilidad", "contactabilidad", "casos_contactados", "pct_contacto"),
             "promesas_pago": _section_ratio(rows, "filtro_compromiso", "promesas_pago", "casos_con_promesa", "pct_promesa_pago", denominator_col="contactabilidad"),
             "promesas_cumplidas": _section_ratio(rows, "pago_con_compromiso", "promesas_cumplidas", "promesas_cumplidas", "pct_cumplimiento_promesa", denominator_col="filtro_compromiso"),
             "promesas_incumplidas": _section_ratio(rows, "incumplido", "promesas_incumplidas", "promesas_incumplidas", "pct_incumplido", denominator_col="filtro_compromiso", incumplida_rule=True),
-            "recuperacion": _section_ratio(rows, "filtro_pago", "recuperacion", "casos_pagados", "pct_recupero"),
+            "recuperacion": _section_ratio(rows, "pago_bin", "recuperacion", "casos_pagados", "pct_recupero"),
             "contenido": _section_ratio(rows, "contenido_bin", "contenido", "casos_contenidos", "pct_contenido"),
             "normalizado": _section_ratio(rows, "normalizado_bin", "normalizado", "casos_normalizados", "pct_normalizado"),
             "campana_renegociacion": _section_campana_renegociacion(rows),
@@ -316,6 +393,22 @@ def dashboard(mes: str | None = None) -> dict:
             "filters": {"meses": available_months, "default_mes": available_months[-1] if available_months else "", "mes": selected_month},
             "summary": summary,
             "sections": sections,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/cuadro-contenido")
+def cuadro_contenido(mes: str | None = None) -> dict:
+    try:
+        rows = _read_dashboard_rows()
+        available_months = _available_months(rows)
+        selected_month = mes or (available_months[-1] if available_months else "")
+        month_rows = _selected_month_rows(rows, selected_month)
+        cuadro = _build_cuadro_contenido(month_rows)
+        return {
+            "filters": {"meses": available_months, "default_mes": available_months[-1] if available_months else "", "mes": selected_month},
+            "cuadro": cuadro,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -27,7 +27,7 @@ const modules = [
   },
   {
     title: "La Araucana",
-    description: "Modulo en construccion para el negocio de La Araucana.",
+    description: "Productividad La Araucana",
     path: "/la-araucana",
     btn: "Ir a La Araucana",
   },

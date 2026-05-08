@@ -363,6 +363,36 @@ def insert_append(df: pd.DataFrame, source_file: str):
     print(f"OK: insertadas {inserted} filas")
 
 
+def get_last_source_file() -> str | None:
+    with connect() as cn:
+        cur = cn.cursor()
+        cur.execute(f"SELECT TOP (1) source_file FROM {TABLE} ORDER BY id_bench_stc DESC")
+        row = cur.fetchone()
+        if not row:
+            return None
+        return row[0]
+
+
+def should_skip_load(current_source_file: str) -> bool:
+    last_source_file = get_last_source_file()
+    if last_source_file is None:
+        print("No hay carga previa en la tabla; se cargara el archivo actual.")
+        return False
+
+    current_norm = str(current_source_file).strip().upper()
+    last_norm = str(last_source_file).strip().upper()
+
+    print(f"source_file actual: {current_source_file}")
+    print(f"ultimo source_file en BD: {last_source_file}")
+
+    if current_norm == last_norm:
+        print("El ultimo source_file coincide con el archivo actual. Se omite la carga.")
+        return True
+
+    print("El source_file es distinto al ultimo en BD. Se continuara con la carga.")
+    return False
+
+
 def main():
     if not EXCEL_PATH:
         raise RuntimeError("No se definio BENCH_EXCEL_PATH y no hay ruta por defecto")
@@ -378,7 +408,10 @@ def main():
     print("Columnas numéricas detectadas:", found_numeric if found_numeric else "ninguna")
 
     ensure_table_and_columns(df)
-    insert_append(df, Path(EXCEL_PATH).name)
+    current_source_file = Path(EXCEL_PATH).name
+    if should_skip_load(current_source_file):
+        return
+    insert_append(df, current_source_file)
 
 
 if __name__ == "__main__":

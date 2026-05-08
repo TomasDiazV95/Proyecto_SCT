@@ -62,21 +62,23 @@ function aggregateValue(rows, column) {
   return numericValues.reduce((acc, value) => acc + value, 0);
 }
 
-function complianceStyle(value, meta) {
+function complianceStyle(value, meta, mode = "meta") {
   const n = toNumber(value);
   const target = toNumber(meta);
   if (n === null) {
     return {};
   }
 
+  const threshold = mode === "one" ? 1 : (target !== null ? target : 1);
+
   return {
-    background: n >= 1 ? "#C6EFCE" : "#FFC7CE",
-    color: n >= 1 ? "#006100" : "#9C0006",
+    background: n >= threshold ? "#C6EFCE" : "#FFC7CE",
+    color: n >= threshold ? "#006100" : "#9C0006",
     fontWeight: 700,
   };
 }
 
-export default function KpiTable({ columns, rows, totalRow: totalRowOverride }) {
+export default function KpiTable({ columns, rows, totalRow: totalRowOverride, cumplimientoMode = "meta" }) {
   const totalRow = totalRowOverride || columns.reduce((acc, column) => {
     acc[column.key] = aggregateValue(rows, column);
     return acc;
@@ -99,7 +101,7 @@ export default function KpiTable({ columns, rows, totalRow: totalRowOverride }) 
             <tr key={`${row.tramo || row.label || index}-${index}`}>
               {columns.map((column) => {
                 const value = row[column.key];
-                const cellStyle = column.key === "cumplimiento" ? complianceStyle(value, row.meta) : undefined;
+                const cellStyle = column.key === "cumplimiento" ? complianceStyle(value, row.meta, cumplimientoMode) : undefined;
 
                 return (
                   <td
@@ -116,7 +118,7 @@ export default function KpiTable({ columns, rows, totalRow: totalRowOverride }) 
           <tr className="kpi-total-row">
             {columns.map((column) => {
               const value = totalRow[column.key];
-              const cellStyle = column.key === "cumplimiento" ? complianceStyle(value, totalRow.meta) : undefined;
+              const cellStyle = column.key === "cumplimiento" ? complianceStyle(value, totalRow.meta, cumplimientoMode) : undefined;
 
               return (
                 <td key={`total-${column.key}`} className={column.align ? `text-${column.align}` : ""} style={cellStyle}>
