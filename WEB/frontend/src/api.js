@@ -137,3 +137,17 @@ export async function fetchGmBucket(filters) {
   const body = await res.json();
   return body.data || [];
 }
+
+export async function downloadGmMonthlyExcel(periodo) {
+  const res = await fetch(withQuery(`${API_BASE}/api/gm/export`, { periodo }));
+  if (!res.ok) {
+    throw new Error("No se pudo descargar el Excel de GM");
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || `gm_detalle_${periodo?.slice(0, 7) || "mes"}.xlsx`;
+
+  return { blob, filename };
+}

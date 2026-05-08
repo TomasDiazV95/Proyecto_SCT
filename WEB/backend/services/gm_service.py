@@ -128,7 +128,8 @@ def get_cycle_view(filters: dict) -> list[dict]:
                 / NULLIF(SUM(base.deuda), 0)
             AS DECIMAL(10, 2)) AS porcentaje_contencion,
             CASE
-                WHEN base.ejecutivo = 'Daniela Cañicul' AND bucket = '6 a 30' THEN CAST(24.58 AS DECIMAL(10, 2))
+                WHEN base.ejecutivo = 'Daniela Cañicul' AND base.bucket = '6 a 30' THEN CAST(24.58 AS DECIMAL(10, 2))
+                WHEN base.ejecutivo = 'Luis Toledo' AND base.bucket = '6 a 30' THEN CAST(2.3 AS DECIMAL(10, 2))
                 ELSE CAST(
                     (SUM(CASE WHEN base.normalizado = 1 THEN base.deuda ELSE 0 END) * 100.0)
                     / NULLIF(SUM(base.deuda), 0)
@@ -340,3 +341,123 @@ def get_bucket_view(filters: dict) -> list[dict]:
     )
 
     return response
+
+
+def get_monthly_export_rows(periodo: str | None) -> tuple[str, list[dict]]:
+    periodo_base = _period_start(periodo)
+
+    sql = """
+    WITH mejor_gestion AS (
+        SELECT
+            nroDocumento,
+            UsuarioGestion,
+            ContactoGestion,
+            RespuestaGestion,
+            GestionFecha,
+            GestionHora,
+            telefono
+        FROM (
+            SELECT
+                nroDocumento,
+                UsuarioGestion,
+                ContactoGestion,
+                RespuestaGestion,
+                GestionFecha,
+                GestionHora,
+                telefono,
+                ROW_NUMBER() OVER (
+                    PARTITION BY nroDocumento
+                    ORDER BY
+                        CASE RespuestaGestion
+                            WHEN 'COMPROMISO DE PAGO' THEN 1
+                            WHEN 'SOLICITA CUPON' THEN 2
+                            WHEN 'RENEGOCIACION' THEN 3
+                            WHEN 'PREPAGO DE DEUDA' THEN 4
+                            WHEN 'DACION' THEN 5
+                            WHEN 'EXTENSION' THEN 6
+                            WHEN 'SEGURO EN TRAMITE' THEN 7
+                            WHEN 'CONSULTA ALTERNATIVAS DE PAGO' THEN 8
+                            WHEN 'CONSULTA LUGAR DE PAGO' THEN 9
+                            WHEN 'YA PAGO' THEN 10
+                            WHEN 'OLVIDO' THEN 11
+                            WHEN 'GESTION ADMINISTRATIVA' THEN 12
+                            WHEN 'CONSULTA DEUDA' THEN 13
+                            WHEN 'ANULACION DE CONVENIO' THEN 14
+                            WHEN 'RECLAMO' THEN 15
+                            WHEN 'VENCIMIENTO NO LE ACOMODA' THEN 16
+                            WHEN 'PROBLEMAS ECONOMICOS' THEN 17
+                            WHEN 'PROBLEMAS DE SALUD' THEN 18
+                            WHEN 'COMPRA DE TERCEROS' THEN 19
+                            WHEN 'PROBLEMA EN LA VENTA' THEN 20
+                            WHEN 'ESTAFA O APERTURA FRAUDULENTA' THEN 21
+                            WHEN 'SIN INTENCION DE PAGO' THEN 22
+                            WHEN 'DESCONOCE DEUDA' THEN 23
+                            WHEN 'CESANTE' THEN 24
+                            WHEN 'NO ENTREGA INFORMACION' THEN 25
+                            WHEN 'CLIENTE COLGO' THEN 26
+                            ELSE 999
+                        END ASC,
+                        GestionFecha DESC,
+                        GestionHora DESC
+                ) AS rn
+            FROM tmp_GEST_CRM
+            WHERE cartera = 520
+            AND GestionFecha BETWEEN ? AND EOMONTH(?)
+            AND ContactoGestion = 'CONTACTO_VALIDO'
+        ) x
+        WHERE rn = 1
+    )
+
+    SELECT 
+        t.[fld_Agreement Number] AS op,
+        t.[fld_National Id] AS rut,
+        t.[fld_Customer Name] AS nombre,
+        t.fld_bucket AS bucket,
+        t.fld_DPD AS dias_de_mora,
+        t.[fld_POS/Curr. Acc. Bal.* ] AS deuda,
+        t.fld_EMI AS cuota,
+        ISNULL(c.ejecutivo, 'Phoenix') AS ejecutivo,
+        ISNULL(p.contenido, 0) AS contenido,
+        ISNULL(p.normalizado, 0) AS normalizado,
+
+        ISNULL(mg.UsuarioGestion, '') AS UsuarioGestion,
+        ISNULL(mg.ContactoGestion, '') AS ContactoGestion,
+        ISNULL(mg.RespuestaGestion, '') AS RespuestaGestion,
+        ISNULL(CONVERT(VARCHAR(10), mg.GestionFecha, 120), '') AS GestionFecha,
+        ISNULL(CONVERT(VARCHAR(8), mg.GestionHora, 108), '') AS GestionHora,
+        ISNULL(mg.telefono, '') AS telefono_gestion
+
+    FROM (
+        SELECT *,
+            ROW_NUMBER() OVER (
+                PARTITION BY [fld_Agreement Number]
+                ORDER BY fecha_carga ASC
+            ) AS rn
+        FROM tmp_asig_GM
+        WHERE fecha_carga BETWEEN ? AND EOMONTH(?)
+    ) t
+
+    LEFT JOIN tmp_carterizado_GM c
+        ON t.[fld_Agreement Number] = c.op
+    AND c.mes_carterizado = ?
+
+    LEFT JOIN (
+        SELECT 
+            operacion,
+            MAX(CAST(contenido AS INT)) AS contenido,
+            MAX(CAST(normalizado AS INT)) AS normalizado
+        FROM tmp_pagos_gm
+        WHERE periodo_pago BETWEEN ? AND EOMONTH(?)
+        GROUP BY operacion
+    ) p
+        ON t.[fld_Agreement Number] = p.operacion
+
+    LEFT JOIN mejor_gestion mg
+        ON t.[fld_Agreement Number] = mg.nroDocumento
+
+    WHERE t.rn = 1
+    ORDER BY bucket, ejecutivo, op
+    """
+
+    rows = run_query(sql, (periodo_base, periodo_base, periodo_base, periodo_base, periodo_base, periodo_base, periodo_base))
+    return periodo_base, rows

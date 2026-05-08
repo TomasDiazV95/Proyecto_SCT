@@ -15,7 +15,7 @@ const modules = [
   },
   {
     title: "GM",
-    description: "Modulo en construccion para asignacion y pagos.",
+    description: "Seguimiento y cumplimiento de GM.",
     path: "/gm",
     btn: "Ir a GM",
   },
