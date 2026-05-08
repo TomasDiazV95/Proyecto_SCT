@@ -76,10 +76,18 @@ def _selected_month_rows(rows: list[dict], mes: str | None) -> list[dict]:
 
 
 def _meta_for(tramo: str, kind: str) -> float:
+    tramo_start = _parse_tramo_start(tramo)
+
+    def tramo_high_default(meta_map: dict[str, float]) -> float:
+        if tramo_start is not None and tramo_start >= 91:
+            # Tramos altos (incluye extras como 241-270) usan meta del bloque alto.
+            return meta_map.get("211-240", meta_map.get("181-210", 0.0))
+        return 0.0
+
     if kind == "contactabilidad":
-        return CONTACTO_META.get(tramo, 0.0)
+        return CONTACTO_META.get(tramo, tramo_high_default(CONTACTO_META))
     if kind == "recuperacion":
-        return RECUPERACION_META.get(tramo, 0.0)
+        return RECUPERACION_META.get(tramo, tramo_high_default(RECUPERACION_META))
     if kind == "promesas_pago":
         return 0.60
     if kind == "promesas_cumplidas":
@@ -209,8 +217,29 @@ def _available_months(rows: list[dict]) -> list[str]:
 
 
 def _tramo_rows(rows: list[dict]) -> list[str]:
-    # Mantener el orden completo evita que un tramo como 211-240 desaparezca del KPI.
-    return TRAMO_ORDER.copy()
+    # Orden dinámico desde asignación del mes seleccionado, preservando estándar primero.
+    seen = set()
+    tramos_data: list[str] = []
+    for row in rows:
+        tramo = str(row.get("tramo", "")).strip()
+        if tramo and tramo not in seen:
+            seen.add(tramo)
+            tramos_data.append(tramo)
+
+    if not tramos_data:
+        return TRAMO_ORDER.copy()
+
+    def sort_key(tramo: str) -> tuple[int, int, str]:
+        start = _parse_tramo_start(tramo)
+        if start is None:
+            return (1, 10_000, tramo)
+        return (0, start, tramo)
+
+    # Asegurar tramos estándar en su lugar si existen en datos.
+    ordered_standard = [t for t in TRAMO_ORDER if t in seen]
+    remaining = [t for t in tramos_data if t not in set(ordered_standard)]
+    remaining.sort(key=sort_key)
+    return ordered_standard + remaining
 
 
 def _group_counts(rows: list[dict]) -> dict[str, int]:
