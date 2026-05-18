@@ -121,3 +121,63 @@ th {
 .gm-dot-bad {
   background: #db6b2d;
 }
+
+.sth-page .sth-general-table thead th,
+.sth-page .sth-detail-table thead th {
+  background: #c20000;
+  color: #fff;
+}
+
+.sth-page .sth-section-title {
+  background: #c20000;
+  color: #fff;
+  font-weight: 700;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.35rem 0.35rem 0 0;
+}
+
+.sth-page .sth-detail-table {
+  margin-bottom: 0;
+}
+
+.sth-page .sth-table-shell {
+  max-height: calc(100vh - 250px);
+  overflow: auto;
+}
+
+.sth-page .sth-compact-table {
+  table-layout: fixed;
+  width: max-content;
+  min-width: 100%;
+}
+
+.sth-page .sth-compact-table th,
+.sth-page .sth-compact-table td {
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 0.28rem 0.38rem;
+  line-height: 1.1;
+}
+
+.sth-page .sth-compact-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.sth-page .sth-compact-table th:first-child,
+.sth-page .sth-compact-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fff;
+}
+
+.sth-page .sth-compact-table thead th:first-child {
+  z-index: 4;
+  background: #c20000;
+}
+
+.sth-page .sth-compact-table .table-primary td:first-child {
+  background: #cfe2ff;
+}

@@ -6,6 +6,7 @@ from routers.la_araucana import router as la_araucana_router
 from routers.porsche import router as porsche_router
 from routers.sc_tardia import router as sc_tardia_router
 from routers.sc_temprana import router as sc_temprana_router
+from routers.sth import router as sth_router
 
 
 app = FastAPI(title="Productividad Ejecutivos API", version="1.0.0")
@@ -29,3 +30,4 @@ app.include_router(sc_temprana_router, prefix="/api/sc-temprana", tags=["sc-temp
 app.include_router(gm_router, prefix="/api/gm", tags=["gm"])
 app.include_router(la_araucana_router, prefix="/api/la-araucana", tags=["la-araucana"])
 app.include_router(porsche_router, prefix="/api", tags=["porsche"])
+app.include_router(sth_router, prefix="/api/sth", tags=["sth"])
