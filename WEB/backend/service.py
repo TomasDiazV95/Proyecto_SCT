@@ -373,9 +373,7 @@ def get_general_view(filters: dict) -> list[dict]:
                 "deuda_total": 0.0,
                 "casos_asignados": 0,
                 "ponderado": 0.0,
-                "ciclos": {},
-                "bucket_deuda": {},
-                "bucket_ponderado": {},
+                "bucket_data": {},
             },
         )
 
@@ -386,23 +384,44 @@ def get_general_view(filters: dict) -> list[dict]:
 
         bucket = _general_bucket(row["tramo"], row["apertura"])
         if bucket:
-            current["bucket_deuda"][bucket] = (
-                current["bucket_deuda"].get(bucket, 0.0) + deuda
+            bucket_current = current["bucket_data"].setdefault(
+                bucket,
+                {
+                    "deuda": 0.0,
+                    "contenido": 0.0,
+                    "normalizado": 0.0,
+                    "meta_cont_pond": 0.0,
+                    "meta_norm_pond": 0.0,
+                },
             )
-            current["bucket_ponderado"][bucket] = current["bucket_ponderado"].get(
-                bucket, 0.0
-            ) + (row["cumplimiento_final"] * deuda)
+            bucket_current["deuda"] += deuda
+            bucket_current["contenido"] += row["saldo_contenido"]
+            bucket_current["normalizado"] += row["saldo_normalizado"]
+            bucket_current["meta_cont_pond"] += row["meta_contencion_pct"] * deuda
+            bucket_current["meta_norm_pond"] += row["meta_normalizacion_pct"] * deuda
 
     response = []
     for item in by_exec.values():
         deuda_total = item["deuda_total"]
         cumplimiento_final = (item["ponderado"] / deuda_total) if deuda_total else 0.0
         ciclos = {}
-        for bucket, bucket_deuda in item["bucket_deuda"].items():
-            ciclos[bucket] = (
-                (item["bucket_ponderado"][bucket] / bucket_deuda)
-                if bucket_deuda
-                else 0.0
+        for bucket, bucket_values in item["bucket_data"].items():
+            bucket_deuda = bucket_values["deuda"]
+            pct_cont = _safe_div(bucket_values["contenido"], bucket_deuda)
+            pct_norm = _safe_div(bucket_values["normalizado"], bucket_deuda)
+            meta_cont = (
+                (bucket_values["meta_cont_pond"] / bucket_deuda) if bucket_deuda else 0.0
+            )
+            meta_norm = (
+                (bucket_values["meta_norm_pond"] / bucket_deuda) if bucket_deuda else 0.0
+            )
+            ciclos[bucket] = _cumplimiento_final(
+                pct_cont,
+                meta_cont,
+                pct_norm,
+                meta_norm,
+                bucket,
+                "TODAS",
             )
 
         response.append(

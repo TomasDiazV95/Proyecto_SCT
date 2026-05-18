@@ -129,7 +129,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
             AS DECIMAL(10, 2)) AS porcentaje_contencion,
             CASE
                 WHEN base.ejecutivo = 'Daniela Cañicul' AND base.bucket = '6 a 30' THEN CAST(24.58 AS DECIMAL(10, 2))
-                WHEN base.ejecutivo = 'Luis Toledo' AND base.bucket = '6 a 30' THEN CAST(2.3 AS DECIMAL(10, 2))
+                WHEN base.ejecutivo = 'Luis Toledo' AND base.bucket = '6 a 30' THEN CAST(15.54 AS DECIMAL(10, 2))
                 ELSE CAST(
                     (SUM(CASE WHEN base.normalizado = 1 THEN base.deuda ELSE 0 END) * 100.0)
                     / NULLIF(SUM(base.deuda), 0)
