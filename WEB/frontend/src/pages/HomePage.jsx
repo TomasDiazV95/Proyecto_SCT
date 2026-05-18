@@ -31,6 +31,12 @@ const modules = [
     path: "/la-araucana",
     btn: "Ir a La Araucana",
   },
+  {
+    title: "STH",
+    description: "KPI Hipotecario con 4 productos.",
+    path: "/sth",
+    btn: "Ir a STH",
+  },
 ];
 
 export default function HomePage() {
