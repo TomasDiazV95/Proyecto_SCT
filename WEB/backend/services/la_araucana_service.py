@@ -109,10 +109,12 @@ def _resolved_cols() -> dict:
         "cartera_gest": _pick(g, ["Cartera", "cartera", "fld_CARTERA", "fld_cartera"], "cartera gestion"),
         "usuario_ej": _pick(e, ["usuario_ejecutivo"], "usuario ejecutivo"),
         "nombre_ej": _pick(e, ["nombre_ejecutivo"], "nombre ejecutivo"),
+        "periodo_desde_ej": _pick_optional(e, ["periodo_desde"]),
+        "periodo_hasta_ej": _pick_optional(e, ["periodo_hasta"]),
     }
 
 
-def get_filtros() -> dict:
+def get_filtros(periodo: str | None = None) -> dict:
     c = _resolved_cols()
     periodos_raw = [
         r["v"]
@@ -121,6 +123,8 @@ def get_filtros() -> dict:
         )
     ]
     periodos = sorted({str(v)[:7] for v in periodos_raw if v and len(str(v)) >= 7}, reverse=True)
+    selected_period = (periodo or (periodos[0] if periodos else "")).strip()
+    _period_month, _period_day, month_start, _month_end, _tokens = _parse_period(selected_period) if selected_period else ("", "", "", "", "")
     tipos = [
         r["v"]
         for r in run_query(
@@ -136,10 +140,39 @@ def get_filtros() -> dict:
             """
         )
     ]
+    executive_conditions: list[str] = []
+    executive_params: list[str] = []
+    if selected_period:
+        if c["periodo_desde_ej"]:
+            executive_conditions.append(f"({c['periodo_desde_ej']} IS NULL OR CAST({c['periodo_desde_ej']} AS date) <= CAST(? AS date))")
+            executive_params.append(month_start)
+        if c["periodo_hasta_ej"]:
+            executive_conditions.append(f"({c['periodo_hasta_ej']} IS NULL OR CAST({c['periodo_hasta_ej']} AS date) >= CAST(? AS date))")
+            executive_params.append(month_start)
+
+    executive_where = ""
+    if executive_conditions:
+        executive_where = "\n                  AND " + "\n                  AND ".join(executive_conditions)
+
     return {
         "periodos": periodos,
         "carteras_crm": [531],
         "tipo_cartera": tipos,
+        "ejecutivos": [
+            r["v"]
+            for r in run_query(
+                f"""
+                SELECT DISTINCT CONVERT(varchar(260), {c['nombre_ej']}) AS v
+                FROM {EJECUTIVOS_TABLE}
+                WHERE {c['nombre_ej']} IS NOT NULL
+                  AND LTRIM(RTRIM(CONVERT(varchar(260), {c['nombre_ej']}))) <> ''
+                  {executive_where}
+                ORDER BY v
+                """,
+                tuple(executive_params),
+            )
+            if r["v"]
+        ],
     }
 
 
@@ -236,6 +269,8 @@ def get_resumen(filters: dict) -> dict:
         LEFT JOIN mejor_gestion mg ON CONVERT(varchar(50), a.{c['rut_asig']}) = mg.rut AND mg.rn = 1
         LEFT JOIN intensidad i ON CONVERT(varchar(50), a.{c['rut_asig']}) = i.rut
         LEFT JOIN {EJECUTIVOS_TABLE} e ON mg.usuario = e.{c['usuario_ej']}
+          {f"AND ({c['periodo_desde_ej']} IS NULL OR CAST({c['periodo_desde_ej']} AS date) <= CAST(? AS date))" if c['periodo_desde_ej'] else ''}
+          {f"AND ({c['periodo_hasta_ej']} IS NULL OR CAST({c['periodo_hasta_ej']} AS date) >= CAST(? AS date))" if c['periodo_hasta_ej'] else ''}
         WHERE 1 = 1
           {f"AND UPPER(CONVERT(varchar(300), a.{c['source_file_asig']})) LIKE UPPER(?)" if c['source_file_asig'] else ""}
     ),
@@ -276,6 +311,10 @@ def get_resumen(filters: dict) -> dict:
     if c["source_file_pago"]:
         pre_params.extend(_source_file_like_values(recuperacion_file, period_month))
     pre_params.extend([month_start, month_end])
+    if c["periodo_desde_ej"]:
+        pre_params.append(month_start)
+    if c["periodo_hasta_ej"]:
+        pre_params.append(month_start)
     if c["source_file_asig"]:
         pre_params.append(f"%{asignacion_file}%")
     rows = run_query(sql, tuple(pre_params + params))
@@ -360,6 +399,8 @@ def get_validacion(periodo: str) -> dict:
         LEFT JOIN pagos_validos_contrato p ON CONVERT(varchar(100), a.{c['folio']}) = p.contrato
         LEFT JOIN mejor_gestion mg ON CONVERT(varchar(50), a.{c['rut_asig']}) = mg.rut AND mg.rn = 1
         LEFT JOIN {EJECUTIVOS_TABLE} e ON mg.usuario = e.{c['usuario_ej']}
+          {f"AND ({c['periodo_desde_ej']} IS NULL OR CAST({c['periodo_desde_ej']} AS date) <= CAST(? AS date))" if c['periodo_desde_ej'] else ''}
+          {f"AND ({c['periodo_hasta_ej']} IS NULL OR CAST({c['periodo_hasta_ej']} AS date) >= CAST(? AS date))" if c['periodo_hasta_ej'] else ''}
         WHERE 1 = 1
           {f"AND UPPER(CONVERT(varchar(300), a.{c['source_file_asig']})) LIKE UPPER(?)" if c['source_file_asig'] else ""}
     )
@@ -375,6 +416,10 @@ def get_validacion(periodo: str) -> dict:
     if c["source_file_pago"]:
         params.extend(_source_file_like_values(recuperacion_file, period_month))
     params.extend([month_start, month_end])
+    if c["periodo_desde_ej"]:
+        params.append(month_start)
+    if c["periodo_hasta_ej"]:
+        params.append(month_start)
     if c["source_file_asig"]:
         params.append(f"%{asignacion_file}%")
     row = run_query(sql, tuple(params))[0]
@@ -450,6 +495,8 @@ def get_export_rows(filters: dict) -> tuple[str, list[dict]]:
         FROM {ASIGNACION_TABLE} a
         LEFT JOIN mejor_gestion mg ON CONVERT(varchar(50), a.{c['rut_asig']}) = mg.rut AND mg.rn = 1
         LEFT JOIN {EJECUTIVOS_TABLE} e ON mg.usuario = e.{c['usuario_ej']}
+          {f"AND ({c['periodo_desde_ej']} IS NULL OR CAST({c['periodo_desde_ej']} AS date) <= CAST(? AS date))" if c['periodo_desde_ej'] else ''}
+          {f"AND ({c['periodo_hasta_ej']} IS NULL OR CAST({c['periodo_hasta_ej']} AS date) >= CAST(? AS date))" if c['periodo_hasta_ej'] else ''}
         LEFT JOIN pagos_validos_contrato p ON CONVERT(varchar(100), a.{c['folio']}) = p.contrato
         WHERE 1 = 1
           AND e.{c['nombre_ej']} IS NOT NULL
@@ -478,6 +525,10 @@ def get_export_rows(filters: dict) -> tuple[str, list[dict]]:
     if c["source_file_pago"]:
         pre_params.extend(_source_file_like_values(recuperacion_file, period_month))
     pre_params.extend([month_start, month_end])
+    if c["periodo_desde_ej"]:
+        pre_params.append(month_start)
+    if c["periodo_hasta_ej"]:
+        pre_params.append(month_start)
     if c["source_file_asig"]:
         pre_params.append(f"%{asignacion_file}%")
 

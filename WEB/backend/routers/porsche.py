@@ -143,13 +143,14 @@ def _cuadro_group_for_tramo(tramo: str) -> str | None:
         return "31-60"
     if start == 61:
         return "61-90"
-    if start >= 91:
+    if 91 <= start <= 210:
         return "91+"
     return None
 
 
 def _build_cuadro_contenido(rows: list[dict]) -> dict:
-    metas = {"31-60": 0.70, "61-90": 0.60, "91+": 0.50}
+    metas = {"31-60": 0.70, "61-90": 0.60, "91+": 0.40}
+    ponderadores = {"31-60": 0.60, "61-90": 0.30, "91+": 0.10}
     agg = {
         "31-60": {"contenido": 0.0, "no_contenido": 0.0, "total": 0.0},
         "61-90": {"contenido": 0.0, "no_contenido": 0.0, "total": 0.0},
@@ -170,13 +171,11 @@ def _build_cuadro_contenido(rows: list[dict]) -> dict:
             agg[group]["no_contenido"] += deuda
             agg[group]["total"] += deuda
 
-    total_porsche = sum(v["total"] for v in agg.values())
-
     calc = {}
     for group in ("31-60", "61-90", "91+"):
         total = agg[group]["total"]
         meta = metas[group]
-        ponderador = (total / total_porsche) if total_porsche else 0.0
+        ponderador = ponderadores[group]
         real_total = (agg[group]["contenido"] / total) if total else 0.0
         cumplimiento = (real_total / meta) if meta else 0.0
         resultado = ponderador * cumplimiento

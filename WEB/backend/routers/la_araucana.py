@@ -15,9 +15,9 @@ def health() -> dict:
 
 
 @router.get("/filtros")
-def filtros() -> dict:
+def filtros(periodo: str | None = Query(default=None)) -> dict:
     try:
-        return get_filtros()
+        return get_filtros(periodo)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

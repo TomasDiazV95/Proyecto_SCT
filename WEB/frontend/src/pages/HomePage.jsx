@@ -20,6 +20,12 @@ const modules = [
     btn: "Ir a GM",
   },
   {
+    title: "BIT",
+    description: "Seguimiento y cumplimiento de BIT.",
+    path: "/bit",
+    btn: "Ir a BIT",
+  },
+  {
     title: "Porsche",
     description: "Seguimiento y cumplimiento de Porsche",
     path: "/porsche",

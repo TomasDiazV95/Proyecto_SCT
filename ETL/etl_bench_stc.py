@@ -187,7 +187,7 @@ def compute_meta_values(tramo_raw, apertura_raw) -> tuple[int | None, int | None
     if tramo in {"C6", "C7", "C8"} and apertura == "SUSCEPTIBLE CASTIGO":
         return 42, meta_normalizacion
     if tramo == "C6" and apertura != "SUSCEPTIBLE CASTIGO":
-        return 30, meta_normalizacion
+        return 46, meta_normalizacion
     if tramo == "C3":
         return 74, meta_normalizacion
     if tramo == "C4" and apertura == "SUSCEPTIBLE CV":
