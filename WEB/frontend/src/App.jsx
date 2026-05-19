@@ -6,6 +6,7 @@ import LaAraucanaPage from "./pages/LaAraucanaPage";
 import PorschePage from "./pages/PorschePage";
 import ScTardiaPage from "./pages/ScTardiaPage";
 import ScTempranaPage from "./pages/ScTempranaPage";
+import SthPage from "./pages/SthPage";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
       <Route path="/bit" element={<BitPage />} />
       <Route path="/la-araucana" element={<LaAraucanaPage />} />
       <Route path="/porsche" element={<PorschePage />} />
+      <Route path="/sth" element={<SthPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
