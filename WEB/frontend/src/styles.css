@@ -110,16 +110,49 @@ th {
   vertical-align: middle;
 }
 
+:root {
+  --muy-bajo: #e74c3c;
+  --bajo: #f39c12;
+  --esperado: #f1c40f;
+  --sobre-esperado: #2ecc71;
+}
+
 .gm-dot-ok {
-  background: #2f9f5f;
+  background: var(--sobre-esperado);
 }
 
 .gm-dot-warn {
-  background: #e1b12c;
+  background: var(--esperado);
 }
 
 .gm-dot-bad {
-  background: #db6b2d;
+  background: var(--muy-bajo);
+}
+
+.gm-dot-low {
+  background: var(--bajo);
+}
+
+.bit-meta-indicator {
+  display: inline-grid;
+  grid-template-columns: 10px 1fr;
+  align-items: center;
+  gap: 8px;
+  width: 96px;
+  text-align: left;
+}
+
+.bit-meta-indicator .gm-dot {
+  margin-right: 0;
+  flex: 0 0 10px;
+}
+
+.bit-meta-cell {
+  text-align: center;
+}
+
+.bit-meta-indicator-total .gm-dot {
+  visibility: hidden;
 }
 
 .sth-page .sth-general-table thead th,

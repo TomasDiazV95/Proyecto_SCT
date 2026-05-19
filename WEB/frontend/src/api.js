@@ -63,8 +63,8 @@ export async function fetchPorscheCuadroContenido(filters) {
   return res.json();
 }
 
-export async function fetchLaAraucanaFilters() {
-  const res = await fetch(`${API_BASE}/api/la-araucana/filtros`);
+export async function fetchLaAraucanaFilters(periodo = "") {
+  const res = await fetch(withQuery(`${API_BASE}/api/la-araucana/filtros`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de La Araucana");
   }
@@ -139,6 +139,38 @@ export async function fetchGmGeneral(filters) {
   }
   const body = await res.json();
   return body.data || [];
+}
+
+export async function fetchBitFilters() {
+  const res = await fetch(`${API_BASE}/api/bit/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de BIT");
+  }
+  return res.json();
+}
+
+export async function fetchBitGeneral(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/bit/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de BIT");
+  }
+  return res.json();
+}
+
+export async function fetchBitTramos(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/bit/tramos`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista por tramo de BIT");
+  }
+  return res.json();
+}
+
+export async function fetchBitDetalle(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/bit/detalle`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el detalle de BIT");
+  }
+  return res.json();
 }
 
 export async function fetchGmBucket(filters) {

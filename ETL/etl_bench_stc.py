@@ -27,7 +27,7 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
 # ========= BENCH =========
-BENCH_FOLDER = Path(r"C:\Users\PC del Marrón\Desktop\Paso")
+BENCH_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\SCT BENCH\extraido")
 BENCH_PATTERN = "*BENCH MORA TARDIA - PHOENIX*.xlsx"
 SHEET_NAME = "PHOENIX"
 
@@ -187,7 +187,7 @@ def compute_meta_values(tramo_raw, apertura_raw) -> tuple[int | None, int | None
     if tramo in {"C6", "C7", "C8"} and apertura == "SUSCEPTIBLE CASTIGO":
         return 42, meta_normalizacion
     if tramo == "C6" and apertura != "SUSCEPTIBLE CASTIGO":
-        return 30, meta_normalizacion
+        return 46, meta_normalizacion
     if tramo == "C3":
         return 74, meta_normalizacion
     if tramo == "C4" and apertura == "SUSCEPTIBLE CV":

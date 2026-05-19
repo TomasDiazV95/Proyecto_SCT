@@ -16,7 +16,7 @@ function formatPct(value) {
 
 export default function LaAraucanaPage() {
   const [filters, setFilters] = useState({ periodos: [], tipo_cartera: [] });
-  const [selected, setSelected] = useState({ periodo: "", cartera_crm: 531, tipo_cartera: "", ejecutivo: "" });
+  const [selected, setSelected] = useState({ periodo: "", cartera_crm: 531, tipo_cartera: "" });
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null);
   const [loading, setLoading] = useState(false);

@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import BitPage from "./pages/BitPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
@@ -14,6 +15,7 @@ export default function App() {
       <Route path="/sc-tardia" element={<ScTardiaPage />} />
       <Route path="/sc-temprana" element={<ScTempranaPage />} />
       <Route path="/gm" element={<GmPage />} />
+      <Route path="/bit" element={<BitPage />} />
       <Route path="/la-araucana" element={<LaAraucanaPage />} />
       <Route path="/porsche" element={<PorschePage />} />
       <Route path="/sth" element={<SthPage />} />

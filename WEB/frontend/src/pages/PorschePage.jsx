@@ -140,7 +140,11 @@ function formatPercent0(value) {
   if (value === null || value === undefined || value === "") {
     return "";
   }
-  return `${Math.round(Number(value) * 100)}%`;
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return "";
+  }
+  return `${Math.round(numericValue * 100)}%`;
 }
 
 function CuadroContenido({ data }) {
