@@ -99,6 +99,103 @@ WITH carterizado_unico AS (
 )
 """
 
+BIT_DATA_CTE_TRAMOS = """
+WITH carterizado_unico AS (
+    SELECT
+        periodo,
+        operation_key,
+        usuario,
+        ROW_NUMBER() OVER (
+            PARTITION BY periodo, operation_key
+            ORDER BY id ASC
+        ) AS rn
+    FROM (
+        SELECT
+            periodo,
+            usuario,
+            CASE
+                WHEN LTRIM(RTRIM(COALESCE(nro_operacion, ''))) <> ''
+                 AND LTRIM(RTRIM(COALESCE(nro_operacion, ''))) NOT LIKE '%[^0-9]%'
+                    THEN CAST(CAST(LTRIM(RTRIM(nro_operacion)) AS BIGINT) AS VARCHAR(50))
+                ELSE UPPER(LTRIM(RTRIM(COALESCE(nro_operacion, ''))))
+            END AS operation_key,
+            id
+        FROM dbo.tmp_BIT_carterizado
+    ) src
+), dotacion AS (
+    SELECT
+        UPPER(LTRIM(RTRIM(usuario_ejecutivo))) AS usuario,
+        nombre_ejecutivo,
+        periodo_desde,
+        periodo_hasta
+    FROM dbo.tmp_ejecutivos
+    WHERE cartera = 532
+), metas AS (
+    SELECT periodo, tramo, meta
+    FROM (
+        SELECT
+            periodo,
+            CASE
+                WHEN tramo IN ('30-89', '30-90') THEN '30-90'
+                ELSE tramo
+            END AS tramo,
+            meta,
+            ROW_NUMBER() OVER (
+                PARTITION BY periodo, CASE WHEN tramo IN ('30-89', '30-90') THEN '30-90' ELSE tramo END
+                ORDER BY CASE WHEN tramo = '30-90' THEN 1 ELSE 2 END
+            ) AS rn
+        FROM dbo.tmp_BIT_metas
+    ) src
+    WHERE rn = 1
+), bit_data AS (
+    SELECT
+        c.periodo,
+        c.rut,
+        c.dv,
+        c.con_no,
+        COALESCE(cu.usuario, 'Phoenix') AS carterizado,
+        COALESCE(d.nombre_ejecutivo, 'Phoenix') AS ejecutivo,
+        CASE
+            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
+            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
+            ELSE ''
+        END AS tramo,
+        m.meta,
+        CASE WHEN m.meta IS NULL THEN 0 ELSE ISNULL(c.total, 0) * m.meta END AS meta_final,
+        ISNULL(c.total, 0) AS mto_inicial,
+        ISNULL(c.mto_contiene, 0) AS mto_contenido,
+        ISNULL(c.contiene, 0) AS contiene,
+        c.tipo_cont
+    FROM dbo.tmp_BIT_contencion c
+    LEFT JOIN carterizado_unico cu
+        ON cu.periodo = c.periodo
+       AND cu.operation_key = CASE
+            WHEN LTRIM(RTRIM(COALESCE(c.con_no, ''))) <> ''
+             AND LTRIM(RTRIM(COALESCE(c.con_no, ''))) NOT LIKE '%[^0-9]%'
+                THEN CAST(CAST(LTRIM(RTRIM(c.con_no)) AS BIGINT) AS VARCHAR(50))
+            ELSE UPPER(LTRIM(RTRIM(COALESCE(c.con_no, ''))))
+        END
+       AND cu.rn = 1
+    LEFT JOIN dotacion d
+        ON d.usuario = UPPER(LTRIM(RTRIM(COALESCE(cu.usuario, 'Phoenix'))))
+       AND (
+            d.periodo_desde IS NULL
+            OR d.periodo_desde <= EOMONTH(DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1))
+       )
+       AND (
+            d.periodo_hasta IS NULL
+            OR d.periodo_hasta >= DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1)
+       )
+    LEFT JOIN metas m
+        ON m.periodo = c.periodo
+       AND m.tramo = CASE
+            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
+            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
+            ELSE ''
+        END
+)
+"""
+
 
 def _safe_div(num: float, den: float) -> float:
     if den is None or den == 0:
@@ -264,7 +361,7 @@ def get_tramos(filters: dict) -> dict:
     periodo = str(filters.get("periodo") or "").strip()
     where_sql, params = _base_where(filters)
     sql = f"""
-    {BIT_DATA_CTE}
+    {BIT_DATA_CTE_TRAMOS}
     SELECT
         tramo,
         SUM(COALESCE(CAST(mto_inicial AS float), 0)) AS monto_inicial,

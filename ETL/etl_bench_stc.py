@@ -27,7 +27,7 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
 # ========= BENCH =========
-BENCH_FOLDER = Path(r"C:\Users\PC del Marrón\Desktop\Paso")
+BENCH_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\SCT BENCH\extraido")
 BENCH_PATTERN = "*BENCH MORA TARDIA - PHOENIX*.xlsx"
 SHEET_NAME = "PHOENIX"
 
