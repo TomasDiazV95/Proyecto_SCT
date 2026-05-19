@@ -1,7 +1,7 @@
-# Proyecto SCT
+# Proyecto Productividades
 
 
-Proyecto de automatizacion, carga ETL y visualizacion web para distintas carteras. El repositorio integra scripts Python que descargan y cargan informacion operacional en SQL Server, una API FastAPI para consultar indicadores y un frontend React/Vite para analizar productividad por cartera.
+Proyecto de automatizacion, carga ETL y visualizacion web de productividades para distintas carteras. El repositorio integra scripts Python que descargan y cargan informacion operacional en SQL Server, una API FastAPI para consultar indicadores y un frontend React/Vite para analizar productividad por cartera.
 
 ## Modulos principales
 
