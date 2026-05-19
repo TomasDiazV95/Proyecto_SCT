@@ -195,3 +195,29 @@ export async function downloadGmMonthlyExcel(periodo) {
 
   return { blob, filename };
 }
+
+export async function fetchSthFilters() {
+  const res = await fetch(`${API_BASE}/api/sth/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de STH");
+  }
+  return res.json();
+}
+
+export async function fetchSthGeneral(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/sth/productividad/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de STH");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchSthDetail(filters) {
+  const res = await fetch(withQuery(`${API_BASE}/api/sth/productividad/desglosada`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista desglosada de STH");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
