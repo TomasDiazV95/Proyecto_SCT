@@ -99,6 +99,23 @@ WITH carterizado_unico AS (
         periodo_hasta
     FROM dbo.tmp_ejecutivos
     WHERE cartera = 532
+), metas AS (
+    SELECT periodo, tramo, meta
+    FROM (
+        SELECT
+            periodo,
+            CASE
+                WHEN tramo IN ('30-89', '30-90') THEN '30-90'
+                ELSE tramo
+            END AS tramo,
+            meta,
+            ROW_NUMBER() OVER (
+                PARTITION BY periodo, CASE WHEN tramo IN ('30-89', '30-90') THEN '30-90' ELSE tramo END
+                ORDER BY CASE WHEN tramo = '30-90' THEN 1 ELSE 2 END
+            ) AS rn
+        FROM dbo.tmp_BIT_metas
+    ) src
+    WHERE rn = 1
 ), base AS (
     SELECT
         c.periodo,
@@ -108,7 +125,7 @@ WITH carterizado_unico AS (
         COALESCE(cu.usuario, 'Phoenix') AS carterizado,
         COALESCE(d.nombre_ejecutivo, 'Phoenix') AS ejecutivo,
         CASE
-            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-89'
+            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
             WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
             ELSE ''
         END AS tramo,
@@ -136,6 +153,7 @@ WITH carterizado_unico AS (
             d.periodo_hasta IS NULL
             OR d.periodo_hasta >= DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1)
        )
+    WHERE UPPER(LTRIM(RTRIM(COALESCE(c.cartera, '')))) <> 'UNIVERSITARIOS'
 )
 SELECT
     b.periodo,
@@ -152,7 +170,7 @@ SELECT
     b.contiene,
     b.tipo_cont
 FROM base b
-LEFT JOIN dbo.tmp_BIT_metas m
+LEFT JOIN metas m
     ON m.periodo = b.periodo
    AND m.tramo = b.tramo;
 GO

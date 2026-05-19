@@ -12,6 +12,8 @@ router = APIRouter()
 
 # Fuente unica de Porsche: vista consolidada, no tablas de staging.
 DASHBOARD_VIEW = "dbo.dashboard_data"
+PW_METAS_TABLE = "dbo.tmp_PW_metas"
+PW_CIERRE_TRAMOS = ("31-60", "61-90", "90+")
 
 TRAMO_ORDER = ["31-60", "61-90", "91-120", "121-150", "151-180", "181-210", "211-240"]
 CONTACTO_META = {"31-60": 0.80, "61-90": 0.70, "91-120": 0.50, "121-150": 0.50, "151-180": 0.50, "181-210": 0.50, "211-240": 0.50}
@@ -73,6 +75,62 @@ def _selected_month_rows(rows: list[dict], mes: str | None) -> list[dict]:
         return rows
 
     return [row for row in rows if _month_label(row.get("fecha_hora_carga")) == mes]
+
+
+def _period_start_from_month_label(label: str | None) -> date | None:
+    text = str(label or "").strip()
+    if not text:
+        return None
+
+    for fmt in ("%m-%Y", "%Y-%m", "%Y-%m-%d", "%m/%Y"):
+        try:
+            parsed = datetime.strptime(text, fmt)
+            return date(parsed.year, parsed.month, 1)
+        except ValueError:
+            continue
+
+    return None
+
+
+def _normalize_pw_tramo(value: str | None) -> str:
+    text = str(value or "").strip().upper()
+    if text in PW_CIERRE_TRAMOS:
+        return text
+    if text.startswith("90"):
+        return "90+"
+    return text
+
+
+def _load_pw_metas(period_start: date | None) -> dict[str, dict]:
+    out = {tramo: {"ponderador": None, "meta_total": None} for tramo in PW_CIERRE_TRAMOS}
+    if period_start is None:
+        return out
+
+    sql = f"""
+    SELECT
+        tramo,
+        CAST(ponderador AS float) AS ponderador,
+        CAST(meta_total AS float) AS meta_total
+    FROM {PW_METAS_TABLE}
+    WHERE periodo = ?
+      AND activo = 1
+    """
+    try:
+        rows = run_query(sql, (period_start,))
+    except Exception:
+        # Si la tabla aun no existe (o hay error de lectura), el cierre debe quedar vacio,
+        # no botar todo el dashboard de Porsche.
+        return out
+
+    for row in rows:
+        tramo = _normalize_pw_tramo(row.get("tramo"))
+        if tramo not in out:
+            continue
+        out[tramo] = {
+            "ponderador": row.get("ponderador"),
+            "meta_total": row.get("meta_total"),
+        }
+    return out
 
 
 def _meta_for(tramo: str, kind: str) -> float:
@@ -148,9 +206,7 @@ def _cuadro_group_for_tramo(tramo: str) -> str | None:
     return None
 
 
-def _build_cuadro_contenido(rows: list[dict]) -> dict:
-    metas = {"31-60": 0.70, "61-90": 0.60, "91+": 0.40}
-    ponderadores = {"31-60": 0.60, "61-90": 0.30, "91+": 0.10}
+def _build_cuadro_contenido(rows: list[dict], metas_by_tramo: dict[str, dict]) -> dict:
     agg = {
         "31-60": {"contenido": 0.0, "no_contenido": 0.0, "total": 0.0},
         "61-90": {"contenido": 0.0, "no_contenido": 0.0, "total": 0.0},
@@ -172,13 +228,28 @@ def _build_cuadro_contenido(rows: list[dict]) -> dict:
             agg[group]["total"] += deuda
 
     calc = {}
+    group_to_tramo_meta = {"31-60": "31-60", "61-90": "61-90", "91+": "90+"}
+
     for group in ("31-60", "61-90", "91+"):
         total = agg[group]["total"]
-        meta = metas[group]
-        ponderador = ponderadores[group]
+        tramo_meta = group_to_tramo_meta[group]
+        meta_data = metas_by_tramo.get(tramo_meta, {})
+        meta = meta_data.get("meta_total")
+        ponderador = meta_data.get("ponderador")
+
+        if meta is None or ponderador is None:
+            calc[group] = {
+                "ponderador": None,
+                "meta_total": None,
+                "real_total": None,
+                "cumplimiento": None,
+                "resultado": None,
+            }
+            continue
+
         real_total = (agg[group]["contenido"] / total) if total else 0.0
-        cumplimiento = (real_total / meta) if meta else 0.0
-        resultado = ponderador * cumplimiento
+        cumplimiento = (real_total / meta) if meta else None
+        resultado = (ponderador * cumplimiento) if cumplimiento is not None else None
         calc[group] = {
             "ponderador": ponderador,
             "meta_total": meta,
@@ -196,9 +267,16 @@ def _build_cuadro_contenido(rows: list[dict]) -> dict:
         {"negocio_pw": "181-210", "ponderador": None, "meta_total": None, "real_total": None, "cumplimiento": None, "resultado": None},
     ]
 
+    resultados = [
+        calc["31-60"]["resultado"],
+        calc["61-90"]["resultado"],
+        calc["91+"]["resultado"],
+    ]
+    resultados_validos = [value for value in resultados if value is not None]
+
     return {
         "rows": rows_visual,
-        "resultado_total": calc["31-60"]["resultado"] + calc["61-90"]["resultado"] + calc["91+"]["resultado"],
+        "resultado_total": sum(resultados_validos) if resultados_validos else None,
     }
 
 
@@ -433,7 +511,9 @@ def cuadro_contenido(mes: str | None = None) -> dict:
         available_months = _available_months(rows)
         selected_month = mes or (available_months[-1] if available_months else "")
         month_rows = _selected_month_rows(rows, selected_month)
-        cuadro = _build_cuadro_contenido(month_rows)
+        period_start = _period_start_from_month_label(selected_month)
+        metas_by_tramo = _load_pw_metas(period_start)
+        cuadro = _build_cuadro_contenido(month_rows, metas_by_tramo)
         return {
             "filters": {"meses": available_months, "default_mes": available_months[-1] if available_months else "", "mes": selected_month},
             "cuadro": cuadro,

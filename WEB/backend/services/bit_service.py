@@ -32,6 +32,23 @@ WITH carterizado_unico AS (
         periodo_hasta
     FROM dbo.tmp_ejecutivos
     WHERE cartera = 532
+), metas AS (
+    SELECT periodo, tramo, meta
+    FROM (
+        SELECT
+            periodo,
+            CASE
+                WHEN tramo IN ('30-89', '30-90') THEN '30-90'
+                ELSE tramo
+            END AS tramo,
+            meta,
+            ROW_NUMBER() OVER (
+                PARTITION BY periodo, CASE WHEN tramo IN ('30-89', '30-90') THEN '30-90' ELSE tramo END
+                ORDER BY CASE WHEN tramo = '30-90' THEN 1 ELSE 2 END
+            ) AS rn
+        FROM dbo.tmp_BIT_metas
+    ) src
+    WHERE rn = 1
 ), bit_data AS (
     SELECT
         c.periodo,
@@ -41,7 +58,7 @@ WITH carterizado_unico AS (
         COALESCE(cu.usuario, 'Phoenix') AS carterizado,
         COALESCE(d.nombre_ejecutivo, 'Phoenix') AS ejecutivo,
         CASE
-            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-89'
+            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
             WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
             ELSE ''
         END AS tramo,
@@ -71,13 +88,14 @@ WITH carterizado_unico AS (
             d.periodo_hasta IS NULL
             OR d.periodo_hasta >= DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1)
        )
-    LEFT JOIN dbo.tmp_BIT_metas m
+    LEFT JOIN metas m
         ON m.periodo = c.periodo
        AND m.tramo = CASE
-            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-89'
+            WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
             WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
             ELSE ''
         END
+    WHERE UPPER(LTRIM(RTRIM(COALESCE(c.cartera, '')))) <> 'UNIVERSITARIOS'
 )
 """
 
@@ -94,6 +112,7 @@ def _get_contencion_source_file(periodo: str) -> str:
         SELECT TOP 1 source_file
         FROM dbo.tmp_BIT_contencion
         WHERE periodo = ? AND source_file IS NOT NULL AND LTRIM(RTRIM(source_file)) <> ''
+          AND UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) <> 'UNIVERSITARIOS'
         GROUP BY source_file
         ORDER BY COUNT(1) DESC, source_file DESC
         """,
@@ -124,7 +143,15 @@ def _base_where(filters: dict) -> tuple[str, list]:
 def get_filter_values() -> dict:
     periodos = [
         r["v"]
-        for r in run_query("SELECT DISTINCT periodo AS v FROM dbo.tmp_BIT_contencion WHERE periodo IS NOT NULL ORDER BY v DESC")
+        for r in run_query(
+            """
+            SELECT DISTINCT periodo AS v
+            FROM dbo.tmp_BIT_contencion
+            WHERE periodo IS NOT NULL
+              AND UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) <> 'UNIVERSITARIOS'
+            ORDER BY v DESC
+            """
+        )
         if r.get("v")
     ]
     ejecutivos = [
@@ -148,7 +175,7 @@ def get_filter_values() -> dict:
             FROM (
                 SELECT
                     CASE
-                        WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-89'
+                        WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
                         WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
                         ELSE ''
                     END AS v,
@@ -158,8 +185,9 @@ def get_filter_values() -> dict:
                         ELSE 99
                     END) AS ord
                 FROM dbo.tmp_BIT_contencion
+                WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) <> 'UNIVERSITARIOS'
                 GROUP BY CASE
-                    WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-89'
+                    WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
                     WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
                     ELSE ''
                 END
@@ -189,7 +217,7 @@ def get_general(filters: dict) -> dict:
     WHERE {where_sql}
     GROUP BY ejecutivo, tramo
     ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo,
-             CASE WHEN tramo = '30-89' THEN 1 WHEN tramo = '90+' THEN 2 ELSE 99 END, tramo
+             CASE WHEN tramo = '30-90' THEN 1 WHEN tramo = '90+' THEN 2 ELSE 99 END, tramo
     """
     agg_rows = run_query(sql, tuple(params))
 
@@ -246,7 +274,7 @@ def get_tramos(filters: dict) -> dict:
     WHERE {where_sql}
       AND LTRIM(RTRIM(COALESCE(tramo, ''))) <> ''
     GROUP BY tramo
-    ORDER BY CASE WHEN tramo = '30-89' THEN 1 WHEN tramo = '90+' THEN 2 ELSE 99 END, tramo
+    ORDER BY CASE WHEN tramo = '30-90' THEN 1 WHEN tramo = '90+' THEN 2 ELSE 99 END, tramo
     """
     agg_rows = run_query(sql, tuple(params))
 

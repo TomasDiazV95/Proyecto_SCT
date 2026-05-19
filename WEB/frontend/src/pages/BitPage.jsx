@@ -15,7 +15,7 @@ function getContencionToneClass(value, tramo) {
   const pct = Number(value || 0) * 100;
   const tramoKey = String(tramo || "").trim();
 
-  if (tramoKey === "30-89") {
+  if (tramoKey === "30-90") {
     if (pct >= 71) return "gm-dot gm-dot-ok";
     if (pct >= 64) return "gm-dot gm-dot-warn";
     if (pct >= 57) return "gm-dot gm-dot-low";
