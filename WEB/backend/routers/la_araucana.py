@@ -1,12 +1,13 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from io import BytesIO
 from openpyxl import Workbook
 
+from auth.dependencies import require_module, require_roles
 from services.la_araucana_service import get_export_rows, get_filtros, get_resumen, get_validacion
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_module("la-araucana"))])
 
 
 @router.get("/health")
@@ -76,6 +77,7 @@ def productividad_detalle(
 def export(
     periodo: str = Query(...),
     tipo_cartera: str | None = Query(default=None),
+    _user: dict = Depends(require_roles("super_admin", "admin", "coordinador")),
 ) -> StreamingResponse:
     try:
         period_month, rows = get_export_rows({"periodo": periodo, "tipo_cartera": tipo_cartera})

@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import date, datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from auth.dependencies import require_module
 from database import run_query
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_module("porsche"))])
 
 # Fuente unica de Porsche: vista consolidada, no tablas de staging.
 DASHBOARD_VIEW = "dbo.dashboard_data"

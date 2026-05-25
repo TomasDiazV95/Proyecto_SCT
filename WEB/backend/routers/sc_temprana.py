@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from auth.dependencies import require_module
 
 from schemas import ApiEnvelope, FiltersResponse
 from services.sc_temprana_service import get_cycle_view, get_filter_values, get_general_view
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_module("sc-temprana"))])
 
 
 @router.get("/health")
