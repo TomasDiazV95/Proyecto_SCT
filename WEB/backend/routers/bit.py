@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from auth.dependencies import require_module
 from services.bit_service import get_detalle, get_filter_values, get_general, get_tramos
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_module("bit"))])
 
 
 @router.get("/health")

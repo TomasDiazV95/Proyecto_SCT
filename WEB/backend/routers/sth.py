@@ -1,10 +1,11 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from auth.dependencies import require_module
 from schemas import ApiEnvelope
 from services.sth_service import get_detail_view, get_filter_values, get_general_view
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_module("sth"))])
 
 
 @router.get("/health")

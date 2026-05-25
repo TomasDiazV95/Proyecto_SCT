@@ -39,3 +39,37 @@ class CycleRow(BaseModel):
 
 class ApiEnvelope(BaseModel):
     data: list[Any]
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class CreateUserRequest(BaseModel):
+    email: str
+    full_name: str
+    role: str
+    module_codes: list[str] = []
+
+
+class UpdateUserModulesRequest(BaseModel):
+    module_codes: list[str] = []
+
+
+class UpdateUserStatusRequest(BaseModel):
+    is_active: bool
