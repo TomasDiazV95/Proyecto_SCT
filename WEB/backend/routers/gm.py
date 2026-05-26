@@ -1,9 +1,10 @@
 from io import BytesIO
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 
+from auth.dependencies import require_module, require_roles
 from schemas import ApiEnvelope
 from services.gm_service import (
     get_bucket_view,
@@ -14,7 +15,7 @@ from services.gm_service import (
 )
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_module("gm"))])
 
 
 @router.get("/health")
@@ -77,7 +78,10 @@ def productividad_bucket(
 
 
 @router.get("/export")
-def export_mensual(periodo: str | None = Query(default=None)) -> StreamingResponse:
+def export_mensual(
+    periodo: str | None = Query(default=None),
+    _user: dict = Depends(require_roles("super_admin", "admin", "coordinador")),
+) -> StreamingResponse:
     try:
         periodo_base, rows = get_monthly_export_rows(periodo)
 

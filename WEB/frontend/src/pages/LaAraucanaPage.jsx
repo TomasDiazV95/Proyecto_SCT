@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 
 import { downloadLaAraucanaExcel, fetchLaAraucanaFilters, fetchLaAraucanaResumen } from "../api";
 
@@ -15,6 +16,7 @@ function formatPct(value) {
 }
 
 export default function LaAraucanaPage() {
+  const { user } = useAuth();
   const [filters, setFilters] = useState({ periodos: [], tipo_cartera: [] });
   const [selected, setSelected] = useState({ periodo: "", cartera_crm: 531, tipo_cartera: "" });
   const [rows, setRows] = useState([]);
@@ -22,6 +24,7 @@ export default function LaAraucanaPage() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
+  const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
 
   useEffect(() => {
     async function loadFilters() {
@@ -93,9 +96,11 @@ export default function LaAraucanaPage() {
             Volver al Home
           </Link>
         </div>
-        <button className="btn btn-success" onClick={onDownload} disabled={!selected.periodo || downloading}>
-          {downloading ? "Descargando..." : "Descargar Excel"}
-        </button>
+        {canDownload && (
+          <button className="btn btn-success" onClick={onDownload} disabled={!selected.periodo || downloading}>
+            {downloading ? "Descargando..." : "Descargar Excel"}
+          </button>
+        )}
       </div>
 
       <div className="card shadow-sm mb-3">

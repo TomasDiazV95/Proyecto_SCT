@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
 import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmFilters } from "../api";
 
 const initialFilters = {
@@ -35,6 +36,7 @@ function percentile(sortedValues, p) {
 }
 
 export default function GmPage() {
+  const { user } = useAuth();
   const [view, setView] = useState("detalle");
   const [filters, setFilters] = useState(initialFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
@@ -43,6 +45,7 @@ export default function GmPage() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
+  const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
 
   useEffect(() => {
     async function loadFilters() {
@@ -188,9 +191,11 @@ export default function GmPage() {
           <button className={`btn btn-${view === "bucket" ? "primary" : "outline-primary"}`} onClick={() => setView("bucket")}>
             Vista Bucket
           </button>
-          <button className="btn btn-success" onClick={onDownload} disabled={!filters.periodo || downloading}>
-            {downloading ? "Descargando..." : "Descargar Excel"}
-          </button>
+          {canDownload && (
+            <button className="btn btn-success" onClick={onDownload} disabled={!filters.periodo || downloading}>
+              {downloading ? "Descargando..." : "Descargar Excel"}
+            </button>
+          )}
         </div>
       </div>
 

@@ -1,5 +1,27 @@
 const API_BASE = import.meta.env.VITE_API_URL || "";
-//const API_BASE = "/api";
+
+async function apiFetch(url, options = {}, retry = true) {
+  const token = localStorage.getItem("auth_access_token") || "";
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(url, { ...options, headers, credentials: "include" });
+  if (res.status !== 401 || !retry) {
+    return res;
+  }
+
+  const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, { method: "POST", credentials: "include" });
+  if (!refreshRes.ok) {
+    localStorage.removeItem("auth_access_token");
+    localStorage.removeItem("auth_user");
+    throw new Error("Sesion expirada");
+  }
+  const refreshBody = await refreshRes.json();
+  localStorage.setItem("auth_access_token", refreshBody.access_token || "");
+  localStorage.setItem("auth_user", JSON.stringify(refreshBody.user || null));
+  return apiFetch(url, options, false);
+}
 
 function withQuery(url, params = {}) {
   const query = new URLSearchParams();
@@ -14,7 +36,7 @@ function withQuery(url, params = {}) {
 }
 
 export async function fetchFilters() {
-  const res = await fetch(`${API_BASE}/api/sc-tardia/filtros`);
+  const res = await apiFetch(`${API_BASE}/api/sc-tardia/filtros`);
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros");
   }
@@ -22,7 +44,7 @@ export async function fetchFilters() {
 }
 
 export async function fetchGeneral(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/general`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general");
   }
@@ -31,7 +53,7 @@ export async function fetchGeneral(filters) {
 }
 
 export async function fetchCycle(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/ciclo`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/ciclo`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por ciclo");
   }
@@ -40,7 +62,7 @@ export async function fetchCycle(filters) {
 }
 
 export async function fetchPorscheFilters() {
-  const res = await fetch(`${API_BASE}/api/filtros`);
+  const res = await apiFetch(`${API_BASE}/api/filtros`);
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de Porsche");
   }
@@ -48,7 +70,7 @@ export async function fetchPorscheFilters() {
 }
 
 export async function fetchPorscheDashboard(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/dashboard`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/dashboard`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el dashboard de Porsche");
   }
@@ -56,7 +78,7 @@ export async function fetchPorscheDashboard(filters) {
 }
 
 export async function fetchPorscheCuadroContenido(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/cuadro-contenido`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/cuadro-contenido`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el cuadro de cumplimiento Porsche");
   }
@@ -64,7 +86,7 @@ export async function fetchPorscheCuadroContenido(filters) {
 }
 
 export async function fetchLaAraucanaFilters(periodo = "") {
-  const res = await fetch(withQuery(`${API_BASE}/api/la-araucana/filtros`, { periodo }));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/filtros`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de La Araucana");
   }
@@ -72,7 +94,7 @@ export async function fetchLaAraucanaFilters(periodo = "") {
 }
 
 export async function fetchLaAraucanaResumen(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/la-araucana/resumen`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/resumen`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el resumen de La Araucana");
   }
@@ -80,7 +102,7 @@ export async function fetchLaAraucanaResumen(filters) {
 }
 
 export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
-  const res = await fetch(withQuery(`${API_BASE}/api/la-araucana/export`, { periodo, tipo_cartera: tipoCartera }));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/export`, { periodo, tipo_cartera: tipoCartera }));
   if (!res.ok) {
     throw new Error("No se pudo descargar el Excel de La Araucana");
   }
@@ -90,7 +112,7 @@ export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
   return { blob: await res.blob(), filename };
 }
 export async function fetchScTempranaFilters() {
-  const res = await fetch(`${API_BASE}/api/sc-temprana/filtros`);
+  const res = await apiFetch(`${API_BASE}/api/sc-temprana/filtros`);
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de SC Temprana");
   }
@@ -98,7 +120,7 @@ export async function fetchScTempranaFilters() {
 }
 
 export async function fetchScTempranaGeneral(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/general`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general de SC Temprana");
   }
@@ -107,7 +129,7 @@ export async function fetchScTempranaGeneral(filters) {
 }
 
 export async function fetchScTempranaCycle(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/ciclo`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/ciclo`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por ciclo de SC Temprana");
   }
@@ -116,7 +138,7 @@ export async function fetchScTempranaCycle(filters) {
 }
 
 export async function fetchGmFilters() {
-  const res = await fetch(`${API_BASE}/api/gm/filtros`);
+  const res = await apiFetch(`${API_BASE}/api/gm/filtros`);
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de GM");
   }
@@ -124,7 +146,7 @@ export async function fetchGmFilters() {
 }
 
 export async function fetchGmCycle(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/gm/productividad/ciclo`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/ciclo`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la productividad de GM");
   }
@@ -133,7 +155,7 @@ export async function fetchGmCycle(filters) {
 }
 
 export async function fetchGmGeneral(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/gm/productividad/general`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general de GM");
   }
@@ -142,7 +164,7 @@ export async function fetchGmGeneral(filters) {
 }
 
 export async function fetchBitFilters() {
-  const res = await fetch(`${API_BASE}/api/bit/filtros`);
+  const res = await apiFetch(`${API_BASE}/api/bit/filtros`);
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de BIT");
   }
@@ -150,7 +172,7 @@ export async function fetchBitFilters() {
 }
 
 export async function fetchBitGeneral(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/bit/general`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general de BIT");
   }
@@ -158,7 +180,7 @@ export async function fetchBitGeneral(filters) {
 }
 
 export async function fetchBitTramos(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/bit/tramos`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/tramos`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por tramo de BIT");
   }
@@ -166,7 +188,7 @@ export async function fetchBitTramos(filters) {
 }
 
 export async function fetchBitDetalle(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/bit/detalle`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/detalle`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el detalle de BIT");
   }
@@ -174,7 +196,7 @@ export async function fetchBitDetalle(filters) {
 }
 
 export async function fetchGmBucket(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por bucket de GM");
   }
@@ -183,7 +205,7 @@ export async function fetchGmBucket(filters) {
 }
 
 export async function downloadGmMonthlyExcel(periodo) {
-  const res = await fetch(withQuery(`${API_BASE}/api/gm/export`, { periodo }));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/export`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudo descargar el Excel de GM");
   }
@@ -197,7 +219,7 @@ export async function downloadGmMonthlyExcel(periodo) {
 }
 
 export async function fetchSthFilters() {
-  const res = await fetch(`${API_BASE}/api/sth/filtros`);
+  const res = await apiFetch(`${API_BASE}/api/sth/filtros`);
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de STH");
   }
@@ -205,7 +227,7 @@ export async function fetchSthFilters() {
 }
 
 export async function fetchSthGeneral(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/sth/productividad/general`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/productividad/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general de STH");
   }
@@ -214,10 +236,67 @@ export async function fetchSthGeneral(filters) {
 }
 
 export async function fetchSthDetail(filters) {
-  const res = await fetch(withQuery(`${API_BASE}/api/sth/productividad/desglosada`, filters));
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/productividad/desglosada`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista desglosada de STH");
   }
   const body = await res.json();
   return body.data || [];
+}
+
+export async function fetchAdminModules() {
+  const res = await apiFetch(`${API_BASE}/api/admin/modules`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los modulos");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchAdminUsers() {
+  const res = await apiFetch(`${API_BASE}/api/admin/users`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los usuarios");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function createAdminUser(payload) {
+  const res = await apiFetch(`${API_BASE}/api/admin/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo crear el usuario");
+  }
+  return body;
+}
+
+export async function updateAdminUserModules(userId, moduleCodes) {
+  const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}/modules`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ module_codes: moduleCodes }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron actualizar los modulos");
+  }
+  return body;
+}
+
+export async function updateAdminUserStatus(userId, isActive) {
+  const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}/status`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ is_active: isActive }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo actualizar el estado");
+  }
+  return body;
 }
