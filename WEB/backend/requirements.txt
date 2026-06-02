@@ -6,4 +6,5 @@ pydantic==2.11.7
 openpyxl==3.1.5
 PyJWT==2.9.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 requests==2.32.3

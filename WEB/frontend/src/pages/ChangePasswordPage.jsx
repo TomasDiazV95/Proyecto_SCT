@@ -1,26 +1,32 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
 import { authChangePassword } from "../auth/apiAuth";
+import { useAuth } from "../auth/AuthContext";
+
 export default function ChangePasswordPage() {
-  const { accessToken, user, setSession, logout } = useAuth();
   const navigate = useNavigate();
+  const { accessToken, user, setSession } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
   async function onSubmit(e) {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       setError("La confirmacion no coincide");
       return;
     }
+
     setLoading(true);
     setError("");
+    setMessage("");
     try {
       await authChangePassword(accessToken, currentPassword, newPassword);
       setSession(accessToken, { ...user, must_change_password: false });
+      setMessage("Contrasena actualizada correctamente.");
       navigate("/", { replace: true });
     } catch (err) {
       setError(err.message || "No se pudo cambiar la contrasena");
@@ -28,28 +34,45 @@ export default function ChangePasswordPage() {
       setLoading(false);
     }
   }
+
   return (
-    <div className="container py-5" style={{ maxWidth: 520 }}>
+    <div className="container py-5" style={{ maxWidth: 460 }}>
       <div className="card shadow-sm">
         <div className="card-body">
-          <h1 className="h4 mb-2">Cambio obligatorio de contraseña</h1>
-          <p className="text-muted small">Debes cambiar tu contraseña inicial para continuar.</p>
+          <h1 className="h4 mb-3">Cambiar contrasena</h1>
           <form onSubmit={onSubmit}>
-            <label className="form-label">Contraseña actual</label>
-            <input className="form-control mb-3" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required />
-            <label className="form-label">Nueva contraseña</label>
-            <input className="form-control mb-3" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
-            <label className="form-label">Confirmar nueva contraseña</label>
-            <input className="form-control mb-3" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
+            <label className="form-label">Contrasena actual</label>
+            <input
+              className="form-control mb-3"
+              type="password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              required
+            />
+
+            <label className="form-label">Nueva contrasena</label>
+            <input
+              className="form-control mb-3"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+            />
+
+            <label className="form-label">Confirmar nueva contrasena</label>
+            <input
+              className="form-control mb-3"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+
+            {message && <div className="alert alert-success py-2">{message}</div>}
             {error && <div className="alert alert-danger py-2">{error}</div>}
-            <div className="d-flex gap-2">
-              <button className="btn btn-primary flex-grow-1" disabled={loading}>
-                {loading ? "Guardando..." : "Guardar contraseña"}
-              </button>
-              <button type="button" className="btn btn-outline-secondary" onClick={logout}>
-                Salir
-              </button>
-            </div>
+            <button className="btn btn-primary w-100" disabled={loading}>
+              {loading ? "Guardando..." : "Guardar"}
+            </button>
           </form>
         </div>
       </div>

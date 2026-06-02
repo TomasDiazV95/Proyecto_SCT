@@ -59,6 +59,13 @@ def load_sheet(path: Path, sheet_name: str | int) -> pd.DataFrame:
     return df.where(pd.notnull(df), None)
 
 
+def clean_cell(value: object) -> object:
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
 def _read_sources(file_path: str | None, folder_path: str | None) -> tuple[pd.DataFrame, pd.DataFrame, str, str]:
     if file_path:
         xlsx = Path(file_path)
@@ -97,6 +104,7 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> tuple[pd.Da
 
 def run(periodo: str, file_path: str | None, folder_path: str | None) -> None:
     cont, cart, cont_source_file, cart_source_file = _read_sources(file_path, folder_path)
+    skipped_cart_rows = 0
 
     with connect() as cn:
         cn.autocommit = False
@@ -148,13 +156,30 @@ def run(periodo: str, file_path: str | None, folder_path: str | None) -> None:
         """
         cart_rows = []
         for _, r in cart.iterrows():
-            cart_rows.append((periodo, cart_source_file, r.get("RUT"), r.get("DV"), r.get("NRO_OPERACION"), r.get("USUARIO")))
+            nro_operacion = clean_cell(r.get("NRO_OPERACION"))
+            if nro_operacion is None:
+                skipped_cart_rows += 1
+                continue
+
+            cart_rows.append(
+                (
+                    periodo,
+                    cart_source_file,
+                    clean_cell(r.get("RUT")),
+                    clean_cell(r.get("DV")),
+                    nro_operacion,
+                    clean_cell(r.get("USUARIO")),
+                )
+            )
         if cart_rows:
             cur.executemany(insert_cart, cart_rows)
 
         cn.commit()
 
-    print(f"Carga BIT completada. periodo={periodo}, contencion={len(cont_rows)}, carterizado={len(cart_rows)}")
+    print(
+        f"Carga BIT completada. periodo={periodo}, contencion={len(cont_rows)}, "
+        f"carterizado={len(cart_rows)}, carterizado_omitido_sin_nro_operacion={skipped_cart_rows}"
+    )
 
 
 if __name__ == "__main__":
