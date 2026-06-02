@@ -39,9 +39,14 @@ def require_roles(*allowed_roles: str):
 def require_module(module_code: str):
     def checker(user: dict = Depends(current_user)) -> dict:
         role = user["role"]
-        if role in {"super_admin", "admin", "coordinador"}:
+        modules = user.get("modules", [])
+        if module_code == "admin":
+            if role in {"super_admin", "admin"} or "admin" in modules:
+                return user
+            raise HTTPException(status_code=403, detail=f"Sin permiso para modulo {module_code}")
+        if role in {"super_admin", "admin"} or "global" in modules:
             return user
-        if module_code not in user.get("modules", []):
+        if module_code not in modules:
             raise HTTPException(status_code=403, detail=f"Sin permiso para modulo {module_code}")
         return user
 

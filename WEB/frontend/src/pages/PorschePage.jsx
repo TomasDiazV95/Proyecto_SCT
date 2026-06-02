@@ -578,7 +578,7 @@ export default function PorschePage() {
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div>
           <h1 className="h3 m-0">Seguimiento Porsche</h1>
-          <Link to="/" className="small text-decoration-none">
+          <Link to="/productividad" className="small text-decoration-none">
             Volver al Home
           </Link>
         </div>

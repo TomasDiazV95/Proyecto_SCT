@@ -1,6 +1,7 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./AuthContext";
+import { canAccessModule } from "./permissions";
 
 export default function ProtectedRoute({ children, moduleCode = "", allowedRoles = [] }) {
   const { isAuthenticated, user } = useAuth();
@@ -15,10 +16,7 @@ export default function ProtectedRoute({ children, moduleCode = "", allowedRoles
   }
 
   if (moduleCode) {
-    const role = user?.role;
-    const hasGlobal = role === "super_admin" || role === "admin" || role === "coordinador";
-    const hasModule = (user?.modules || []).includes(moduleCode);
-    if (!hasGlobal && !hasModule) {
+    if (!canAccessModule(user, moduleCode)) {
       return <Navigate to="/" replace />;
     }
   }
