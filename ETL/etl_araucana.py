@@ -26,12 +26,33 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
 DEFAULT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\ARAUCANA")
-ASIGNACION_PATH = Path(os.getenv("LA_ASIGNACION_PATH", str(DEFAULT_FOLDER / "ASIGNACION.csv")))
-RECUPERACION_PATH = Path(os.getenv("LA_RECUPERACION_PATH", str(DEFAULT_FOLDER / "RECUPERACION.csv")))
+MESES = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
+}
+MES_NUM_BY_NAME = {name.upper(): f"{num:02d}" for num, name in MESES.items()}
+FECHA_REFERENCIA = datetime.now() - timedelta(days=1)
+MES_TEXTO = MESES[FECHA_REFERENCIA.month]
+MES_NUM_STR = str(FECHA_REFERENCIA.month).zfill(2)
+NOMBRE_ASIGNACION = f"Asignacion_PHOENIX_financiera_{MES_TEXTO}{FECHA_REFERENCIA.year}.csv"
+NOMBRE_RECUPERACION = f"RECUPERACION_Phoenix_{FECHA_REFERENCIA.year}{MES_NUM_STR}.csv"
+ASIGNACION_PATH = Path(os.getenv("LA_ASIGNACION_PATH", str(DEFAULT_FOLDER / NOMBRE_ASIGNACION)))
+RECUPERACION_PATH = Path(os.getenv("LA_RECUPERACION_PATH", str(DEFAULT_FOLDER / NOMBRE_RECUPERACION)))
 
 TABLE_ASIGNACION = "dbo.tmp_LA_asignacion"
 TABLE_PAGOS = "dbo.tmp_LA_pagos"
 TABLE_PERFORMANCE_CACHE = "dbo.tmp_LA_performance_cache"
+TABLE_RESPUESTA_RANK = "dbo.tmp_LA_respuesta"
 
 BATCH_SIZE = 500
 
@@ -331,18 +352,69 @@ def existing_columns(table_name: str) -> set[str]:
         return {row[0] for row in cur.fetchall()}
 
 
-def source_file_key(file_type: str) -> str:
-    return f"{file_type.upper()}_{datetime.now():%Y-%m}.csv"
+def norm_text_sql(col: str) -> str:
+    return (
+        "UPPER(REPLACE(REPLACE(REPLACE("
+        f"LTRIM(RTRIM(ISNULL({col}, ''))), "
+        "NCHAR(8211), '-'), NCHAR(8212), '-'), ' ', ''))"
+    )
 
 
-def source_file_exists(table_name: str, source_file: str) -> bool:
-    try:
-        with connect() as cn:
-            cur = cn.cursor()
-            cur.execute(f"SELECT COUNT(1) FROM {table_name} WHERE source_file = ?", (source_file,))
-            return (cur.fetchone()[0] or 0) > 0
-    except pyodbc.Error:
-        return False
+def safe_int_sql(col: str, sql_type: str = "int") -> str:
+    value = f"LTRIM(RTRIM(CONVERT(varchar(50), {col})))"
+    return (
+        "CASE "
+        f"WHEN {col} IS NULL THEN NULL "
+        f"WHEN {value} = '' THEN NULL "
+        f"WHEN {value} LIKE '%[^0-9]%' THEN NULL "
+        f"ELSE CAST({value} AS {sql_type}) "
+        "END"
+    )
+
+
+def resolve_respuesta_ranking_config() -> dict:
+    cols = existing_columns(TABLE_RESPUESTA_RANK)
+    if not cols:
+        return {"enabled": False}
+
+    def pick(candidates: list[str]) -> str | None:
+        for col in candidates:
+            if col in cols:
+                return col
+        return None
+
+    respuesta_col = pick(
+        [
+            "respuesta_gestion",
+            "RespuestaGestion",
+            "Respuesta",
+            "respuesta",
+            "RESPUESTA",
+            "fld_respuesta_gestion",
+            "fld_RespuestaGestion",
+        ]
+    )
+    rank_col = pick(
+        [
+            "ranking",
+            "RANKING",
+            "rank",
+            "RANK",
+            "prioridad",
+            "PRIORIDAD",
+            "orden",
+            "ORDEN",
+        ]
+    )
+
+    if not respuesta_col or not rank_col:
+        return {"enabled": False}
+
+    return {
+        "enabled": True,
+        "respuesta_col": respuesta_col,
+        "rank_col": rank_col,
+    }
 
 
 def latest_source_file(table_name: str) -> str | None:
@@ -412,8 +484,57 @@ def ensure_table_and_columns(table_name: str, specs: list[ColumnSpec]) -> None:
             )
         if "source_file" not in existing:
             cur.execute(f"ALTER TABLE {table_name} ADD source_file NVARCHAR(260) NOT NULL DEFAULT ('');")
-        if table_name == TABLE_PAGOS and "fecha_negocio" not in existing:
-            cur.execute(f"ALTER TABLE {table_name} ADD fecha_negocio DATE NULL;")
+        if table_name in (TABLE_PAGOS, TABLE_ASIGNACION):
+            if "mes_proceso" not in existing:
+                cur.execute(f"ALTER TABLE {table_name} ADD mes_proceso VARCHAR(7) NULL;")
+            if "periodo" not in existing:
+                cur.execute(f"ALTER TABLE {table_name} ADD periodo VARCHAR(7) NULL;")
+
+        if table_name == TABLE_PAGOS:
+            if "fecha_negocio" not in existing:
+                cur.execute(f"ALTER TABLE {table_name} ADD fecha_negocio DATE NULL;")
+            # Backfill de columnas operativas para mantener consistencia en datos historicos.
+            cur.execute(
+                f"""
+                UPDATE {table_name}
+                SET
+                    fecha_carga = COALESCE(fecha_negocio, fecha_carga),
+                    mes_proceso = CASE
+                        WHEN COALESCE(fecha_negocio, fecha_carga) IS NULL THEN mes_proceso
+                        WHEN mes_proceso IS NOT NULL THEN mes_proceso
+                        ELSE RIGHT('0' + CAST(MONTH(COALESCE(fecha_negocio, fecha_carga)) AS varchar(2)), 2)
+                             + '-' + CAST(YEAR(COALESCE(fecha_negocio, fecha_carga)) AS varchar(4))
+                    END,
+                    periodo = CASE
+                        WHEN COALESCE(fecha_negocio, fecha_carga) IS NULL THEN periodo
+                        WHEN periodo IS NOT NULL THEN periodo
+                        ELSE RIGHT('0' + CAST(MONTH(COALESCE(fecha_negocio, fecha_carga)) AS varchar(2)), 2)
+                             + '-' + CAST(YEAR(COALESCE(fecha_negocio, fecha_carga)) AS varchar(4))
+                    END
+                WHERE COALESCE(fecha_negocio, fecha_carga) IS NOT NULL
+                  AND (
+                        fecha_carga <> COALESCE(fecha_negocio, fecha_carga)
+                        OR mes_proceso IS NULL
+                        OR periodo IS NULL
+                      )
+                """
+            )
+        elif table_name == TABLE_ASIGNACION:
+            cur.execute(
+                f"""
+                UPDATE {table_name}
+                SET
+                    mes_proceso = RIGHT('0' + CAST(MONTH(fecha_carga) AS varchar(2)), 2)
+                                  + '-' + CAST(YEAR(fecha_carga) AS varchar(4)),
+                    periodo = RIGHT('0' + CAST(MONTH(fecha_carga) AS varchar(2)), 2)
+                              + '-' + CAST(YEAR(fecha_carga) AS varchar(4))
+                WHERE fecha_carga IS NOT NULL
+                  AND (
+                        mes_proceso IS NULL
+                        OR periodo IS NULL
+                      )
+                """
+            )
 
         cn.commit()
 
@@ -580,6 +701,29 @@ def refresh_performance_cache() -> None:
         return
 
     ensure_performance_cache_table()
+    ranking_cfg = resolve_respuesta_ranking_config()
+
+    ranking_cte_sql = ""
+    ranking_join_sql = ""
+    ranking_select_sql = "999999 AS respuesta_ranking,"
+    ranking_order_sql = "CASE WHEN g.rut IS NULL THEN 999999 ELSE 999999 END"
+
+    if ranking_cfg.get("enabled"):
+        respuesta_expr = norm_text_sql(f"r.{ranking_cfg['respuesta_col']}")
+        rank_expr = safe_int_sql(f"r.{ranking_cfg['rank_col']}")
+        ranking_cte_sql = f"""
+            ranking_respuesta AS (
+                SELECT
+                    {respuesta_expr} AS respuesta_norm,
+                    MIN({rank_expr}) AS respuesta_ranking
+                FROM {TABLE_RESPUESTA_RANK} r
+                WHERE r.{ranking_cfg['respuesta_col']} IS NOT NULL
+                GROUP BY {respuesta_expr}
+            ),
+"""
+        ranking_join_sql = "LEFT JOIN ranking_respuesta rr ON rr.respuesta_norm = g.respuesta_norm"
+        ranking_select_sql = "COALESCE(rr.respuesta_ranking, 999999) AS respuesta_ranking,"
+        ranking_order_sql = "COALESCE(rr.respuesta_ranking, 999999)"
 
     with connect() as cn:
         cur = cn.cursor()
@@ -589,23 +733,26 @@ def refresh_performance_cache() -> None:
         )
         cur.execute(
             f"""
-            ;WITH gest_best AS (
+            ;WITH {ranking_cte_sql}gest_best AS (
                 SELECT *
                 FROM (
                     SELECT
                         UPPER(LTRIM(RTRIM(ISNULL(g.rut, '')))) AS rut_norm,
                         UPPER(LTRIM(RTRIM(ISNULL(g.UsuarioGestion, '')))) AS usuario_gestion_norm,
                         UPPER(LTRIM(RTRIM(ISNULL(e.nombre_ejecutivo, '')))) AS nombre_ejecutivo_norm,
+                        {norm_text_sql("g.RespuestaGestion")} AS respuesta_norm,
+                        {ranking_select_sql}
                         ROW_NUMBER() OVER (
                             PARTITION BY UPPER(LTRIM(RTRIM(ISNULL(g.rut, ''))))
                             ORDER BY
                                 CASE UPPER(LTRIM(RTRIM(ISNULL(g.ContactoGestion, ''))))
                                     WHEN 'CONTACTO DIRECTO' THEN 0
                                     WHEN 'CONTACTO INDIRECTO' THEN 1
-                                    WHEN 'NO CONTACTADO' THEN 2
-                                    WHEN 'GESTION DISCADOR' THEN 3
+                                    WHEN 'GESTION DISCADOR' THEN 2
+                                    WHEN 'NO CONTACTADO' THEN 3
                                     ELSE 99
                                 END ASC,
+                                {ranking_order_sql} ASC,
                                 g.GestionFecha DESC,
                                 g.GestionHora DESC,
                                 g.id DESC
@@ -613,20 +760,21 @@ def refresh_performance_cache() -> None:
                     FROM dbo.tmp_GEST_CRM g
                     INNER JOIN dbo.tmp_ejecutivos e
                         ON UPPER(LTRIM(RTRIM(ISNULL(g.UsuarioGestion, '')))) = UPPER(LTRIM(RTRIM(ISNULL(e.usuario_ejecutivo, ''))))
+                    {ranking_join_sql}
                 ) x
                 WHERE rn = 1
             ),
             pagos_norm AS (
                 SELECT
-                    CONVERT(date, DATEADD(day, -1, CONVERT(date, p.fecha_carga))) AS fecha_carga,
+                    CONVERT(date, COALESCE(p.fecha_negocio, p.fecha_carga)) AS fecha_carga,
                     UPPER(LTRIM(RTRIM(ISNULL(p.fld_CONTRATO, '')))) AS contrato,
                     SUM(CONVERT(DECIMAL(38,0), ISNULL(p.fld_Recuperacion, 0))) AS recupero
                 FROM dbo.tmp_LA_pagos p
                 WHERE p.source_file = ?
-                  AND p.fecha_carga IS NOT NULL
+                  AND COALESCE(p.fecha_negocio, p.fecha_carga) IS NOT NULL
                   AND UPPER(REPLACE(REPLACE(REPLACE(LTRIM(RTRIM(ISNULL(p.fld_TipoPago, ''))), '–', '-'), '—', '-'), ' ', '')) IN ('E-ACTSEGCES','E-CC','E-INTER-CC','E-MANUAL')
                 GROUP BY
-                    CONVERT(date, DATEADD(day, -1, CONVERT(date, p.fecha_carga))),
+                    CONVERT(date, COALESCE(p.fecha_negocio, p.fecha_carga)),
                     UPPER(LTRIM(RTRIM(ISNULL(p.fld_CONTRATO, ''))))
             ),
             asignacion_norm AS (
@@ -713,13 +861,55 @@ def convert_row_value(value, kind: str, field_name: str):
     return clean_cell(value)
 
 
-def insert_append(df: pd.DataFrame, table_name: str, source_file: str, specs: list[ColumnSpec]) -> None:
+def mes_proceso_from_source_file(source_file: str) -> str:
+    text = source_file.upper()
+
+    match = re.search(r"RECUPERACION_PHOENIX_(\d{4})(\d{2})", text)
+    if match:
+        year, month = match.groups()
+        return f"{month}-{year}"
+
+    match = re.search(r"ASIGNACION_PHOENIX_FINANCIERA_([A-Z]+)(\d{4})", text)
+    if match:
+        month_name, year = match.groups()
+        month = MES_NUM_BY_NAME.get(month_name)
+        if month:
+            return f"{month}-{year}"
+
+    raise ValueError(f"No se pudo obtener mes_proceso desde el nombre del archivo: {source_file}")
+
+
+def source_file_exists(table_name: str, source_file: str) -> bool:
+    try:
+        with connect() as cn:
+            cur = cn.cursor()
+            cur.execute(f"SELECT COUNT(1) FROM {table_name} WHERE source_file = ?", (source_file,))
+            return (cur.fetchone()[0] or 0) > 0
+    except pyodbc.Error:
+        return False
+
+
+def insert_append(
+    df: pd.DataFrame,
+    table_name: str,
+    source_file: str,
+    specs: list[ColumnSpec],
+    replace_existing_source: bool,
+) -> None:
     existing = existing_columns(table_name)
     insert_cols = ["source_file"] + [f"fld_{spec.name}" for spec in specs]
-    business_date_value = (datetime.now().date() - timedelta(days=1)).isoformat()
+    mes_proceso_value = mes_proceso_from_source_file(source_file)
+    month_start = datetime.strptime(mes_proceso_value, "%m-%Y").date().replace(day=1)
+    business_date_value = month_start.isoformat()
 
     if "fecha_negocio" in existing:
         insert_cols.append("fecha_negocio")
+    if table_name == TABLE_PAGOS and "fecha_carga" in existing:
+        insert_cols.append("fecha_carga")
+    if "mes_proceso" in existing:
+        insert_cols.append("mes_proceso")
+    if "periodo" in existing:
+        insert_cols.append("periodo")
 
     placeholders = ",".join(["?"] * len(insert_cols))
     sql = f"INSERT INTO {table_name} ({','.join(map(sql_ident, insert_cols))}) VALUES ({placeholders})"
@@ -731,6 +921,12 @@ def insert_append(df: pd.DataFrame, table_name: str, source_file: str, specs: li
             out.append(convert_row_value(value, spec.kind, spec.name))
         if "fecha_negocio" in existing:
             out.append(business_date_value)
+        if table_name == TABLE_PAGOS and "fecha_carga" in existing:
+            out.append(business_date_value)
+        if "mes_proceso" in existing:
+            out.append(mes_proceso_value)
+        if "periodo" in existing:
+            out.append(mes_proceso_value)
         rows.append(tuple(out))
 
     with connect() as cn:
@@ -738,18 +934,15 @@ def insert_append(df: pd.DataFrame, table_name: str, source_file: str, specs: li
         cur = cn.cursor()
         cur.fast_executemany = True
 
-        replace_monthly = table_name == TABLE_PAGOS and "fecha_negocio" in existing
-        deleted_rows = 0
-        if replace_monthly:
-            business_date = datetime.fromisoformat(business_date_value).date()
-            cur.execute(
-                f"DELETE FROM {table_name} WHERE YEAR(fecha_negocio) = ? AND MONTH(fecha_negocio) = ?",
-                (business_date.year, business_date.month),
-            )
+        if replace_existing_source:
+            cur.execute(f"DELETE FROM {table_name} WHERE source_file = ?", (source_file,))
             deleted_rows = cur.rowcount if cur.rowcount is not None else 0
-            print(
-                f"Reemplazo mensual activo en {table_name}: mes {business_date.year}-{business_date.month:02d}, filas borradas {deleted_rows}"
-            )
+            if deleted_rows:
+                print(f"Reemplazo por archivo en {table_name}: {source_file}, filas borradas {deleted_rows}")
+            else:
+                print(f"Archivo nuevo en {table_name}: {source_file}")
+        else:
+            print(f"Archivo nuevo en {table_name}: {source_file}")
 
         inserted = 0
         for i in range(0, len(rows), BATCH_SIZE):
@@ -776,12 +969,12 @@ def insert_append(df: pd.DataFrame, table_name: str, source_file: str, specs: li
     print(f"OK: insertadas {inserted} filas en {table_name}")
 
 
-def process_file(path: Path, table_name: str, file_type: str, skip_if_loaded: bool) -> None:
-    source_file = source_file_key(file_type)
+def process_file(path: Path, table_name: str, file_type: str, skip_if_loaded: bool, replace_existing_source: bool) -> None:
+    source_file = path.name
     forced_numeric = NUMERIC_COLUMNS_BY_FILE.get(file_type.upper(), set())
 
     if skip_if_loaded and source_file_exists(table_name, source_file):
-        print(f"Ya cargado este mes, se omite {file_type}: {source_file}")
+        print(f"Ya cargado este archivo, se omite {file_type}: {source_file}")
         return
 
     df = read_csv_file(path)
@@ -793,20 +986,28 @@ def process_file(path: Path, table_name: str, file_type: str, skip_if_loaded: bo
   
   
     ensure_table_and_columns(table_name, specs)
-    insert_append(df, table_name, source_file, specs)
+    insert_append(df, table_name, source_file, specs, replace_existing_source)
+
+
+def validate_required_inputs(jobs: list[tuple[Path, str, str, bool, bool]]) -> None:
+    missing = [(file_type, path) for path, _table_name, file_type, _skip_if_loaded, _replace_existing_source in jobs if not path.exists()]
+    if not missing:
+        return
+
+    detail = "; ".join(f"{file_type}: {path}" for file_type, path in missing)
+    raise FileNotFoundError(f"No se ejecuta ETL La Araucana: faltan archivos obligatorios ({detail})")
 
 
 def main() -> None:
     jobs = [
-        (ASIGNACION_PATH, TABLE_ASIGNACION, "ASIGNACION", True),
-        (RECUPERACION_PATH, TABLE_PAGOS, "RECUPERACION", False),
+        (ASIGNACION_PATH, TABLE_ASIGNACION, "ASIGNACION", True, False),
+        (RECUPERACION_PATH, TABLE_PAGOS, "RECUPERACION", False, True),
     ]
 
-    for path, table_name, file_type, skip_if_loaded in jobs:
-        if not path.exists():
-            print(f"No existe el archivo de entrada, se omite {file_type}: {path}")
-            continue
-        process_file(path, table_name, file_type, skip_if_loaded)
+    validate_required_inputs(jobs)
+
+    for path, table_name, file_type, skip_if_loaded, replace_existing_source in jobs:
+        process_file(path, table_name, file_type, skip_if_loaded, replace_existing_source)
 
 
 if __name__ == "__main__":

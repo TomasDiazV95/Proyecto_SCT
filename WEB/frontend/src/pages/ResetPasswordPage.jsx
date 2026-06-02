@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { authResetPassword } from "../auth/apiAuth";
 
