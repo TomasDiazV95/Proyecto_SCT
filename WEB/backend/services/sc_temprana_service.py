@@ -1,106 +1,46 @@
-import os
-import re
-from dataclasses import dataclass
+from __future__ import annotations
+
+from datetime import date
 
 from database import run_query
 
 
-@dataclass
-class TempColumnMap:
-    table_name: str
-    fecha_col: str
-    tramo_col: str
-    ejecutivo_col: str
-    zona_col: str | None
-    deuda_col: str
-    contenido_col: str
-    normalizado_col: str
-    meta_cont_col: str
-    meta_norm_col: str
-    contacto_titular_col: str | None
+USER_TO_NAME = {
+    "EMUNOZ": "Elizabet Munoz",
+    "LROJAS": "Lissette Rojas",
+    "MINOSTROZA": "Marilin Inostroza",
+    "CVERA": "Carolina Vera",
+    "SDUARTE": "Susana Duarte",
+    "BMONCADA": "Barbara Canales",
+    "SFUENTES": "Sandra Fuentes",
+    "MCOLMENARES": "Marlexis Colmenares",
+}
+
+USER_ORDER = [
+    "EMUNOZ",
+    "LROJAS",
+    "MINOSTROZA",
+    "CVERA",
+    "SDUARTE",
+    "BMONCADA",
+    "SFUENTES",
+    "MCOLMENARES",
+]
 
 
-def _is_safe_table_name(name: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z0-9_\.\[\]]+", name))
+def _normalize_period(periodo: str | None) -> str:
+    if periodo:
+        value = str(periodo).strip()
+        if len(value) >= 10:
+            return value[:10]
+        return value
 
-
-def _table_name() -> str:
-    name = os.getenv("PRODUCTIVIDAD_TEMP_TABLE", "dbo.tmp_bench_temp_STC_asignado")
-    if not _is_safe_table_name(name):
-        raise RuntimeError("PRODUCTIVIDAD_TEMP_TABLE contiene caracteres no permitidos")
-    return name
-
-
-def _runtime_columns(table_name: str) -> set[str]:
-    schema, table = table_name.split(".", 1)
-    schema = schema.replace("[", "").replace("]", "")
-    table = table.replace("[", "").replace("]", "")
     sql = """
-    SELECT c.name
-    FROM sys.columns c
-    INNER JOIN sys.tables t ON c.object_id = t.object_id
-    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-    WHERE s.name = ? AND t.name = ?
+    SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS periodo
+    FROM dbo.tmp_bench_temp_STC
     """
-    rows = run_query(sql, (schema, table))
-    return {r["name"] for r in rows}
-
-
-def _pick_first(available: set[str], candidates: list[str], label: str) -> str:
-    for col in candidates:
-        if col in available:
-            return col
-    raise RuntimeError(f"No se encontro columna para {label}. Probadas: {candidates}")
-
-
-def resolve_columns() -> TempColumnMap:
-    table_name = _table_name()
-    available = _runtime_columns(table_name)
-    return TempColumnMap(
-        table_name=table_name,
-        fecha_col=_pick_first(available, ["fld_FECHA", "fld_PERIODO", "fecha_carga"], "fecha"),
-        tramo_col=_pick_first(available, ["fld_TRAMO_MORA"], "tramo"),
-        ejecutivo_col=_pick_first(available, ["usuario_gestion_asignado", "fld_COBRADOR"], "ejecutivo"),
-        zona_col=next((c for c in ["fld_ZONA", "fld_REGION"] if c in available), None),
-        deuda_col=_pick_first(available, ["fld_DEUDA_INI"], "deuda"),
-        contenido_col=_pick_first(available, ["fld_CONTENIDO"], "contenido"),
-        normalizado_col=_pick_first(available, ["fld_NORMALIZADO"], "normalizado"),
-        meta_cont_col=_pick_first(available, ["meta_contencion_pct"], "meta contencion"),
-        meta_norm_col=_pick_first(available, ["meta_normalizacion_pct"], "meta normalizacion"),
-        contacto_titular_col=next((c for c in ["contacto_titular_flag"] if c in available), None),
-    )
-
-
-def _clean(value) -> str:
-    if value is None:
-        return ""
-    return str(value).strip().upper()
-
-
-def _build_filters(filters: dict, cols: TempColumnMap) -> tuple[str, list]:
-    clauses = []
-    params: list = []
-
-    if filters.get("periodo"):
-        clauses.append(f"UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.fecha_col})))) = ?")
-        params.append(_clean(filters["periodo"]))
-
-    if filters.get("zona") and cols.zona_col:
-        clauses.append(f"UPPER(LTRIM(RTRIM(CONVERT(varchar(200), {cols.zona_col})))) = ?")
-        params.append(_clean(filters["zona"]))
-
-    if filters.get("ejecutivo"):
-        clauses.append(f"UPPER(LTRIM(RTRIM(CONVERT(varchar(200), {cols.ejecutivo_col})))) = ?")
-        params.append(_clean(filters["ejecutivo"]))
-
-    if filters.get("tramo"):
-        clauses.append(f"UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.tramo_col})))) = ?")
-        params.append(_clean(filters["tramo"]))
-
-    where_sql = ""
-    if clauses:
-        where_sql = "WHERE " + " AND ".join(clauses)
-    return where_sql, params
+    rows = run_query(sql)
+    return (rows[0].get("periodo") if rows else None) or date.today().isoformat()
 
 
 def _safe_div(num: float, den: float) -> float:
@@ -109,167 +49,181 @@ def _safe_div(num: float, den: float) -> float:
     return (num / den) * 100.0
 
 
-def _cap(value: float) -> float:
-    return max(0.0, min(130.0, value))
-
-
-def _cumpl_variable(pct_real: float, meta: float) -> float:
-    if meta is None or meta <= 0:
-        return 0.0
-    return _cap(_safe_div(pct_real, meta))
-
-
-def _cumpl_final(tramo: str, pct_cont: float, meta_cont: float, pct_norm: float, meta_norm: float) -> float:
-    cont = _cumpl_variable(pct_cont, meta_cont)
-    norm = _cumpl_variable(pct_norm, meta_norm)
-    if _clean(tramo) == "C3":
-        return _cap((cont * 0.40) + (norm * 0.60))
-    return cont
-
-
-def get_rows(filters: dict) -> list[dict]:
-    cols = resolve_columns()
-    where_sql, params = _build_filters(filters, cols)
-    zona_expr = f"UPPER(LTRIM(RTRIM(CONVERT(varchar(200), {cols.zona_col}))))" if cols.zona_col else "NULL"
-    titular_expr = cols.contacto_titular_col if cols.contacto_titular_col else "0"
-
-    sql = f"""
-    SELECT
-      UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.fecha_col})))) AS periodo,
-      UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.tramo_col})))) AS tramo,
-      UPPER(LTRIM(RTRIM(CONVERT(varchar(200), {cols.ejecutivo_col})))) AS ejecutivo,
-      {zona_expr} AS zona,
-      SUM(CAST({cols.deuda_col} AS FLOAT)) AS deuda_asignada,
-      SUM(CAST({cols.contenido_col} AS FLOAT)) AS saldo_contenido,
-      SUM(CAST({cols.normalizado_col} AS FLOAT)) AS saldo_normalizado,
-      AVG(CAST({cols.meta_cont_col} AS FLOAT)) AS meta_contencion_pct,
-      AVG(CAST({cols.meta_norm_col} AS FLOAT)) AS meta_normalizacion_pct,
-      SUM(CAST({titular_expr} AS FLOAT)) AS contactos_titular,
-      COUNT_BIG(1) AS casos_asignados
-    FROM {cols.table_name}
-    {where_sql}
-    GROUP BY
-      UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.fecha_col})))),
-      UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.tramo_col})))),
-      UPPER(LTRIM(RTRIM(CONVERT(varchar(200), {cols.ejecutivo_col})))),
-      {zona_expr}
-    ORDER BY ejecutivo, tramo
+def get_filter_values() -> dict:
+    sql_periodos = """
+    SELECT DISTINCT CONVERT(char(10), fecha_carga, 126) AS periodo
+    FROM dbo.tmp_bench_temp_STC
+    WHERE fecha_carga IS NOT NULL
+    ORDER BY periodo DESC
     """
-    raw = run_query(sql, tuple(params))
-    rows: list[dict] = []
-    for r in raw:
-        deuda = float(r["deuda_asignada"] or 0)
-        contenido = float(r["saldo_contenido"] or 0)
-        normalizado = float(r["saldo_normalizado"] or 0)
-        meta_c = float(r["meta_contencion_pct"] or 0)
-        meta_n = float(r["meta_normalizacion_pct"] or 0)
-        pct_cont = _safe_div(contenido, deuda)
-        pct_norm = _safe_div(normalizado, deuda)
-        contacto_tit = _safe_div(float(r["contactos_titular"] or 0), float(r["casos_asignados"] or 0))
-        rows.append(
-            {
-                "periodo": r["periodo"],
-                "tramo": r["tramo"],
-                "ejecutivo": r["ejecutivo"],
-                "zona": r["zona"],
-                "deuda_asignada": deuda,
-                "saldo_contenido": contenido,
-                "porcentaje_contenido": pct_cont,
-                "saldo_normalizado": normalizado,
-                "porcentaje_normalizado": pct_norm,
-                "meta_contencion_pct": meta_c,
-                "meta_normalizacion_pct": meta_n,
-                "cumplimiento_final": _cumpl_final(r["tramo"], pct_cont, meta_c, pct_norm, meta_n),
-                "contacto_titular_pct": contacto_tit,
-                "casos_asignados": int(r["casos_asignados"] or 0),
-            }
-        )
-    return rows
+    periodos = [r["periodo"] for r in run_query(sql_periodos) if r.get("periodo")]
+
+    ejecutivos = [USER_TO_NAME[u] for u in USER_ORDER]
+
+    return {
+        "periodos": periodos,
+        "tramos": [],
+        "aperturas": [],
+        "ejecutivos": ejecutivos,
+        "zonas": [],
+    }
 
 
 def get_general_view(filters: dict) -> list[dict]:
-    rows = get_rows(filters)
-    out: dict[str, dict] = {}
-    for r in rows:
-        key = r["ejecutivo"] or "SIN_EJECUTIVO"
-        acc = out.setdefault(
-            key,
-            {
-                "ejecutivo": key,
-                "zona": r["zona"],
-                "deuda_total": 0.0,
-                "casos_asignados": 0,
-                "ponderado": 0.0,
-                "contacto_pond": 0.0,
-                "ciclos": {},
-            },
-        )
-        deuda = r["deuda_asignada"]
-        acc["deuda_total"] += deuda
-        acc["casos_asignados"] += r["casos_asignados"]
-        acc["ponderado"] += r["cumplimiento_final"] * deuda
-        acc["contacto_pond"] += r["contacto_titular_pct"] * deuda
-        acc["ciclos"][r["tramo"]] = r["cumplimiento_final"]
-
-    resp = []
-    for v in out.values():
-        deuda = v["deuda_total"]
-        resp.append(
-            {
-                "ejecutivo": v["ejecutivo"],
-                "zona": v["zona"],
-                "deuda_total": deuda,
-                "casos_asignados": v["casos_asignados"],
-                "cumplimiento_final": (v["ponderado"] / deuda) if deuda else 0.0,
-                "contacto_titular_pct": (v["contacto_pond"] / deuda) if deuda else 0.0,
-                "ciclos": v["ciclos"],
-            }
-        )
-    resp.sort(key=lambda x: x["cumplimiento_final"], reverse=True)
-    return resp
+    return []
 
 
 def get_cycle_view(filters: dict) -> list[dict]:
-    rows = get_rows(filters)
-    ciclo = _clean(filters.get("ciclo")) if filters.get("ciclo") else ""
-    if ciclo:
-        rows = [r for r in rows if _clean(r["tramo"]) == ciclo]
-    rows.sort(key=lambda x: (x["ejecutivo"], x["tramo"]))
+    periodo = _normalize_period(filters.get("periodo"))
+    ejecutivo_filter = str(filters.get("ejecutivo") or "").strip().lower()
+
+    sql = """
+    WITH gestiones AS (
+        SELECT
+            g.rut,
+            g.UsuarioGestion,
+            g.ContactoGestion,
+            g.RespuestaGestion,
+            g.GestionFecha,
+            g.GestionHora,
+            g.telefono,
+            CASE g.RespuestaGestion
+                WHEN 'COMPROMISO NORMALIZACION' THEN 1
+                WHEN 'COMPROMISO CONTENCION' THEN 2
+                WHEN 'COMPROMISO PREPAGO' THEN 3
+                WHEN 'COMPROMISO' THEN 4
+                WHEN 'COMPROMISO ADP (CUOTA)' THEN 5
+                WHEN 'COMPRA DIRECTA EN TRAMITE' THEN 6
+                WHEN 'COMPRA DIRECTA CONCRETADA' THEN 7
+                WHEN 'COMPRA DIRECTA INTERESADO' THEN 8
+                WHEN 'COMPROMISO INTERESADO EN PAC' THEN 9
+                WHEN 'COMPROMISO PUT' THEN 10
+                WHEN 'COMPROMISO SOLICITA PREPAGO' THEN 11
+                WHEN 'DACION' THEN 12
+                WHEN 'NOVACION EN TRMITE' THEN 13
+                WHEN 'NOVACION' THEN 14
+                WHEN 'REFINANCIAMIENTO' THEN 15
+                WHEN 'RECONDUCCION EN TRAMITE' THEN 16
+                WHEN 'RECONDUCCION INTERESADO' THEN 17
+                WHEN 'NOVACION INTERESADO' THEN 18
+                WHEN 'DACION EN TRAMITE' THEN 19
+                WHEN 'DACION INTERESADO' THEN 20
+                WHEN 'REFINANCIAMIENTO EN TRAMITE' THEN 21
+                WHEN 'REFINANCIAMIENTO INTERESADO' THEN 22
+                WHEN 'A LA ESPERA DEL DESCUENTO PAC' THEN 23
+                WHEN 'RENOVACION EN TRAMITE' THEN 24
+                WHEN 'VENTA DIRECTA EN TRAMITE' THEN 25
+                WHEN 'VENTA DIRECTA INTERESADO' THEN 26
+                WHEN 'RENOVACION INTERESADO' THEN 27
+                WHEN 'REGULARIZAR POR SUS PROPIOS MEDIOS' THEN 28
+                WHEN 'ADP EN TRAMITE' THEN 29
+                WHEN 'ADP INTERESADO' THEN 30
+                WHEN 'PAGARE EN TRIBUNALES' THEN 31
+                WHEN 'RENOVACION' THEN 32
+                WHEN 'CESANTE' THEN 33
+                WHEN 'EN TRAMITE CON CONCESIONARIO' THEN 34
+                WHEN 'ENFERMEDAD DEUDOR MUCHOS GASTOS MEDICOS' THEN 35
+                WHEN 'ENFERMEDAD DEUDOR TERMINAL' THEN 36
+                WHEN 'YA PAGO' THEN 37
+                WHEN 'NOVACION EN TRAMITE' THEN 38
+                WHEN 'PROBLEMA ECONOMICO IMPREVISTO' THEN 39
+                WHEN 'PROBLEMA ECONOMICO SUELDO INSUFICIENTE' THEN 40
+                WHEN 'PROBLEMAS TECNICOS PARA PAGAR CONSUMER.CL' THEN 41
+                WHEN 'PROBLEMAS TECNICOS PARA PAGAR PAC' THEN 42
+                WHEN 'SINIESTRO PERDIDA TOTAL' THEN 43
+                WHEN 'FALLECIDO' THEN 44
+                ELSE 999
+            END AS peso_gestion
+        FROM dbo.tmp_GEST_CRM g
+        WHERE g.cartera = 526
+          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND EOMONTH(?)
+          AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
+    ),
+    ranking AS (
+        SELECT
+            *,
+            ROW_NUMBER() OVER (
+                PARTITION BY rut
+                ORDER BY peso_gestion ASC, GestionFecha DESC, GestionHora DESC
+            ) AS rn
+        FROM gestiones
+        WHERE peso_gestion <> 999
+    ),
+    mejor_gestion AS (
+        SELECT rut, UsuarioGestion
+        FROM ranking
+        WHERE rn = 1
+    )
+    SELECT
+        ISNULL(mg.UsuarioGestion, 'SIN GESTION') AS usuario_gestion,
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C1' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c1_deuda_asignada,
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C1' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c1_monto_cont,
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C2' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c2_deuda_asignada,
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C2' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c2_monto_cont
+    FROM dbo.tmp_bench_temp_STC b
+    LEFT JOIN mejor_gestion mg
+        ON b.fld_RUT = mg.rut
+    WHERE ISNULL(mg.UsuarioGestion, 'SIN GESTION') IN (
+        'EMUNOZ',
+        'LROJAS',
+        'MINOSTROZA',
+        'CVERA',
+        'SDUARTE',
+        'BMONCADA',
+        'SFUENTES',
+        'MCOLMENARES'
+    )
+      AND b.fld_TRAMO_MORA IN ('C1', 'C2')
+      AND b.fecha_carga = ?
+    GROUP BY ISNULL(mg.UsuarioGestion, 'SIN GESTION')
+    """
+
+    raw_rows = run_query(sql, (periodo, periodo, periodo, periodo))
+
+    c1_total_cont = sum(float(r.get("c1_monto_cont") or 0) for r in raw_rows)
+    c2_total_cont = sum(float(r.get("c2_monto_cont") or 0) for r in raw_rows)
+
+    rows: list[dict] = []
+    for user in USER_ORDER:
+        item = next((r for r in raw_rows if str(r.get("usuario_gestion") or "").strip().upper() == user), None)
+        c1_deuda = float(item.get("c1_deuda_asignada") or 0) if item else 0.0
+        c1_cont = float(item.get("c1_monto_cont") or 0) if item else 0.0
+        c2_deuda = float(item.get("c2_deuda_asignada") or 0) if item else 0.0
+        c2_cont = float(item.get("c2_monto_cont") or 0) if item else 0.0
+
+        row = {
+            "ejecutivo": USER_TO_NAME[user],
+            "c1_deuda_asignada": c1_deuda,
+            "c1_monto_cont": c1_cont,
+            "c1_porc_contenido": _safe_div(c1_cont, c1_deuda),
+            "c1_porc_aporte": _safe_div(c1_cont, c1_total_cont),
+            "c2_deuda_asignada": c2_deuda,
+            "c2_monto_cont": c2_cont,
+            "c2_porc_contenido": _safe_div(c2_cont, c2_deuda),
+            "c2_porc_aporte": _safe_div(c2_cont, c2_total_cont),
+        }
+
+        if ejecutivo_filter and row["ejecutivo"].strip().lower() != ejecutivo_filter:
+            continue
+        rows.append(row)
+
+    total_c1_deuda = sum(r["c1_deuda_asignada"] for r in rows)
+    total_c1_cont = sum(r["c1_monto_cont"] for r in rows)
+    total_c2_deuda = sum(r["c2_deuda_asignada"] for r in rows)
+    total_c2_cont = sum(r["c2_monto_cont"] for r in rows)
+
+    rows.append(
+        {
+            "ejecutivo": "Total",
+            "c1_deuda_asignada": total_c1_deuda,
+            "c1_monto_cont": total_c1_cont,
+            "c1_porc_contenido": _safe_div(total_c1_cont, total_c1_deuda),
+            "c1_porc_aporte": 100.0 if total_c1_cont > 0 else 0.0,
+            "c2_deuda_asignada": total_c2_deuda,
+            "c2_monto_cont": total_c2_cont,
+            "c2_porc_contenido": _safe_div(total_c2_cont, total_c2_deuda),
+            "c2_porc_aporte": 100.0 if total_c2_cont > 0 else 0.0,
+        }
+    )
+
     return rows
-
-
-def get_filter_values() -> dict:
-    cols = resolve_columns()
-    zona_expr = f"UPPER(LTRIM(RTRIM(CONVERT(varchar(200), {cols.zona_col}))))" if cols.zona_col else "NULL"
-    return {
-        "periodos": [
-            r["valor"]
-            for r in run_query(
-                f"SELECT DISTINCT UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.fecha_col})))) AS valor FROM {cols.table_name} ORDER BY valor DESC"
-            )
-            if r["valor"]
-        ],
-        "tramos": [
-            r["valor"]
-            for r in run_query(
-                f"SELECT DISTINCT UPPER(LTRIM(RTRIM(CONVERT(varchar(50), {cols.tramo_col})))) AS valor FROM {cols.table_name} ORDER BY valor"
-            )
-            if r["valor"]
-        ],
-        "ejecutivos": [
-            r["valor"]
-            for r in run_query(
-                f"SELECT DISTINCT UPPER(LTRIM(RTRIM(CONVERT(varchar(200), {cols.ejecutivo_col})))) AS valor FROM {cols.table_name} ORDER BY valor"
-            )
-            if r["valor"]
-        ],
-        "zonas": [
-            r["valor"]
-            for r in run_query(
-                f"SELECT DISTINCT {zona_expr} AS valor FROM {cols.table_name} ORDER BY valor"
-            )
-            if r["valor"]
-        ]
-        if cols.zona_col
-        else [],
-    }
