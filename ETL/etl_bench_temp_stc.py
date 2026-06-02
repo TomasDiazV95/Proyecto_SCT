@@ -1,6 +1,5 @@
 import os
 import re
-import unicodedata
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
@@ -20,7 +19,7 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
 # ========= BENCH MORA TEMPRANA =========
-DEFAULT_EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260420 - BENCH MORA TEMPRANA - PHOENIX (TELEFONIA).xlsx"
+DEFAULT_EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260528 - BENCH MORA TEMPRANA - PHOENIX (TELEFONIA).xlsx"
 EXCEL_PATH = os.getenv("BENCH_TEMP_EXCEL_PATH", "").strip()
 SHEET_NAME = "PHOENIX"
 FILE_NAME_CONTAINS = os.getenv("BENCH_TEMP_NAME_CONTAINS", "BENCH MORA TEMPRANA")
@@ -28,8 +27,6 @@ FILE_NAME_CONTAINS = os.getenv("BENCH_TEMP_NAME_CONTAINS", "BENCH MORA TEMPRANA"
 TABLE = "dbo.tmp_bench_temp_STC"
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
 BATCH_SIZE = 200
-META_CONTENCION_COL = "meta_contencion_pct"
-META_NORMALIZACION_COL = "meta_normalizacion_pct"
 
 
 def pick_driver() -> str:
@@ -114,37 +111,6 @@ def clean_numeric_to_str(x):
     return str(int(d))
 
 
-def normalize_rule_text(v) -> str | None:
-    if v is None or v is pd.NA:
-        return None
-    s = str(v).strip()
-    if not s or s.lower() == "nan":
-        return None
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("utf-8")
-    s = re.sub(r"\s+", " ", s)
-    return s.upper()
-
-
-def compute_meta_values(tramo_raw, apertura_raw) -> tuple[int | None, int | None]:
-    tramo = normalize_rule_text(tramo_raw)
-    apertura = normalize_rule_text(apertura_raw)
-
-    meta_normalizacion = 24 if tramo == "C3" else None
-
-    if tramo in {"C6", "C7", "C8"} and apertura == "SUSCEPTIBLE CASTIGO":
-        return 42, meta_normalizacion
-    if tramo == "C6" and apertura != "SUSCEPTIBLE CASTIGO":
-        return 30, meta_normalizacion
-    if tramo == "C3":
-        return 74, meta_normalizacion
-    if tramo == "C4" and apertura == "SUSCEPTIBLE CV":
-        return 67, meta_normalizacion
-    if tramo == "C5":
-        return 34, meta_normalizacion
-
-    return None, meta_normalizacion
-
-
 def read_excel(path: str, sheet: str | None) -> pd.DataFrame:
     p = Path(path)
     if not p.exists():
@@ -214,19 +180,10 @@ def ensure_table_and_columns(df: pd.DataFrame):
                 cur.execute(stmt)
             cn.commit()
 
-        if META_CONTENCION_COL not in existing:
-            cur.execute(f"ALTER TABLE {TABLE} ADD {sql_ident(META_CONTENCION_COL)} DECIMAL(5,2) NULL;")
-        if META_NORMALIZACION_COL not in existing:
-            cur.execute(f"ALTER TABLE {TABLE} ADD {sql_ident(META_NORMALIZACION_COL)} DECIMAL(5,2) NULL;")
-        cn.commit()
-
         for n in NUMERIC_COLS:
             colname = f"fld_{n}"
             if colname in existing or colname in fld_cols:
                 cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(colname)} DECIMAL(38,0) NULL;")
-
-        cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(META_CONTENCION_COL)} DECIMAL(5,2) NULL;")
-        cur.execute(f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(META_NORMALIZACION_COL)} DECIMAL(5,2) NULL;")
         cn.commit()
 
 
@@ -234,7 +191,7 @@ def insert_append(df: pd.DataFrame, source_file: str):
     excel_cols = [normalize_excel_col(c) for c in df.columns]
     fld_cols = [f"fld_{c}" for c in excel_cols]
 
-    insert_cols = ["source_file"] + fld_cols + [META_CONTENCION_COL, META_NORMALIZACION_COL]
+    insert_cols = ["source_file"] + fld_cols
     placeholders = ",".join(["?"] * len(insert_cols))
 
     sql = f"""
@@ -243,10 +200,6 @@ def insert_append(df: pd.DataFrame, source_file: str):
     """
 
     rows = []
-    upper_excel_cols = [normalize_excel_col(c).upper() for c in excel_cols]
-    tramo_idx = upper_excel_cols.index("TRAMO_MORA") if "TRAMO_MORA" in upper_excel_cols else None
-    apertura_idx = upper_excel_cols.index("APERTURA") if "APERTURA" in upper_excel_cols else None
-
     for row in df.itertuples(index=False, name=None):
         out = [source_file]
         for c, v in zip(excel_cols, row):
@@ -259,11 +212,6 @@ def insert_append(df: pd.DataFrame, source_file: str):
                     vv = str(v)
                     out.append(vv if vv.strip() != "" and vv.lower() != "nan" else None)
 
-        tramo_val = row[tramo_idx] if tramo_idx is not None else None
-        apertura_val = row[apertura_idx] if apertura_idx is not None else None
-        meta_contencion, meta_normalizacion = compute_meta_values(tramo_val, apertura_val)
-        out.append(meta_contencion)
-        out.append(meta_normalizacion)
         rows.append(tuple(out))
 
     with connect() as cn:
