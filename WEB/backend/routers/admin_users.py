@@ -20,8 +20,8 @@ router = APIRouter()
 
 
 def _ensure_admin(user: dict) -> None:
-    if user["role"] not in {"super_admin", "admin"}:
-        raise HTTPException(status_code=403, detail="Solo admin/super_admin")
+    if user["role"] not in {"super_admin", "admin"} and "admin" not in user.get("modules", []):
+        raise HTTPException(status_code=403, detail="Sin permiso para Panel Admin")
 
 
 @router.get("/modules")
