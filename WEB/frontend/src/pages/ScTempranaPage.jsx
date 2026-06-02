@@ -4,9 +4,7 @@ import { fetchScTempranaCycle, fetchScTempranaFilters, fetchScTempranaGeneral } 
 
 const initialFilters = {
   periodo: "",
-  zona: "",
   ejecutivo: "",
-  ciclo: "",
 };
 
 function formatPct(value) {
@@ -14,17 +12,40 @@ function formatPct(value) {
 }
 
 function formatMoney(value) {
-  return new Intl.NumberFormat("es-CL", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Number(value || 0));
+  return `$${new Intl.NumberFormat("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(value || 0))}`;
+}
+
+function percentile(sortedValues, p) {
+  if (!sortedValues.length) {
+    return 0;
+  }
+  const idx = (sortedValues.length - 1) * p;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) {
+    return sortedValues[lower];
+  }
+  const weight = idx - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+}
+
+function dotClassByThresholds(value, thresholds) {
+  const num = Number(value || 0);
+  if (num >= thresholds.p66) {
+    return "gm-dot gm-dot-ok";
+  }
+  if (num >= thresholds.p33) {
+    return "gm-dot gm-dot-warn";
+  }
+  return "gm-dot gm-dot-bad";
 }
 
 export default function ScTempranaPage() {
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
-  const [options, setOptions] = useState({ periodos: [], zonas: [], tramos: [], ejecutivos: [] });
-  const [rows, setRows] = useState([]);
+  const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
+  const [generalRows, setGeneralRows] = useState([]);
+  const [cycleRows, setCycleRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -32,11 +53,13 @@ export default function ScTempranaPage() {
     async function loadFilters() {
       try {
         const data = await fetchScTempranaFilters();
-        setOptions(data);
+        setOptions({
+          periodos: data.periodos || [],
+          ejecutivos: data.ejecutivos || [],
+        });
         setFilters((prev) => ({
           ...prev,
           periodo: data.periodos?.[0] || "",
-          ciclo: data.tramos?.[0] || "",
         }));
       } catch (err) {
         setError(err.message);
@@ -47,11 +70,15 @@ export default function ScTempranaPage() {
 
   useEffect(() => {
     async function loadData() {
+      if (!filters.periodo) {
+        return;
+      }
       setLoading(true);
       setError("");
       try {
-        const data = view === "general" ? await fetchScTempranaGeneral(filters) : await fetchScTempranaCycle(filters);
-        setRows(data);
+        const [general, cycle] = await Promise.all([fetchScTempranaGeneral(filters), fetchScTempranaCycle(filters)]);
+        setGeneralRows(general);
+        setCycleRows(cycle);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -59,24 +86,36 @@ export default function ScTempranaPage() {
       }
     }
     loadData();
-  }, [filters, view]);
-
-  const cycleColumns = useMemo(() => {
-    const set = new Set();
-    rows.forEach((row) => {
-      if (row.ciclos) {
-        Object.keys(row.ciclos).forEach((c) => set.add(c));
-      }
-    });
-    const preferred = ["C1", "C2", "C3"];
-    const dynamic = Array.from(set);
-    const extra = dynamic.filter((x) => !preferred.includes(x)).sort();
-    return [...preferred, ...extra];
-  }, [rows]);
+  }, [filters]);
 
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
+
+  const cycleDataRows = useMemo(() => cycleRows.filter((row) => row.ejecutivo !== "Total"), [cycleRows]);
+  const cycleTotalRow = useMemo(() => cycleRows.find((row) => row.ejecutivo === "Total") || null, [cycleRows]);
+
+  const c1Thresholds = useMemo(() => {
+    const values = cycleDataRows
+      .map((row) => Number(row.c1_porc_aporte || 0))
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
+    return {
+      p33: percentile(values, 0.33),
+      p66: percentile(values, 0.66),
+    };
+  }, [cycleDataRows]);
+
+  const c2Thresholds = useMemo(() => {
+    const values = cycleDataRows
+      .map((row) => Number(row.c2_porc_aporte || 0))
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
+    return {
+      p33: percentile(values, 0.33),
+      p66: percentile(values, 0.66),
+    };
+  }, [cycleDataRows]);
 
   return (
     <div className="container-fluid py-4 app-shell">
@@ -91,8 +130,8 @@ export default function ScTempranaPage() {
           <button className={`btn btn-${view === "general" ? "primary" : "outline-primary"}`} onClick={() => setView("general")}>
             Vista General
           </button>
-          <button className={`btn btn-${view === "ciclo" ? "primary" : "outline-primary"}`} onClick={() => setView("ciclo")}>
-            Vista Por Ciclo
+          <button className={`btn btn-${view === "ejecutivos" ? "primary" : "outline-primary"}`} onClick={() => setView("ejecutivos")}>
+            Vista Ejecutivos
           </button>
         </div>
       </div>
@@ -110,18 +149,7 @@ export default function ScTempranaPage() {
                 ))}
               </select>
             </div>
-            <div className="col-12 col-md-2">
-              <label className="form-label">Zona</label>
-              <select className="form-select" value={filters.zona} onChange={(e) => onChange("zona", e.target.value)}>
-                <option value="">Todas</option>
-                {options.zonas.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-2">
+            <div className="col-12 col-md-3">
               <label className="form-label">Ejecutivo</label>
               <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
                 <option value="">Todos</option>
@@ -132,19 +160,6 @@ export default function ScTempranaPage() {
                 ))}
               </select>
             </div>
-            {view === "ciclo" && (
-              <div className="col-12 col-md-2">
-                <label className="form-label">Ciclo a mostrar</label>
-                <select className="form-select" value={filters.ciclo} onChange={(e) => onChange("ciclo", e.target.value)}>
-                  <option value="">Selecciona</option>
-                  {options.tramos.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -156,67 +171,61 @@ export default function ScTempranaPage() {
           {loading ? (
             <div className="text-center py-4">Cargando...</div>
           ) : view === "general" ? (
-            <table className="table table-striped table-hover align-middle">
-              <thead>
-                <tr>
-                  <th>Ejecutivo</th>
-                  <th>Zona</th>
-                  <th>Casos</th>
-                  <th>Deuda Asignada</th>
-                  {cycleColumns.map((c) => (
-                    <th key={c}>Cumpl. {c}</th>
-                  ))}
-                  <th>Contacto Titular</th>
-                  <th>Cumplimiento Final</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.ejecutivo}>
-                    <td>{row.ejecutivo}</td>
-                    <td>{row.zona || "-"}</td>
-                    <td>{row.casos_asignados}</td>
-                    <td>{formatMoney(row.deuda_total)}</td>
-                    {cycleColumns.map((c) => (
-                      <td key={`${row.ejecutivo}-${c}`}>{formatPct(row.ciclos?.[c])}</td>
-                    ))}
-                    <td>{formatPct(row.contacto_titular_pct)}</td>
-                    <td className="fw-semibold">{formatPct(row.cumplimiento_final)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="text-center py-4 text-muted">Sin informacion disponible para vista general.</div>
           ) : (
             <table className="table table-striped table-hover align-middle">
               <thead>
                 <tr>
-                  <th>Ejecutivo</th>
-                  <th>Tramo</th>
+                  <th rowSpan={2}>Ejecutiva</th>
+                  <th colSpan={4} className="text-center">
+                    Tramo C1
+                  </th>
+                  <th colSpan={4} className="text-center">
+                    Tramo C2
+                  </th>
+                </tr>
+                <tr>
                   <th>Deuda Asignada</th>
-                  <th>Saldo Contenido</th>
-                  <th>% Contenido</th>
-                  <th>Saldo Normalizado</th>
-                  <th>% Normalizado</th>
-                  <th>Contacto Titular</th>
-                  <th>Cumplimiento Final</th>
-                  <th>Casos</th>
+                  <th>Monto Cont</th>
+                  <th>% Cont</th>
+                  <th>% cumplimiento</th>
+                  <th>Deuda Asignada</th>
+                  <th>Monto Cont</th>
+                  <th>% Cont</th>
+                  <th>% cumplimiento</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={`${row.ejecutivo}-${row.tramo}-${idx}`}>
+                {cycleDataRows.map((row) => (
+                  <tr key={row.ejecutivo}>
                     <td>{row.ejecutivo}</td>
-                    <td>{row.tramo}</td>
-                    <td>{formatMoney(row.deuda_asignada)}</td>
-                    <td>{formatMoney(row.saldo_contenido)}</td>
-                    <td>{formatPct(row.porcentaje_contenido)}</td>
-                    <td>{formatMoney(row.saldo_normalizado)}</td>
-                    <td>{formatPct(row.porcentaje_normalizado)}</td>
-                    <td>{formatPct(row.contacto_titular_pct)}</td>
-                    <td className="fw-semibold">{formatPct(row.cumplimiento_final)}</td>
-                    <td>{row.casos_asignados}</td>
+                    <td>{formatMoney(row.c1_deuda_asignada)}</td>
+                    <td>{formatMoney(row.c1_monto_cont)}</td>
+                    <td>{formatPct(row.c1_porc_contenido)}</td>
+                    <td className="fw-semibold">
+                      <span className={dotClassByThresholds(row.c1_porc_aporte, c1Thresholds)} /> {formatPct(row.c1_porc_aporte)}
+                    </td>
+                    <td>{formatMoney(row.c2_deuda_asignada)}</td>
+                    <td>{formatMoney(row.c2_monto_cont)}</td>
+                    <td>{formatPct(row.c2_porc_contenido)}</td>
+                    <td className="fw-semibold">
+                      <span className={dotClassByThresholds(row.c2_porc_aporte, c2Thresholds)} /> {formatPct(row.c2_porc_aporte)}
+                    </td>
                   </tr>
                 ))}
+                {cycleTotalRow && (
+                  <tr className="table-primary fw-semibold">
+                    <td>{cycleTotalRow.ejecutivo}</td>
+                    <td>{formatMoney(cycleTotalRow.c1_deuda_asignada)}</td>
+                    <td>{formatMoney(cycleTotalRow.c1_monto_cont)}</td>
+                    <td>{formatPct(cycleTotalRow.c1_porc_contenido)}</td>
+                    <td>{formatPct(cycleTotalRow.c1_porc_aporte)}</td>
+                    <td>{formatMoney(cycleTotalRow.c2_deuda_asignada)}</td>
+                    <td>{formatMoney(cycleTotalRow.c2_monto_cont)}</td>
+                    <td>{formatPct(cycleTotalRow.c2_porc_contenido)}</td>
+                    <td>{formatPct(cycleTotalRow.c2_porc_aporte)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           )}

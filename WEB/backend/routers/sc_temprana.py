@@ -25,44 +25,22 @@ def filtros() -> FiltersResponse:
 @router.get("/productividad/general", response_model=ApiEnvelope)
 def productividad_general(
     periodo: str | None = Query(default=None),
-    zona: str | None = Query(default=None),
-    tramo: str | None = Query(default=None),
     ejecutivo: str | None = Query(default=None),
 ) -> ApiEnvelope:
     try:
-        return ApiEnvelope(
-            data=get_general_view(
-                {
-                    "periodo": periodo,
-                    "zona": zona,
-                    "tramo": tramo,
-                    "ejecutivo": ejecutivo,
-                }
-            )
-        )
+        return ApiEnvelope(data=get_general_view({"periodo": periodo, "ejecutivo": ejecutivo}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/productividad/ciclo", response_model=ApiEnvelope)
 def productividad_ciclo(
-    ciclo: str | None = Query(default=None),
     periodo: str | None = Query(default=None),
-    zona: str | None = Query(default=None),
-    tramo: str | None = Query(default=None),
     ejecutivo: str | None = Query(default=None),
 ) -> ApiEnvelope:
     try:
-        return ApiEnvelope(
-            data=get_cycle_view(
-                {
-                    "ciclo": ciclo,
-                    "periodo": periodo,
-                    "zona": zona,
-                    "tramo": tramo,
-                    "ejecutivo": ejecutivo,
-                }
-            )
-        )
+        return ApiEnvelope(data=get_cycle_view({"periodo": periodo, "ejecutivo": ejecutivo}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
