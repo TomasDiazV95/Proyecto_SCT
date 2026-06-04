@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { authForgotPassword } from "../auth/apiAuth";
+import nexusLogo from "../assets/logo/Logo_Nexus.png";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -24,16 +25,22 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="container py-5" style={{ maxWidth: 420 }}>
-      <div className="card shadow-sm">
-        <div className="card-body">
+    <div className="login-form-panel">
+      <div className="login-card">
+        <div className="login-card-header">
+          <img className="login-card-logo" src={nexusLogo} alt="Nexus" />
           <h1 className="h4 mb-3">Recuperar contraseña</h1>
-          <form onSubmit={onSubmit}>
-            <label className="form-label">Correo corporativo</label>
-            <input className="form-control mb-3" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <form onSubmit={onSubmit} className="login-form">
+            <label className="login-email">Correo corporativo</label>
+            <div className="login-input-shell">
+              <span className="login-input-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z" /></svg>
+              </span>
+              <input id="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Ingresa tu usuario" required />
+            </div>            
             {message && <div className="alert alert-success py-2">{message}</div>}
             {error && <div className="alert alert-danger py-2">{error}</div>}
-            <button className="btn btn-primary w-100" disabled={loading}>
+            <button className="login-submit" disabled={loading}>
               {loading ? "Enviando..." : "Enviar enlace"}
             </button>
           </form>
