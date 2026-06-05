@@ -234,6 +234,36 @@ body {
   color: #8b94a5;
 }
 
+.login-password-shell {
+  grid-template-columns: 22px 1fr auto;
+}
+
+.login-password-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: #7a8495;
+}
+
+.login-password-toggle:hover,
+.login-password-toggle:focus-visible {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.08);
+  outline: 0;
+}
+
+.login-password-toggle svg {
+  width: 19px;
+  height: 19px;
+  fill: currentColor;
+}
+
 .login-options-row {
   display: flex;
   align-items: center;

@@ -12,7 +12,6 @@ import LoginPage from "./pages/LoginPage";
 import PanelPage from "./pages/PanelPage";
 import PorschePage from "./pages/PorschePage";
 import PlaceholderPage from "./pages/PlaceholderPage";
-import ResetPasswordPage from "./pages/ResetPasswordPage";
 import ScTardiaPage from "./pages/ScTardiaPage";
 import ScTempranaPage from "./pages/ScTempranaPage";
 import SthPage from "./pages/SthPage";
@@ -22,7 +21,7 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
+      <Route path="/reset-password" element={<Navigate to="/forgot-password" replace />} />
       <Route path="/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
       <Route path="/admin/usuarios" element={<ProtectedRoute moduleCode="admin"><AdminUsersPage /></ProtectedRoute>} />
       <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />

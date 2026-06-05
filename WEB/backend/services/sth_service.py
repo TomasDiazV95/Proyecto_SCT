@@ -46,11 +46,6 @@ TRAMO_ORDER = {
     "Multiciclo": 4,
 }
 
-HIPOTECARIO_EJECUTIVOS_POR_CICLO = {
-    1: ["Antonia Vidal", "Lorena Fuentes", "Ana Monardes"],
-    2: ["Claudia Aravena", "Olga Arenas"],
-    3: ["Maria Chavarria"],
-}
 
 
 def _period_start(periodo: str | None) -> str:
@@ -104,6 +99,7 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
             FROM dbo.tmp_bench_STH b
             LEFT JOIN dbo.tmp_carterizado_STH c
                 ON b.fld_Rut = c.rut
+               AND c.mes_carterizado = ?
             WHERE b.fecha_carga = (
                 SELECT MIN(t.fecha_carga)
                 FROM dbo.tmp_bench_STH t
@@ -128,7 +124,7 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
          AND m.activo = 1
         GROUP BY base.ejecutivo, m.meta_contenido_pct, m.ponderador_nivel_1_pct
         """
-        params = [periodo, periodo, config["producto_cliente"], config["empresa"], periodo, config["nombre_meta"]]
+        params = [periodo, periodo, periodo, config["producto_cliente"], config["empresa"], periodo, config["nombre_meta"]]
         rows = run_query(sql, tuple(params))
     else:
         ciclo_marks = ",".join("?" for _ in ciclos)
@@ -136,12 +132,18 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
         params_exec: list[str] = []
 
         if product_key == "hipotecario":
-            parts = []
-            for ciclo, ejecutivos in HIPOTECARIO_EJECUTIVOS_POR_CICLO.items():
-                marks = ",".join("?" for _ in ejecutivos)
-                parts.append(f"(CAST(b.fld_Ciclo AS INT) = {ciclo} AND ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal') IN ({marks}))")
-                params_exec.extend(ejecutivos)
-            extra_cycle_exec_filter = " AND (" + " OR ".join(parts) + ")"
+            extra_cycle_exec_filter = """
+            AND EXISTS (
+                SELECT 1
+                FROM dbo.sth_hipotecario_ejecutivos_ciclo hc
+                WHERE hc.periodo = ?
+                    AND hc.ciclo = CAST(b.fld_Ciclo AS INT)
+                    AND LTRIM(RTRIM(hc.ejecutivo)) =
+                        ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal')
+                    AND hc.activo = 1
+            )
+            """
+            params_exec.append(periodo)
 
         sql = f"""
         WITH base AS (
@@ -153,6 +155,7 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
             FROM dbo.tmp_bench_STH b
             LEFT JOIN dbo.tmp_carterizado_STH c
                 ON b.fld_Rut = c.rut
+               AND c.mes_carterizado = ?
             WHERE b.fecha_carga = (
                 SELECT MIN(t.fecha_carga)
                 FROM dbo.tmp_bench_STH t
@@ -187,7 +190,7 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
          AND m.activo = 1
         """
 
-        params = [periodo, periodo, config["producto_cliente"], config["empresa"], *ciclos, *params_exec, periodo, config["nombre_meta"]]
+        params = [periodo, periodo, periodo, config["producto_cliente"], config["empresa"], *ciclos, *params_exec, periodo, config["nombre_meta"]]
         rows = run_query(sql, tuple(params))
 
     detail_rows: list[dict] = []
@@ -334,7 +337,24 @@ def get_detail_view(filters: dict) -> list[dict]:
                 data["cumplimiento_final"] = row_exec["cumplimiento_final"]
 
         pivot_rows = list(by_ejecutivo.values())
-        pivot_rows.sort(key=lambda x: (0 if str(x["ejecutivo"]).strip().lower() == "grupal" else 1, x["ejecutivo"]))
+        def _min_ciclo(row):
+            ciclos = [int(c) for c in row["ciclos"].keys()]
+            return min(ciclos) if ciclos else 99
+
+        if product == "hipotecario":
+            pivot_rows.sort(
+                key=lambda x: (
+                    _min_ciclo(x),
+                    str(x["ejecutivo"] or "")
+                )
+            )
+        else:
+            pivot_rows.sort(
+                key=lambda x: (
+                    0 if str(x["ejecutivo"]).strip().lower() == "grupal" else 1,
+                    str(x["ejecutivo"] or "")
+                )
+            )
 
         deuda_total_final = 0.0
         suma_final_ponderada = 0.0
