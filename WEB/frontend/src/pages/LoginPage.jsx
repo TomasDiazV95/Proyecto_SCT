@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import nexusLogo from "../assets/logo/Logo_Nexus.png";
@@ -13,12 +13,27 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  useEffect(() => {
+    const savedEmail = localStorage.getItem("remember_email");
+
+    if (savedEmail) {
+      setEmail(savedEmail);
+      setRememberMe(true);
+    }
+  }, []);
 
   async function onSubmit(e) {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
+      if (rememberMe) {
+        localStorage.setItem("remember_email", email);
+      } else {
+        localStorage.removeItem("remember_email");
+      }
       const user = await login(email, password);
       if (user.must_change_password) {
         navigate("/change-password", { replace: true });
@@ -97,7 +112,7 @@ export default function LoginPage() {
 
             <div className="login-options-row">
               <label className="login-remember">
-                <input type="checkbox" />
+                <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
                 <span>Recordarme</span>
               </label>
               <Link to="/forgot-password">¿Olvidaste tu contraseña?</Link>

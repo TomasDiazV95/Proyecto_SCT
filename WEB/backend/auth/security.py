@@ -16,8 +16,8 @@ def verify_password(password: str, password_hash: str) -> bool:
     return pwd_context.verify(password, password_hash)
 
 
-def new_reset_token() -> str:
-    return secrets.token_urlsafe(48)
+def new_reset_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 
 def hash_token(token: str) -> str:

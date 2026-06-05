@@ -71,11 +71,24 @@ export async function authForgotPassword(email) {
   return res.json();
 }
 
-export async function authResetPassword(token, newPassword) {
+export async function authVerifyResetCode(email, code) {
+  const res = await fetch(`${API_BASE}/api/auth/verify-reset-code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code }),
+  });
+  if (!res.ok) {
+    const body = await safeJson(res);
+    throw new Error(body?.detail || "Codigo invalido o expirado");
+  }
+  return res.json();
+}
+
+export async function authResetPassword(email, code, newPassword) {
   const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token, new_password: newPassword }),
+    body: JSON.stringify({ email, code, new_password: newPassword }),
   });
   if (!res.ok) {
     const body = await safeJson(res);

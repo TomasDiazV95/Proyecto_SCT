@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from auth.dependencies import current_user, refresh_user
 from auth.jwt_handler import create_access_token, create_refresh_token
-from auth.security import hash_password, hash_token, new_reset_token, verify_password
-from repositories.password_reset_repo import create_reset_token, get_valid_token, mark_token_used
+from auth.security import hash_password, hash_token, new_reset_code, verify_password
+from repositories.password_reset_repo import create_reset_token, get_valid_token, mark_token_used, mark_user_tokens_used
 from repositories.users_repo import (
     get_modules_for_user,
     get_user_by_email,
@@ -20,6 +20,7 @@ from schemas import (
     ForgotPasswordRequest,
     LoginRequest,
     ResetPasswordRequest,
+    VerifyResetCodeRequest,
 )
 from services.mail_service import send_reset_password_email
 
@@ -145,18 +146,35 @@ def change_password(payload: ChangePasswordRequest, user: dict = Depends(current
 def forgot_password(payload: ForgotPasswordRequest) -> dict:
     user = get_user_by_email(payload.email)
     if user and bool(user.get("is_active")):
-        token = new_reset_token()
-        create_reset_token(int(user["id"]), hash_token(token), int(os.getenv("AUTH_RESET_EXPIRES_MINUTES", "30")))
-        send_reset_password_email(str(user["email"]), token)
+        expires_minutes = int(os.getenv("AUTH_RESET_EXPIRES_MINUTES", "30"))
+        code = new_reset_code()
+        user_id = int(user["id"])
+        mark_user_tokens_used(user_id)
+        create_reset_token(user_id, hash_token(code), expires_minutes)
+        send_reset_password_email(str(user["email"]), code, expires_minutes)
         insert_audit(int(user["id"]), "PASSWORD_RESET_REQUEST", "user", int(user["id"]), None)
+    return {"ok": True}
+
+
+@router.post("/verify-reset-code")
+def verify_reset_code(payload: VerifyResetCodeRequest) -> dict:
+    user = get_user_by_email(payload.email)
+    if not user or not bool(user.get("is_active")):
+        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
+    token_row = get_valid_token(int(user["id"]), hash_token(payload.code.strip()))
+    if not token_row:
+        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
     return {"ok": True}
 
 
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordRequest) -> dict:
-    token_row = get_valid_token(hash_token(payload.token))
+    user = get_user_by_email(payload.email)
+    if not user or not bool(user.get("is_active")):
+        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
+    token_row = get_valid_token(int(user["id"]), hash_token(payload.code.strip()))
     if not token_row:
-        raise HTTPException(status_code=400, detail="Token invalido o expirado")
+        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
     user_id = int(token_row["user_id"])
     update_password(user_id, hash_password(payload.new_password), must_change_password=False)
     mark_token_used(int(token_row["id"]))
