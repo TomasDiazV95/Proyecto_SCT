@@ -527,6 +527,41 @@ th {
   white-space: nowrap;
 }
 
+.la-pivot-table {
+  table-layout: fixed;
+  border-color: #9eb6d8;
+  font-size: 0.92rem;
+}
+
+.la-pivot-table thead th {
+  background: #d9eaf7;
+  color: #000;
+  border-color: #9eb6d8;
+  font-weight: 700;
+}
+
+.la-pivot-table td,
+.la-pivot-table th {
+  padding: 0.22rem 0.45rem;
+  border-color: #b9cce6;
+  line-height: 1.18;
+}
+
+.la-pivot-group td {
+  background: #eef5fd;
+  font-weight: 700;
+}
+
+.la-pivot-child {
+  padding-left: 1.8rem !important;
+}
+
+.la-pivot-total td {
+  background: #cfe3f4;
+  font-weight: 700;
+  border-top: 2px solid #7fa6ce;
+}
+
 .gm-page .gm-meta-card {
   border: 1px dashed #a8b3c6;
 }

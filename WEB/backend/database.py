@@ -38,6 +38,7 @@ def get_connection() -> pyodbc.Connection:
     database = os.getenv("DB_NAME")
     user = os.getenv("DB_USER")
     password = os.getenv("DB_PASSWORD")
+    encrypt = os.getenv("DB_ENCRYPT", "no")
 
     if not all([server, database, user, password]):
         raise RuntimeError("Faltan variables DB_SERVER, DB_NAME, DB_USER o DB_PASSWORD en .env")
@@ -49,7 +50,7 @@ def get_connection() -> pyodbc.Connection:
         f"Uid={user};"
         f"Pwd={password};"
         "TrustServerCertificate=yes;"
-        "Encrypt=yes;"
+        f"Encrypt={encrypt};"
     )
     return pyodbc.connect(conn_str)
 

@@ -85,6 +85,18 @@ export async function fetchPorscheCuadroContenido(filters) {
   return res.json();
 }
 
+export async function downloadPorscheExcel(mes) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/porsche/export`, { mes }));
+  if (!res.ok) {
+    throw new Error("No se pudo descargar el Excel de Porsche");
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || `seguimiento_porsche_${mes || "periodo"}.xlsx`;
+  return { blob, filename };
+}
+
 export async function fetchLaAraucanaFilters(periodo = "") {
   const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/filtros`, { periodo }));
   if (!res.ok) {
