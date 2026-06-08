@@ -1,8 +1,10 @@
 import os
+from datetime import datetime, timedelta
 from ftplib import FTP, error_perm
 from pathlib import Path
-from datetime import datetime, timedelta
+
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
@@ -45,18 +47,37 @@ ruta_remota_recuperacion = f"/PHOENIX/{carpeta_mes}/Pagos/{nombre_recuperacion}"
 carpeta_local = Path(r"C:\Users\Analista de Datos\Desktop\ARAUCANA")
 carpeta_local.mkdir(parents=True, exist_ok=True)
 
-ruta_local_asignacion = carpeta_local / "ASIGNACION.csv"
-ruta_local_recuperacion = carpeta_local / "RECUPERACION.csv"
+ruta_local_asignacion = carpeta_local / nombre_asignacion
+ruta_local_recuperacion = carpeta_local / nombre_recuperacion
 
 
 def descargar_archivo(ftp: FTP, ruta_remota: str, ruta_local: Path) -> None:
-    if ruta_local.exists():
+    ruta_temporal = ruta_local.with_suffix(ruta_local.suffix + ".tmp")
+    if ruta_temporal.exists():
         try:
-            ruta_local.unlink()
+            ruta_temporal.unlink()
         except PermissionError:
             pass
-    with open(ruta_local, "wb") as archivo_local:
+    with open(ruta_temporal, "wb") as archivo_local:
         ftp.retrbinary(f"RETR {ruta_remota}", archivo_local.write)
+    ruta_temporal.replace(ruta_local)
+
+
+def eliminar_archivos_locales() -> None:
+    patrones = (
+        "Asignacion_PHOENIX_financiera_*.csv",
+        "RECUPERACION_Phoenix_*.csv",
+    )
+    for patron in patrones:
+        for ruta in carpeta_local.glob(patron):
+            ruta.unlink()
+            print(f"Archivo local anterior eliminado: {ruta}")
+
+    for ruta in (ruta_local_asignacion.with_suffix(ruta_local_asignacion.suffix + ".tmp"), ruta_local_recuperacion.with_suffix(ruta_local_recuperacion.suffix + ".tmp")):
+        if not ruta.exists():
+            continue
+        ruta.unlink()
+        print(f"Archivo temporal anterior eliminado: {ruta}")
 
 
 def existe_archivo(ftp: FTP, ruta_remota: str) -> bool:
@@ -65,6 +86,18 @@ def existe_archivo(ftp: FTP, ruta_remota: str) -> bool:
         return True
     except error_perm:
         return False
+
+
+def validar_archivos_remotos(ftp: FTP) -> None:
+    archivos_faltantes = []
+    if not existe_archivo(ftp, ruta_remota_asignacion):
+        archivos_faltantes.append("ASIGNACION")
+    if not existe_archivo(ftp, ruta_remota_recuperacion):
+        archivos_faltantes.append("RECUPERACION")
+
+    if archivos_faltantes:
+        faltantes = " y ".join(archivos_faltantes)
+        raise FileNotFoundError(f"No existe {faltantes} del mes actual")
 
 
 def main():
@@ -76,16 +109,14 @@ def main():
         ftp.login(FTP_USER, FTP_PASSWORD)
 
         print("Conectado al FTP")
-
-        # Regla principal: si no está ASIGNACION, no corre nada
-        if not existe_archivo(ftp, ruta_remota_asignacion):
-            raise FileNotFoundError("No existe ASIGNACION del mes actual")
+        validar_archivos_remotos(ftp)
+        eliminar_archivos_locales()
 
         print("ASIGNACION encontrada, descargando...")
         descargar_archivo(ftp, ruta_remota_asignacion, ruta_local_asignacion)
         print(f"ASIGNACION descargada en: {ruta_local_asignacion}")
 
-        print("Descargando RECUPERACION...")
+        print("RECUPERACION encontrada, descargando...")
         descargar_archivo(ftp, ruta_remota_recuperacion, ruta_local_recuperacion)
         print(f"RECUPERACION descargada en: {ruta_local_recuperacion}")
 

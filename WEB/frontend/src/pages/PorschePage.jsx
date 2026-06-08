@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import KpiTable from "../components/KpiTable";
-import { fetchPorscheCuadroContenido, fetchPorscheDashboard, fetchPorscheFilters } from "../api";
+import { downloadPorscheExcel, fetchPorscheCuadroContenido, fetchPorscheDashboard, fetchPorscheFilters } from "../api";
 
 const order = [
   "contactabilidad",
@@ -443,6 +443,7 @@ export default function PorschePage() {
   const [months, setMonths] = useState([]);
   const [selectedMonth, setSelectedMonth] = useState("");
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -548,6 +549,30 @@ export default function PorschePage() {
       }));
   }, [dashboard.sections]);
 
+  async function onDownload() {
+    if (!selectedMonth) {
+      return;
+    }
+
+    setDownloading(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadPorscheExcel(selectedMonth);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel de Porsche.");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="container-fluid py-4 app-shell porsche-page">
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -586,6 +611,11 @@ export default function PorschePage() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="col-12 col-md-auto d-flex align-items-end">
+              <button className="btn btn-success w-100" onClick={onDownload} disabled={!selectedMonth || downloading}>
+                {downloading ? "Descargando..." : "Descargar Excel PW"}
+              </button>
             </div>
           </div>
         </div>

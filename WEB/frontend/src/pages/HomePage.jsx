@@ -1,3 +1,4 @@
+import React from "react";
 import { Link } from "react-router-dom";
 import { modulePanels } from "../app/moduleCatalog";
 import { useAuth } from "../auth/AuthContext";

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { authForgotPassword, authResetPassword, authVerifyResetCode } from "../auth/apiAuth";
 import nexusLogo from "../assets/logo/Logo_Nexus.png";

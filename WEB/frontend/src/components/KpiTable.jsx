@@ -1,3 +1,5 @@
+import React from "react";
+
 function toNumber(value) {
   if (value === "" || value === null || value === undefined) {
     return null;

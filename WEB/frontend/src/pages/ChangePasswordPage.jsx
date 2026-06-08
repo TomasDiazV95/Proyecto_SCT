@@ -1,12 +1,12 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
 import { authChangePassword } from "../auth/apiAuth";
 import nexusLogo from "../assets/logo/Logo_Nexus.png";
+import { useAuth } from "../auth/AuthContext";
 
 export default function ChangePasswordPage() {
-  const { accessToken, user, setSession, logout } = useAuth();
   const navigate = useNavigate();
+  const { accessToken, user, setSession } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -15,17 +15,21 @@ export default function ChangePasswordPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
   async function onSubmit(e) {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       setError("La confirmacion no coincide");
       return;
     }
+
     setLoading(true);
     setError("");
+    setMessage("");
     try {
       await authChangePassword(accessToken, currentPassword, newPassword);
       setSession(accessToken, { ...user, must_change_password: false });
+      setMessage("Contrasena actualizada correctamente.");
       navigate("/", { replace: true });
     } catch (err) {
       setError(err.message || "No se pudo cambiar la contrasena");
@@ -33,6 +37,7 @@ export default function ChangePasswordPage() {
       setLoading(false);
     }
   }
+
   return (
     <div className="login-form-panel">
       <div className="login-card">
