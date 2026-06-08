@@ -548,6 +548,14 @@ th {
   color: #fff;
 }
 
+.gm-page .bit-tramo-separator td {
+  background: #eaf1fb;
+  color: #1f355b;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .gm-dot {
   display: inline-block;
   width: 10px;

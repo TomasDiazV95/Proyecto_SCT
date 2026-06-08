@@ -41,7 +41,7 @@ function dotClassByThresholds(value, thresholds) {
 }
 
 export default function ScTempranaPage() {
-  const [view, setView] = useState("general");
+  const [view, setView] = useState("ejecutivos");
   const [filters, setFilters] = useState(initialFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
   const [generalRows, setGeneralRows] = useState([]);
