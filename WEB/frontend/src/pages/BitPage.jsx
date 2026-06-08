@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import React, { useEffect, useState } from "react";
+=======
+import { Fragment, useEffect, useMemo, useState } from "react";
+>>>>>>> feature/card
 import { Link } from "react-router-dom";
 
 import { fetchBitFilters, fetchBitGeneral, fetchBitTramos } from "../api";
@@ -11,26 +15,45 @@ function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
 }
 
-function getContencionToneClass(value, tramo) {
-  const pct = Number(value || 0) * 100;
-  const tramoKey = String(tramo || "").trim();
+const tramoOrder = {
+  "30-90": 0,
+  "90+": 1,
+};
 
-  if (tramoKey === "30-90") {
-    if (pct >= 71) return "gm-dot gm-dot-ok";
-    if (pct >= 64) return "gm-dot gm-dot-warn";
-    if (pct >= 57) return "gm-dot gm-dot-low";
-    return "gm-dot gm-dot-bad";
+function percentil(sortedValues, p) {
+  if (!sortedValues.length) {
+    return 0;
   }
-  if (tramoKey === "90+") {
-    if (pct >= 15) return "gm-dot gm-dot-ok";
-    if (pct >= 12) return "gm-dot gm-dot-warn";
-    if (pct >= 9) return "gm-dot gm-dot-low";
-    return "gm-dot gm-dot-bad";
+  const idx = (sortedValues.length - 1) * p;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) {
+    return sortedValues[lower];
   }
+  const weight = idx - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+}
 
-  if (pct >= 100) return "gm-dot gm-dot-ok";
-  if (pct >= 90) return "gm-dot gm-dot-warn";
+function dotClassByThresholds(value, thresholds) {
+  const num = Number(value || 0);
+  if (num >= thresholds.p66) {
+    return "gm-dot gm-dot-ok";
+  }
+  if (num >= thresholds.p33) {
+    return "gm-dot gm-dot-warn";
+  }
   return "gm-dot gm-dot-bad";
+}
+
+function compareTramos(a, b) {
+  const aKey = String(a || "").trim();
+  const bKey = String(b || "").trim();
+  const aOrder = tramoOrder[aKey] ?? 99;
+  const bOrder = tramoOrder[bKey] ?? 99;
+  if (aOrder !== bOrder) {
+    return aOrder - bOrder;
+  }
+  return aKey.localeCompare(bKey);
 }
 
 export default function BitPage() {
@@ -79,6 +102,70 @@ export default function BitPage() {
 
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
+  }
+
+  const generalGroups = useMemo(() => {
+    const groups = new Map();
+    rows.forEach((row) => {
+      const tramo = String(row.tramo || "Sin tramo").trim();
+      if (!groups.has(tramo)) {
+        groups.set(tramo, []);
+      }
+      groups.get(tramo).push(row);
+    });
+    return Array.from(groups, ([tramo, groupRows]) => ({ tramo, rows: groupRows })).sort((a, b) => compareTramos(a.tramo, b.tramo));
+  }, [rows]);
+
+  const thresholdsByTramo = useMemo(() => {
+    const out = {};
+    generalGroups.forEach((group) => {
+      const values = group.rows
+        .map((row) => Number(row.pct_cumpl_meta || 0))
+        .filter((value) => Number.isFinite(value))
+        .sort((a, b) => a - b);
+      out[group.tramo] = {
+        p33: percentil(values, 0.33),
+        p66: percentil(values, 0.66),
+      };
+    });
+    return out;
+  }, [generalGroups]);
+
+  const tramoThresholds = useMemo(() => {
+    const values = rows
+      .map((row) => Number(row.pct_cumpl_meta || 0))
+      .filter((value) => Number.isFinite(value))
+      .sort((a, b) => a - b);
+    return {
+      p33: percentil(values, 0.33),
+      p66: percentil(values, 0.66),
+    };
+  }, [rows]);
+
+  function rowThresholds(row) {
+    if (view === "general") {
+      const tramo = String(row.tramo || "Sin tramo").trim();
+      return thresholdsByTramo[tramo] || { p33: 0, p66: 0 };
+    }
+    return tramoThresholds;
+  }
+
+  function renderDataRow(row, idx) {
+    return (
+      <tr key={`${view}-${row.tramo || "sin-tramo"}-${row.ejecutivo || row.tramo}-${idx}`}>
+        <td>{view === "general" ? row.ejecutivo : row.tramo}</td>
+        {view === "general" && <td className="text-center">{row.tramo}</td>}
+        <td className="text-center">${formatMoney(row.monto_inicial)}</td>
+        <td className="text-center">${formatMoney(row.monto_contenido)}</td>
+        <td className="text-center">{formatPct(row.pct_contiene ?? row.pct_contencion)}</td>
+        <td className="fw-semibold text-center bit-meta-cell">
+          <span className="bit-meta-indicator" role="presentation">
+            <span className={dotClassByThresholds(row.pct_cumpl_meta, rowThresholds(row))} />
+            <span>{formatPct(row.pct_cumpl_meta)}</span>
+          </span>
+        </td>
+      </tr>
+    );
   }
 
   return (
@@ -163,21 +250,16 @@ export default function BitPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={`${view}-${idx}`}>
-                    <td>{view === "general" ? row.ejecutivo : row.tramo}</td>
-                    {view === "general" && <td className="text-center">{row.tramo}</td>}
-                    <td className="text-center">${formatMoney(row.monto_inicial)}</td>
-                    <td className="text-center">${formatMoney(row.monto_contenido)}</td>
-                    <td className="text-center">{formatPct(row.pct_contiene ?? row.pct_contencion)}</td>
-                    <td className="fw-semibold text-center bit-meta-cell">
-                      <span className="bit-meta-indicator" role="presentation">
-                        <span className={getContencionToneClass(row.pct_contiene ?? row.pct_contencion, row.tramo)} />
-                        <span>{formatPct(row.pct_cumpl_meta)}</span>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {view === "general"
+                  ? generalGroups.map((group) => (
+                      <Fragment key={`bit-tramo-${group.tramo}`}>
+                        <tr className="bit-tramo-separator">
+                          <td colSpan={6}>Tramo {group.tramo}</td>
+                        </tr>
+                        {group.rows.map((row, idx) => renderDataRow(row, idx))}
+                      </Fragment>
+                    ))
+                  : rows.map((row, idx) => renderDataRow(row, idx))}
                 {total && (
                   <tr className="fw-semibold table-primary">
                     <td>{view === "general" ? total.ejecutivo : total.tramo}</td>
@@ -204,8 +286,7 @@ export default function BitPage() {
           <div className="small text-muted mb-1">Archivo: {contencionFile || "N/D"}</div>
           <div className="small">
             <strong>Significado de colores:</strong>
-            <span className="ms-3"><span className="gm-dot gm-dot-bad" /> Muy bajo</span>
-            <span className="ms-3"><span className="gm-dot gm-dot-low" /> Bajo</span>
+            <span className="ms-3"><span className="gm-dot gm-dot-bad" /> Bajo</span>
             <span className="ms-3"><span className="gm-dot gm-dot-warn" /> Esperado</span>
             <span className="ms-3"><span className="gm-dot gm-dot-ok" /> Sobre lo esperado</span>
           </div>
