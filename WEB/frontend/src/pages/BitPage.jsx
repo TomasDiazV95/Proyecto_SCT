@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import React, { useEffect, useState } from "react";
-=======
 import { Fragment, useEffect, useMemo, useState } from "react";
->>>>>>> feature/card
 import { Link } from "react-router-dom";
 
 import { fetchBitFilters, fetchBitGeneral, fetchBitTramos } from "../api";
