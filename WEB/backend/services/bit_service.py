@@ -210,6 +210,10 @@ def _safe_avg(values: list[float]) -> float:
     return sum(clean) / len(clean)
 
 
+def _cap_cumpl_meta(value: float) -> float:
+    return min(float(value or 0), 1.3)
+
+
 def _get_contencion_source_file(periodo: str) -> str:
     rows = run_query(
         """
@@ -335,7 +339,7 @@ def get_general(filters: dict) -> dict:
         monto_contenido = float(r.get("monto_contenido") or 0)
         meta_final = float(r.get("meta_final") or 0)
         pct_contencion = _safe_div(monto_contenido, monto_inicial)
-        pct_cumpl_meta = _safe_div(monto_contenido, meta_final)
+        pct_cumpl_meta = _cap_cumpl_meta(_safe_div(monto_contenido, meta_final))
         rows.append(
             {
                 "ejecutivo": r.get("ejecutivo") or "Phoenix",
@@ -396,7 +400,7 @@ def get_tramos(filters: dict) -> dict:
         monto_contenido = float(r.get("monto_contenido") or 0)
         meta_final = float(r.get("meta_final") or 0)
         pct_contencion = _safe_div(monto_contenido, monto_inicial)
-        pct_cumpl_meta = _safe_div(monto_contenido, meta_final)
+        pct_cumpl_meta = _cap_cumpl_meta(_safe_div(monto_contenido, meta_final))
         rows.append(
             {
                 "tramo": r.get("tramo") or "",

@@ -11,6 +11,10 @@ function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
 }
 
+function capCumplMeta(value) {
+  return Math.min(Number(value || 0), 1.3);
+}
+
 const tramoOrder = {
   "30-90": 0,
   "90+": 1,
@@ -116,7 +120,7 @@ export default function BitPage() {
     const out = {};
     generalGroups.forEach((group) => {
       const values = group.rows
-        .map((row) => Number(row.pct_cumpl_meta || 0))
+        .map((row) => capCumplMeta(row.pct_cumpl_meta || 0))
         .filter((value) => Number.isFinite(value))
         .sort((a, b) => a - b);
       out[group.tramo] = {
@@ -129,7 +133,7 @@ export default function BitPage() {
 
   const tramoThresholds = useMemo(() => {
     const values = rows
-      .map((row) => Number(row.pct_cumpl_meta || 0))
+      .map((row) => capCumplMeta(row.pct_cumpl_meta || 0))
       .filter((value) => Number.isFinite(value))
       .sort((a, b) => a - b);
     return {
@@ -143,7 +147,7 @@ export default function BitPage() {
       return null;
     }
     const visibleCumplMeta = rows
-      .map((row) => Number(row.pct_cumpl_meta))
+      .map((row) => capCumplMeta(row.pct_cumpl_meta))
       .filter((value) => Number.isFinite(value));
     const avgCumplMeta = visibleCumplMeta.length
       ? visibleCumplMeta.reduce((acc, value) => acc + value, 0) / visibleCumplMeta.length
@@ -151,7 +155,7 @@ export default function BitPage() {
 
     return {
       ...total,
-      pct_cumpl_meta: avgCumplMeta,
+      pct_cumpl_meta: capCumplMeta(avgCumplMeta),
     };
   }, [rows, total]);
 
@@ -174,7 +178,7 @@ export default function BitPage() {
         <td className="fw-semibold text-center bit-meta-cell">
           <span className="bit-meta-indicator" role="presentation">
             <span className={dotClassByThresholds(row.pct_cumpl_meta, rowThresholds(row))} />
-            <span>{formatPct(row.pct_cumpl_meta)}</span>
+            <span>{formatPct(capCumplMeta(row.pct_cumpl_meta))}</span>
           </span>
         </td>
       </tr>
