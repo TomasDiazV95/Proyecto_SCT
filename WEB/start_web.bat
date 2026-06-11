@@ -2,8 +2,10 @@
 setlocal
 
 set "ROOT=%~dp0"
+for %%I in ("%ROOT%..") do set "PROJECT_ROOT=%%~fI"
 set "BACKEND_DIR=%ROOT%backend"
 set "FRONTEND_DIR=%ROOT%frontend"
+set "PYTHON_EXE=%PROJECT_ROOT%\.venv\Scripts\python.exe"
 
 if not exist "%BACKEND_DIR%\main.py" (
   echo [ERROR] No se encontro el backend en "%BACKEND_DIR%".
@@ -17,8 +19,14 @@ if not exist "%FRONTEND_DIR%\package.json" (
   exit /b 1
 )
 
+if not exist "%PYTHON_EXE%" (
+  echo [WARN] No se encontro la venv del proyecto en "%PYTHON_EXE%".
+  echo [WARN] Se usara el python disponible en PATH.
+  set "PYTHON_EXE=python"
+)
+
 echo Iniciando backend FastAPI en una nueva ventana...
-start "Backend FastAPI" cmd /k "cd /d "%BACKEND_DIR%" && python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+start "Backend FastAPI" cmd /k "cd /d "%BACKEND_DIR%" && "%PYTHON_EXE%" -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
 
 echo Iniciando frontend React (Vite) en una nueva ventana...
 start "Frontend React" cmd /k "cd /d "%FRONTEND_DIR%" && npm run dev -- --host 0.0.0.0 --port 5173"

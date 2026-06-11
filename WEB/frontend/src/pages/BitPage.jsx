@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import React, { useEffect, useState } from "react";
-=======
 import { Fragment, useEffect, useMemo, useState } from "react";
->>>>>>> feature/card
 import { Link } from "react-router-dom";
 
 import { fetchBitFilters, fetchBitGeneral, fetchBitTramos } from "../api";
@@ -142,6 +138,23 @@ export default function BitPage() {
     };
   }, [rows]);
 
+  const totalRow = useMemo(() => {
+    if (!total) {
+      return null;
+    }
+    const visibleCumplMeta = rows
+      .map((row) => Number(row.pct_cumpl_meta))
+      .filter((value) => Number.isFinite(value));
+    const avgCumplMeta = visibleCumplMeta.length
+      ? visibleCumplMeta.reduce((acc, value) => acc + value, 0) / visibleCumplMeta.length
+      : Number(total.pct_cumpl_meta || 0);
+
+    return {
+      ...total,
+      pct_cumpl_meta: avgCumplMeta,
+    };
+  }, [rows, total]);
+
   function rowThresholds(row) {
     if (view === "general") {
       const tramo = String(row.tramo || "Sin tramo").trim();
@@ -260,17 +273,17 @@ export default function BitPage() {
                       </Fragment>
                     ))
                   : rows.map((row, idx) => renderDataRow(row, idx))}
-                {total && (
+                {totalRow && (
                   <tr className="fw-semibold table-primary">
-                    <td>{view === "general" ? total.ejecutivo : total.tramo}</td>
-                    {view === "general" && <td className="text-center">{total.tramo || ""}</td>}
-                    <td className="text-center">${formatMoney(total.monto_inicial)}</td>
-                    <td className="text-center">${formatMoney(total.monto_contenido)}</td>
-                    <td className="text-center">{formatPct(total.pct_contiene ?? total.pct_contencion)}</td>
+                    <td>{view === "general" ? totalRow.ejecutivo : totalRow.tramo}</td>
+                    {view === "general" && <td className="text-center">{totalRow.tramo || ""}</td>}
+                    <td className="text-center">${formatMoney(totalRow.monto_inicial)}</td>
+                    <td className="text-center">${formatMoney(totalRow.monto_contenido)}</td>
+                    <td className="text-center">{formatPct(totalRow.pct_contiene ?? totalRow.pct_contencion)}</td>
                     <td className="fw-semibold text-center bit-meta-cell">
                       <span className="bit-meta-indicator bit-meta-indicator-total" role="presentation">
                         <span className="gm-dot" />
-                        <span>{formatPct(total.pct_cumpl_meta)}</span>
+                        <span>{formatPct(totalRow.pct_cumpl_meta)}</span>
                       </span>
                     </td>
                   </tr>
