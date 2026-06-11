@@ -1,11 +1,36 @@
 import argparse
 import json
 import os
+import re
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import pandas as pd
 import pyodbc
 from dotenv import load_dotenv
+
+
+CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
+CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
+CARTERIZADO_TABLE = "dbo.tmp_BIT_carterizado"
+CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
+CONTENCION_PATTERN = re.compile(r"^Seguimiento_Metas_PHOENIX_(\d{8})\.xlsx$", re.IGNORECASE)
+CASTIGO_NUMERIC_COLUMNS = {"MTO_RECUPERO_FINAL"}
+CONTENCION_NUMERIC_COLUMNS = {"MTO_CUOTA", "MONTO_UF", "MTO_CUOTA_UF"}
+RESERVED_METADATA_COLUMNS = {"ID", "PERIODO", "SOURCE_FILE", "FECHA_CARGA"}
+
+
+@dataclass
+class BitSources:
+    cont: pd.DataFrame
+    cart: pd.DataFrame
+    cont_source_file: str
+    cart_source_file: str
+    cont_period: str | None = None
+    castigo: pd.DataFrame | None = None
+    castigo_source_file: str | None = None
+    castigo_period: str | None = None
 
 
 def load_env_files() -> None:
@@ -56,6 +81,9 @@ def normalize_col(name: str) -> str:
 def load_sheet(path: Path, sheet_name: str | int) -> pd.DataFrame:
     df = pd.read_excel(path, sheet_name=sheet_name, dtype=object, engine="openpyxl")
     df.columns = [normalize_col(c) for c in df.columns]
+    duplicated = df.columns[df.columns.duplicated()].tolist()
+    if duplicated:
+        raise RuntimeError(f"Columnas duplicadas despues de normalizar en {path.name}: {duplicated}")
     return df.where(pd.notnull(df), None)
 
 
@@ -66,119 +94,416 @@ def clean_cell(value: object) -> object:
     return value
 
 
-def _read_sources(file_path: str | None, folder_path: str | None) -> tuple[pd.DataFrame, pd.DataFrame, str, str]:
+def to_decimal(value: object, field_name: str = "valor") -> Decimal | None:
+    value = clean_cell(value)
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return Decimal(str(value))
+
+    text = str(value).strip().replace(" ", "")
+    if not text:
+        return None
+
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        text = text.replace(".", "").replace(",", ".")
+
+    try:
+        return Decimal(text)
+    except InvalidOperation as exc:
+        raise RuntimeError(f"No se pudo convertir a numero el valor '{value}' de {field_name}") from exc
+
+
+def soft_decimal(value: object) -> Decimal | None:
+    value = clean_cell(value)
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return Decimal(str(value))
+
+    text = str(value).strip().replace(" ", "")
+    if not text:
+        return None
+
+    if "," in text and "." in text:
+        if text.rfind(",") > text.rfind("."):
+            text = text.replace(".", "").replace(",", ".")
+        else:
+            text = text.replace(",", "")
+    elif "," in text:
+        text = text.replace(".", "").replace(",", ".")
+
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
+
+
+def read_metadata(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"No se pudo leer metadata {path.name}: {exc}") from exc
+
+
+def find_unique_file(folder: Path, glob_pattern: str, label: str, required: bool = True) -> Path | None:
+    matches = sorted(
+        [path for path in folder.glob(glob_pattern) if path.is_file()],
+        key=lambda path: (path.stat().st_mtime, path.name),
+        reverse=True,
+    )
+    if not matches:
+        if required:
+            raise FileNotFoundError(f"No se encontro archivo {label} con patron {glob_pattern} en {folder}")
+        return None
+    if len(matches) > 1:
+        names = ", ".join(path.name for path in matches)
+        raise RuntimeError(f"Se encontraron multiples archivos {label} en {folder}: {names}")
+    return matches[0]
+
+
+def extract_castigo_period(file_name: str) -> str:
+    match = CASTIGO_PATTERN.match(Path(file_name).name)
+    if not match:
+        raise RuntimeError(
+            "No se pudo obtener el periodo del archivo castigo. "
+            f"Nombre recibido: {file_name}. Se esperaba Detalle_Recuperos_Castigo_YYYYMM[_PRECIERRE|_CIERRE].xlsx"
+        )
+    raw_period = match.group(1)
+    return f"{raw_period[:4]}-{raw_period[4:6]}"
+
+
+def extract_contencion_period(file_name: str) -> str:
+    match = CONTENCION_PATTERN.match(Path(file_name).name)
+    if not match:
+        raise RuntimeError(
+            "Nombre de contencion invalido. "
+            f"Se esperaba Seguimiento_Metas_PHOENIX_YYYYMMDD.xlsx y se encontro {file_name}"
+        )
+    raw_date = match.group(1)
+    return f"{raw_date[:4]}-{raw_date[4:6]}"
+
+
+def quote_ident(name: str) -> str:
+    return f"[{str(name).replace(']', ']]')}]"
+
+
+def split_table_name(table_name: str) -> tuple[str, str]:
+    if "." in table_name:
+        schema, table = table_name.split(".", 1)
+        return schema, table
+    return "dbo", table_name
+
+
+def get_table_columns(cur: pyodbc.Cursor, table_name: str) -> set[str]:
+    schema, table = split_table_name(table_name)
+    cur.execute(
+        """
+        SELECT COLUMN_NAME
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+        """,
+        (schema, table),
+    )
+    return {str(row[0]).upper() for row in cur.fetchall()}
+
+
+def sanitize_excel_columns(excel_columns: list[str]) -> list[str]:
+    clean_columns = []
+    for col in excel_columns:
+        normalized = str(col).strip().upper()
+        if not normalized or normalized in RESERVED_METADATA_COLUMNS:
+            continue
+        clean_columns.append(str(col))
+    return clean_columns
+
+
+def ensure_dynamic_table(
+    cur: pyodbc.Cursor,
+    table_name: str,
+    excel_columns: list[str],
+    numeric_columns: set[str] | None = None,
+) -> list[str]:
+    if not excel_columns:
+        raise RuntimeError(f"El archivo para {table_name} no tiene columnas para cargar.")
+
+    numeric_columns = {str(col).upper() for col in (numeric_columns or set())}
+    excel_columns = sanitize_excel_columns(excel_columns)
+    if not excel_columns:
+        raise RuntimeError(f"Todas las columnas del archivo para {table_name} entran en conflicto con metadatos.")
+
+    _schema, table = split_table_name(table_name)
+    existing = get_table_columns(cur, table_name)
+
+    if not existing:
+        dynamic_cols = ",\n                    ".join(
+            f"{quote_ident(col)} {'DECIMAL(18,2)' if col.upper() in numeric_columns else 'NVARCHAR(MAX)'} NULL"
+            for col in excel_columns
+        )
+        cur.execute(
+            f"""
+            CREATE TABLE {table_name} (
+                id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                periodo NVARCHAR(7) NOT NULL,
+                source_file NVARCHAR(260) NOT NULL,
+                fecha_carga DATE NOT NULL CONSTRAINT DF_{table}_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
+                {dynamic_cols}
+            )
+            """
+        )
+        return excel_columns
+
+    missing = [col for col in excel_columns if col.upper() not in existing]
+    for col in missing:
+        column_type = "DECIMAL(18,2)" if col.upper() in numeric_columns else "NVARCHAR(MAX)"
+        cur.execute(f"ALTER TABLE {table_name} ADD {quote_ident(col)} {column_type} NULL")
+
+    return excel_columns
+
+
+def ensure_castigo_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> list[str]:
+    return ensure_dynamic_table(cur, CASTIGO_TABLE, excel_columns, CASTIGO_NUMERIC_COLUMNS)
+
+
+def prepare_contencion_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    prepared = df.copy()
+    invalid_rows = 0
+    if "MTO_CUOTA_UF" not in prepared.columns:
+        prepared["MTO_CUOTA_UF"] = None
+
+    for index, row in prepared.iterrows():
+        cuota = soft_decimal(row.get("MTO_CUOTA"))
+        monto_uf = soft_decimal(row.get("MONTO_UF"))
+        if monto_uf is None or monto_uf <= 0 or cuota is None:
+            prepared.at[index, "MTO_CUOTA_UF"] = Decimal("0")
+            if clean_cell(row.get("MTO_CUOTA")) is not None or clean_cell(row.get("MONTO_UF")) is not None:
+                invalid_rows += 1
+            continue
+        prepared.at[index, "MTO_CUOTA_UF"] = cuota / monto_uf
+
+    return prepared, invalid_rows
+
+
+def resolve_castigo_source(folder: Path) -> tuple[Path, str, str]:
+    metadata_path = folder / "CASTIGO.meta.json"
+    metadata = read_metadata(metadata_path)
+    castigo_path = find_unique_file(folder, "Detalle_Recuperos_Castigo_*.xlsx", "castigo", required=True)
+
+    source_file = castigo_path.name
+    castigo_period = extract_castigo_period(source_file)
+
+    metadata_period = str(metadata.get("periodo_detectado") or "").strip()
+    if metadata_period and metadata_period != castigo_period:
+        raise RuntimeError(
+            f"Metadata de castigo inconsistente. periodo_detectado={metadata_period}, archivo={source_file}"
+        )
+    metadata_name = str(metadata.get("original_filename") or "").strip()
+    if metadata_name and metadata_name != source_file:
+        raise RuntimeError(
+            f"Metadata de castigo inconsistente. original_filename={metadata_name}, archivo={source_file}"
+        )
+
+    return castigo_path, source_file, castigo_period
+
+
+def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
     if file_path:
         xlsx = Path(file_path)
         if not xlsx.exists():
             raise FileNotFoundError(f"No existe archivo: {xlsx}")
         cont = load_sheet(xlsx, "CONTENCION")
         cart = load_sheet(xlsx, "CARTERIZADO")
-        return cont, cart, xlsx.name, xlsx.name
+        cont_period = extract_contencion_period(xlsx.name) if CONTENCION_PATTERN.match(xlsx.name) else None
+        return BitSources(
+            cont=cont,
+            cart=cart,
+            cont_source_file=xlsx.name,
+            cart_source_file=xlsx.name,
+            cont_period=cont_period,
+        )
 
     if folder_path:
         folder = Path(folder_path)
         if not folder.exists():
             raise FileNotFoundError(f"No existe carpeta: {folder}")
-        cont_path = folder / "CONTENCION.xlsx"
+        cont_path = find_unique_file(folder, "Seguimiento_Metas_PHOENIX_*.xlsx", "contencion", required=True)
         cart_path = folder / "CARTERIZADO.xlsx"
         if not cont_path.exists() or not cart_path.exists():
-            raise FileNotFoundError("En la carpeta deben existir CONTENCION.xlsx y CARTERIZADO.xlsx")
+            raise FileNotFoundError(
+                "En la carpeta deben existir un archivo Seguimiento_Metas_PHOENIX_*.xlsx y CARTERIZADO.xlsx"
+            )
 
         cont_source_name = cont_path.name
+        cont_period = extract_contencion_period(cont_source_name)
         metadata_path = folder / "CONTENCION.meta.json"
         if metadata_path.exists():
-            try:
-                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-                candidate = str(metadata.get("original_filename") or "").strip()
-                if candidate:
-                    cont_source_name = candidate
-            except Exception:
-                pass
+            metadata = read_metadata(metadata_path)
+            candidate = str(metadata.get("original_filename") or "").strip()
+            if candidate and candidate != cont_source_name:
+                raise RuntimeError(
+                    f"Metadata de contencion inconsistente. original_filename={candidate}, archivo={cont_source_name}"
+                )
+            metadata_period = str(metadata.get("periodo_detectado") or "").strip()
+            if metadata_period and metadata_period != cont_period:
+                raise RuntimeError(
+                    f"Metadata de contencion inconsistente. periodo_detectado={metadata_period}, archivo={cont_source_name}"
+                )
 
         cont = load_sheet(cont_path, 0)
         cart = load_sheet(cart_path, 0)
-        return cont, cart, cont_source_name, cart_path.name
+        castigo_path, castigo_source_file, castigo_period = resolve_castigo_source(folder)
+        castigo_df = load_sheet(castigo_path, 0)
+        if not len(castigo_df.columns):
+            raise RuntimeError(f"El archivo de castigo {castigo_source_file} no tiene columnas.")
+
+        return BitSources(
+            cont=cont,
+            cart=cart,
+            cont_source_file=cont_source_name,
+            cart_source_file=cart_path.name,
+            cont_period=cont_period,
+            castigo=castigo_df,
+            castigo_source_file=castigo_source_file,
+            castigo_period=castigo_period,
+        )
 
     raise RuntimeError("Debes indicar --file o --folder")
 
 
-def run(periodo: str, file_path: str | None, folder_path: str | None) -> None:
-    cont, cart, cont_source_file, cart_source_file = _read_sources(file_path, folder_path)
+def resolve_contencion_period(requested_periodo: str | None, sources: BitSources) -> str:
+    if requested_periodo:
+        periodo = str(requested_periodo).strip()
+        if sources.cont_period and sources.cont_period != periodo:
+            raise RuntimeError(
+                f"El archivo contencion {sources.cont_source_file} corresponde al periodo {sources.cont_period} "
+                f"y no al periodo solicitado {periodo}"
+            )
+        return periodo
+
+    if sources.cont_period:
+        return sources.cont_period
+
+    raise RuntimeError(
+        "No se pudo definir el periodo de contencion automaticamente desde el nombre del archivo. "
+        "Indica --periodo o usa un archivo con nombre Seguimiento_Metas_PHOENIX_YYYYMMDD.xlsx."
+    )
+
+
+def insert_castigo(cur: pyodbc.Cursor, periodo: str, castigo_df: pd.DataFrame, source_file: str) -> int:
+    excel_columns = ensure_castigo_table(cur, [str(col) for col in castigo_df.columns])
+    cur.execute(f"DELETE FROM {CASTIGO_TABLE} WHERE periodo = ?", (periodo,))
+
+    insert_columns = ["periodo", "source_file"] + excel_columns
+    values_sql = ", ".join("?" for _ in insert_columns)
+    cols_sql = ", ".join(quote_ident(col) for col in insert_columns)
+    insert_sql = f"INSERT INTO {CASTIGO_TABLE} ({cols_sql}) VALUES ({values_sql})"
+
+    castigo_rows = []
+    for _, row in castigo_df.iterrows():
+        out = [periodo, source_file]
+        for col in excel_columns:
+            value = row.get(col)
+            if col.upper() in CASTIGO_NUMERIC_COLUMNS:
+                out.append(to_decimal(value, col))
+            else:
+                out.append(clean_cell(value))
+        castigo_rows.append(tuple(out))
+
+    if castigo_rows:
+        cur.executemany(insert_sql, castigo_rows)
+
+    return len(castigo_rows)
+
+
+def insert_dynamic_sheet(
+    cur: pyodbc.Cursor,
+    table_name: str,
+    periodo: str,
+    df: pd.DataFrame,
+    source_file: str,
+    numeric_columns: set[str] | None = None,
+    skip_null_column: str | None = None,
+) -> tuple[int, int]:
+    excel_columns = ensure_dynamic_table(cur, table_name, [str(col) for col in df.columns], numeric_columns)
+    cur.execute(f"DELETE FROM {table_name} WHERE periodo = ?", (periodo,))
+
+    insert_columns = ["periodo", "source_file"] + excel_columns
+    values_sql = ", ".join("?" for _ in insert_columns)
+    cols_sql = ", ".join(quote_ident(col) for col in insert_columns)
+    insert_sql = f"INSERT INTO {table_name} ({cols_sql}) VALUES ({values_sql})"
+
+    numeric_columns = {str(col).upper() for col in (numeric_columns or set())}
+    skip_null_column = str(skip_null_column or "").upper() or None
+    rows = []
+    skipped_rows = 0
+    for _, row in df.iterrows():
+        if skip_null_column and clean_cell(row.get(skip_null_column)) is None:
+            skipped_rows += 1
+            continue
+
+        out = [periodo, source_file]
+        for col in excel_columns:
+            value = row.get(col)
+            if col.upper() in numeric_columns:
+                out.append(soft_decimal(value))
+            else:
+                out.append(clean_cell(value))
+        rows.append(tuple(out))
+
+    if rows:
+        cur.executemany(insert_sql, rows)
+
+    return len(rows), skipped_rows
+
+
+def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> None:
+    sources = _read_sources(file_path, folder_path)
+    cont_period = resolve_contencion_period(periodo, sources)
+    castigo_period = sources.castigo_period
     skipped_cart_rows = 0
+    prepared_cont, invalid_contencion_uf_rows = prepare_contencion_dataframe(sources.cont)
 
     with connect() as cn:
         cn.autocommit = False
         cur = cn.cursor()
 
-        cur.execute("DELETE FROM dbo.tmp_BIT_contencion WHERE periodo = ?", (periodo,))
-        cur.execute("DELETE FROM dbo.tmp_BIT_carterizado WHERE periodo = ?", (periodo,))
-        insert_cont = """
-        INSERT INTO dbo.tmp_BIT_contencion (
-            periodo, source_file, rut, dv, con_no, prod, tipo_prod, cartera, grupo_producto, nombre, total,
-            dias_mora, tramo_proyectado, tramo_proyectado_nuevo, dias_mora_hoy, tramo_cierre_op,
-            dias_mora_intrames, castigo, paso_pc06, contiene, mto_contiene, tipo_cont
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        cont_rows = []
-        for _, r in cont.iterrows():
-            cont_rows.append(
-                (
-                    periodo,
-                    cont_source_file,
-                    r.get("RUT"),
-                    r.get("DV"),
-                    r.get("CON_NO"),
-                    r.get("PROD"),
-                    r.get("TIPO_PROD"),
-                    r.get("CARTERA"),
-                    r.get("GRUPO_PRODUCTO"),
-                    r.get("NOMBRE"),
-                    r.get("TOTAL"),
-                    r.get("DIAS_MORA"),
-                    r.get("TRAMO_PROYECTADO"),
-                    r.get("TRAMO_PROYECTADO_NUEVO"),
-                    r.get("DIAS_MORA_HOY"),
-                    r.get("TRAMO_CIERRE_OP"),
-                    r.get("DIAS_MORA_INTRAMES"),
-                    r.get("CASTIGO"),
-                    r.get("PASO_PC06"),
-                    r.get("CONTIENE"),
-                    r.get("MTO_CONTIENE"),
-                    r.get("TIPO_CONT"),
-                )
-            )
-        if cont_rows:
-            cur.executemany(insert_cont, cont_rows)
+        cont_rows, _ = insert_dynamic_sheet(
+            cur,
+            CONTENCION_TABLE,
+            cont_period,
+            prepared_cont,
+            sources.cont_source_file,
+            numeric_columns=CONTENCION_NUMERIC_COLUMNS,
+        )
+        cart_rows, skipped_cart_rows = insert_dynamic_sheet(
+            cur,
+            CARTERIZADO_TABLE,
+            cont_period,
+            sources.cart,
+            sources.cart_source_file,
+            skip_null_column="NRO_OPERACION",
+        )
 
-        insert_cart = """
-        INSERT INTO dbo.tmp_BIT_carterizado (periodo, source_file, rut, dv, nro_operacion, usuario)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """
-        cart_rows = []
-        for _, r in cart.iterrows():
-            nro_operacion = clean_cell(r.get("NRO_OPERACION"))
-            if nro_operacion is None:
-                skipped_cart_rows += 1
-                continue
-
-            cart_rows.append(
-                (
-                    periodo,
-                    cart_source_file,
-                    clean_cell(r.get("RUT")),
-                    clean_cell(r.get("DV")),
-                    nro_operacion,
-                    clean_cell(r.get("USUARIO")),
-                )
-            )
-        if cart_rows:
-            cur.executemany(insert_cart, cart_rows)
+        castigo_rows = insert_castigo(cur, castigo_period, sources.castigo, sources.castigo_source_file)
 
         cn.commit()
 
     print(
-        f"Carga BIT completada. periodo={periodo}, contencion={len(cont_rows)}, "
-        f"carterizado={len(cart_rows)}, carterizado_omitido_sin_nro_operacion={skipped_cart_rows}"
+        f"Carga BIT completada. periodo_contencion={cont_period}, contencion={cont_rows}, "
+        f"carterizado={cart_rows}, carterizado_omitido_sin_nro_operacion={skipped_cart_rows}, "
+        f"contencion_mto_cuota_uf_invalido={invalid_contencion_uf_rows}, "
+        f"periodo_castigo={castigo_period}, castigo={castigo_rows}"
     )
 
 
@@ -186,7 +511,15 @@ if __name__ == "__main__":
     load_env_files()
     parser = argparse.ArgumentParser(description="Carga ETL BIT")
     parser.add_argument("--file", required=False, help="Ruta del Excel SEGUIMIENTO BIT")
-    parser.add_argument("--folder", required=False, help="Carpeta con CONTENCION.xlsx y CARTERIZADO.xlsx")
-    parser.add_argument("--periodo", required=True, help="Periodo YYYY-MM")
+    parser.add_argument(
+        "--folder",
+        required=False,
+        help="Carpeta con Seguimiento_Metas_PHOENIX_*.xlsx, CARTERIZADO.xlsx y Detalle_Recuperos_Castigo_*.xlsx",
+    )
+    parser.add_argument(
+        "--periodo",
+        required=False,
+        help="Periodo YYYY-MM solo para contencion/carterizado. Si se omite, se infiere del nombre del archivo.",
+    )
     args = parser.parse_args()
     run(args.periodo, args.file, args.folder)

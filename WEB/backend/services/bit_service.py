@@ -203,6 +203,13 @@ def _safe_div(num: float, den: float) -> float:
     return num / den
 
 
+def _safe_avg(values: list[float]) -> float:
+    clean = [float(value) for value in values if value is not None]
+    if not clean:
+        return 0.0
+    return sum(clean) / len(clean)
+
+
 def _get_contencion_source_file(periodo: str) -> str:
     rows = run_query(
         """
@@ -322,24 +329,28 @@ def get_general(filters: dict) -> dict:
     total_inicial = 0.0
     total_contenido = 0.0
     total_meta = 0.0
+    pct_cumpl_meta_values: list[float] = []
     for r in agg_rows:
         monto_inicial = float(r.get("monto_inicial") or 0)
         monto_contenido = float(r.get("monto_contenido") or 0)
         meta_final = float(r.get("meta_final") or 0)
+        pct_contencion = _safe_div(monto_contenido, monto_inicial)
+        pct_cumpl_meta = _safe_div(monto_contenido, meta_final)
         rows.append(
             {
                 "ejecutivo": r.get("ejecutivo") or "Phoenix",
                 "tramo": r.get("tramo") or "",
                 "monto_inicial": monto_inicial,
                 "monto_contenido": monto_contenido,
-                "pct_contencion": _safe_div(monto_contenido, monto_inicial),
-                "pct_contiene": _safe_div(monto_contenido, monto_inicial),
-                "pct_cumpl_meta": _safe_div(monto_contenido, meta_final),
+                "pct_contencion": pct_contencion,
+                "pct_contiene": pct_contencion,
+                "pct_cumpl_meta": pct_cumpl_meta,
             }
         )
         total_inicial += monto_inicial
         total_contenido += monto_contenido
         total_meta += meta_final
+        pct_cumpl_meta_values.append(pct_cumpl_meta)
 
     return {
         "periodo": periodo,
@@ -352,7 +363,7 @@ def get_general(filters: dict) -> dict:
             "monto_contenido": total_contenido,
             "pct_contencion": _safe_div(total_contenido, total_inicial),
             "pct_contiene": _safe_div(total_contenido, total_inicial),
-            "pct_cumpl_meta": _safe_div(total_contenido, total_meta),
+            "pct_cumpl_meta": _safe_avg(pct_cumpl_meta_values),
         },
     }
 
@@ -379,23 +390,27 @@ def get_tramos(filters: dict) -> dict:
     total_inicial = 0.0
     total_contenido = 0.0
     total_meta = 0.0
+    pct_cumpl_meta_values: list[float] = []
     for r in agg_rows:
         monto_inicial = float(r.get("monto_inicial") or 0)
         monto_contenido = float(r.get("monto_contenido") or 0)
         meta_final = float(r.get("meta_final") or 0)
+        pct_contencion = _safe_div(monto_contenido, monto_inicial)
+        pct_cumpl_meta = _safe_div(monto_contenido, meta_final)
         rows.append(
             {
                 "tramo": r.get("tramo") or "",
                 "monto_inicial": monto_inicial,
                 "monto_contenido": monto_contenido,
-                "pct_contencion": _safe_div(monto_contenido, monto_inicial),
-                "pct_contiene": _safe_div(monto_contenido, monto_inicial),
-                "pct_cumpl_meta": _safe_div(monto_contenido, meta_final),
+                "pct_contencion": pct_contencion,
+                "pct_contiene": pct_contencion,
+                "pct_cumpl_meta": pct_cumpl_meta,
             }
         )
         total_inicial += monto_inicial
         total_contenido += monto_contenido
         total_meta += meta_final
+        pct_cumpl_meta_values.append(pct_cumpl_meta)
 
     return {
         "periodo": periodo,
@@ -407,7 +422,7 @@ def get_tramos(filters: dict) -> dict:
             "monto_contenido": total_contenido,
             "pct_contencion": _safe_div(total_contenido, total_inicial),
             "pct_contiene": _safe_div(total_contenido, total_inicial),
-            "pct_cumpl_meta": _safe_div(total_contenido, total_meta),
+            "pct_cumpl_meta": _safe_avg(pct_cumpl_meta_values),
         },
     }
 
