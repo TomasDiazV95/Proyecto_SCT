@@ -30,6 +30,13 @@ export const modulePanels = [
         buttonLabel: "Ir a GM",
       },
       {
+        code: "itau-castigo",
+        title: "Itaú Castigo",
+        description: "Productividad y recupero de cartera castigada Itaú.",
+        path: "/itau-castigo",
+        buttonLabel: "Ir a Itaú Castigo",
+      },
+      {
         code: "sth",
         title: "Santander Hipotecario",
         description: "Productividad hipotecaria y productos asociados.",
