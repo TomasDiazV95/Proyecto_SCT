@@ -32,6 +32,30 @@ def _table_name() -> str:
     return name
 
 
+def _max_source_files() -> int:
+    raw = os.getenv("PRODUCTIVIDAD_MAX_SOURCE_FILES", "24")
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("PRODUCTIVIDAD_MAX_SOURCE_FILES debe ser numerico") from exc
+    return max(1, value)
+
+
+def _latest_source_files_clause(cols: ColumnMap) -> str:
+    return f"""
+    {cols.table_name}.source_file IN (
+        SELECT source_file
+        FROM (
+            SELECT TOP ({_max_source_files()}) source_file
+            FROM {cols.table_name}
+            WHERE source_file IS NOT NULL
+            GROUP BY source_file
+            ORDER BY MAX(ts_carga) DESC, MAX(id_bench_stc) DESC
+        ) latest_sources
+    )
+    """
+
+
 def _runtime_columns(table_name: str) -> set[str]:
     if "." not in table_name:
         raise RuntimeError(
@@ -125,6 +149,7 @@ def _build_filters(filters: dict, cols: ColumnMap) -> tuple[str, list]:
 
     # Excluir completamente F1-F4 en todos los calculos
     clauses.append(_exclude_f_tramos_clause(cols))
+    clauses.append(_latest_source_files_clause(cols))
 
     if filters.get("periodo"):
         clauses.append(f"{period_expr} = ?")
@@ -442,7 +467,7 @@ def get_general_view(filters: dict) -> list[dict]:
 def get_filter_values() -> dict:
     cols = resolve_columns()
     period_expr = _period_expr(cols)
-    base_where = f"WHERE {_exclude_f_tramos_clause(cols)}"
+    base_where = f"WHERE {_exclude_f_tramos_clause(cols)} AND {_latest_source_files_clause(cols)}"
 
     data = {
         "periodos": run_query(

@@ -35,6 +35,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'sth')
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'bit')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('bit', 'BIT', '/bit');
 
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'itau-castigo')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('itau-castigo', 'Itaú Castigo', '/itau-castigo');
+ELSE
+    UPDATE dbo.modules SET display_name = 'Itaú Castigo', route_path = '/itau-castigo', is_active = 1 WHERE code = 'itau-castigo';
+
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'global')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('global', 'Acceso Global', '/');
 ELSE

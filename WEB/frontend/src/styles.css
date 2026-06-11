@@ -583,6 +583,75 @@ th {
   color: #fff;
 }
 
+.itau-castigo-page {
+  --itau-orange: #f36c21;
+  --itau-orange-dark: #c84f0c;
+  --itau-orange-soft: #fff2e8;
+}
+
+
+.itau-castigo-page .itau-back-link {
+  color: var(--itau-orange-dark);
+}
+
+.itau-castigo-page .itau-filter-card,
+.itau-castigo-page .itau-legend-card {
+  border-color: #ffd0b2;
+  background: linear-gradient(180deg, #fffaf6 0%, #fff 100%);
+}
+
+.itau-castigo-page .itau-meta-card {
+  max-width: 460px;
+  border: 1px solid #ffc49a;
+  background: #fff7f0;
+}
+
+.itau-castigo-page .itau-meta-title {
+  color: var(--itau-orange-dark);
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.itau-castigo-page .itau-meta-table th,
+.itau-castigo-page .itau-meta-table td {
+  border-color: #ffd0b2;
+  white-space: nowrap;
+}
+
+.itau-castigo-page .itau-meta-table thead th {
+  background: #ffe1cc;
+  color: #6a2d09;
+}
+
+.itau-castigo-page .itau-castigo-table thead th {
+  background: var(--itau-orange);
+  color: #fff;
+  border-color: var(--itau-orange-dark);
+}
+
+.itau-castigo-page .itau-total-row td {
+  background: var(--itau-orange-soft);
+  border-top: 2px solid var(--itau-orange);
+  color: #4b250f;
+}
+
+.itau-castigo-page .btn-warning {
+  background: var(--itau-orange);
+  border-color: var(--itau-orange);
+  color: #fff;
+}
+
+.itau-castigo-page .btn-outline-warning {
+  border-color: var(--itau-orange);
+  color: var(--itau-orange-dark);
+}
+
+.itau-castigo-page .btn-outline-warning:hover {
+  background: var(--itau-orange);
+  border-color: var(--itau-orange);
+  color: #fff;
+}
+
 .gm-page .bit-tramo-separator td {
   background: #eaf1fb;
   color: #1f355b;
@@ -645,14 +714,38 @@ th {
   visibility: hidden;
 }
 
+.sth-page {
+  --sth-red: #f32121;
+  --sth-red-dark: #c20000;
+  --sth-red-soft: #ff6868;
+}
+
+.sth-page .btn-warning {
+  background: var(--sth-red);
+  border-color: var(--sth-red);
+  color: #fff;
+}
+
+.sth-page .btn-outline-warning {
+  border-color: var(--sth-red);
+  color: var(--sth-red-dark);
+}
+
+.sth-page .btn-outline-warning:hover {
+  background: var(--sth-red);
+  border-color: var(--sth-red);
+  color: #fff;
+}
+
+
 .sth-page .sth-general-table thead th,
 .sth-page .sth-detail-table thead th {
-  background: #c20000;
+  background: var(--sth-red-dark);
   color: #fff;
 }
 
 .sth-page .sth-section-title {
-  background: #c20000;
+  background: var(--sth-red-dark);
   color: #fff;
   font-weight: 700;
   padding: 0.45rem 0.65rem;
@@ -698,7 +791,7 @@ th {
 
 .sth-page .sth-compact-table thead th:first-child {
   z-index: 4;
-  background: #c20000;
+  background: var(--sth-red-dark);
 }
 
 .sth-page .sth-compact-table .table-primary td:first-child {

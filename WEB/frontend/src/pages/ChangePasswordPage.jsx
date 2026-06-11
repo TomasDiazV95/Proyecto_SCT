@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthContext";
 
 export default function ChangePasswordPage() {
   const navigate = useNavigate();
-  const { accessToken, user, setSession } = useAuth();
+  const { accessToken, user, setSession, logout } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -25,11 +25,9 @@ export default function ChangePasswordPage() {
 
     setLoading(true);
     setError("");
-    setMessage("");
     try {
       await authChangePassword(accessToken, currentPassword, newPassword);
       setSession(accessToken, { ...user, must_change_password: false });
-      setMessage("Contrasena actualizada correctamente.");
       navigate("/", { replace: true });
     } catch (err) {
       setError(err.message || "No se pudo cambiar la contrasena");

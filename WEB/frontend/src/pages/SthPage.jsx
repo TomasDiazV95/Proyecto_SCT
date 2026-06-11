@@ -170,10 +170,10 @@ export default function SthPage() {
           </Link>
         </div>
         <div className="btn-group">
-          <button className={`btn btn-${view === "general" ? "primary" : "outline-primary"}`} onClick={() => setView("general")}>
+          <button className={`btn btn-${view === "general" ? "warning" : "outline-warning"}`} onClick={() => setView("general")}>
             Vista General
           </button>
-          <button className={`btn btn-${view === "desglosada" ? "primary" : "outline-primary"}`} onClick={() => setView("desglosada")}>
+          <button className={`btn btn-${view === "desglosada" ? "warning" : "outline-warning"}`} onClick={() => setView("desglosada")}>
             Vista Desglosada
           </button>
         </div>

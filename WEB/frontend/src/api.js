@@ -207,6 +207,30 @@ export async function fetchBitDetalle(filters) {
   return res.json();
 }
 
+export async function fetchItauCastigoFilters() {
+  const res = await apiFetch(`${API_BASE}/api/itau-castigo/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de Itaú Castigo");
+  }
+  return res.json();
+}
+
+export async function fetchItauCastigoGeneral(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de Itaú Castigo");
+  }
+  return res.json();
+}
+
+export async function fetchItauCastigoProducto(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/producto`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista producto de Itaú Castigo");
+  }
+  return res.json();
+}
+
 export async function fetchGmBucket(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters));
   if (!res.ok) {

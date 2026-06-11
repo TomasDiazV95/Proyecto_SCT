@@ -7,6 +7,7 @@ import BitPage from "./pages/BitPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
+import ItauCastigoPage from "./pages/ItauCastigoPage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
 import LoginPage from "./pages/LoginPage";
 import PanelPage from "./pages/PanelPage";
@@ -31,6 +32,7 @@ export default function App() {
       <Route path="/sc-tardia" element={<ProtectedRoute moduleCode="sc-tardia"><ScTardiaPage /></ProtectedRoute>} />
       <Route path="/sc-temprana" element={<ProtectedRoute moduleCode="sc-temprana"><ScTempranaPage /></ProtectedRoute>} />
       <Route path="/gm" element={<ProtectedRoute moduleCode="gm"><GmPage /></ProtectedRoute>} />
+      <Route path="/itau-castigo" element={<ProtectedRoute moduleCode="itau-castigo"><ItauCastigoPage /></ProtectedRoute>} />
       <Route path="/bit" element={<ProtectedRoute moduleCode="bit"><BitPage /></ProtectedRoute>} />
       <Route path="/la-araucana" element={<ProtectedRoute moduleCode="la-araucana"><LaAraucanaPage /></ProtectedRoute>} />
       <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} />
