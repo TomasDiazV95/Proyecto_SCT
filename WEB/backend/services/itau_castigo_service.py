@@ -142,10 +142,10 @@ def get_general(filters: dict) -> dict:
         dom.Cobrador_Vista,
         SUM(COALESCE(CAST(d.MONTO_CASTIGADO AS float), 0)) AS Deuda_Total,
         SUM(COALESCE(CAST(d.RECUPERO AS float), 0)) AS Recupero_Total,
-        MAX(COALESCE(CAST(m.meta_recupero AS float), 0)) AS Meta_Recupero,
+        MAX(COALESCE(CAST(me.meta_recupero AS float), CAST(m.meta_recupero AS float), 0)) AS Meta_Recupero,
         CAST(
             SUM(COALESCE(CAST(d.RECUPERO AS float), 0))
-            / NULLIF(MAX(COALESCE(CAST(m.meta_recupero AS float), 0)), 0)
+            / NULLIF(MAX(COALESCE(CAST(me.meta_recupero AS float), CAST(m.meta_recupero AS float), 0)), 0)
         AS DECIMAL(18, 6)) AS Cumplimiento
     FROM datos d
     LEFT JOIN dominante dom
@@ -154,6 +154,14 @@ def get_general(filters: dict) -> dict:
         ON m.periodo = ?
        AND m.cobrador_des = dom.Cobrador_Vista
        AND m.activo = 1
+    LEFT JOIN dbo.itau_castigo_metas_ejecutivo me
+        ON me.periodo = ?
+       AND UPPER(LTRIM(RTRIM(me.ejecutivo))) = UPPER(LTRIM(RTRIM(d.Ejecutivo)))
+       AND (
+            me.cobrador_des IS NULL
+            OR UPPER(LTRIM(RTRIM(me.cobrador_des))) = UPPER(LTRIM(RTRIM(dom.Cobrador_Vista)))
+       )
+       AND me.activo = 1
     WHERE 1 = 1
     {filter_sql}
     GROUP BY
@@ -168,7 +176,7 @@ def get_general(filters: dict) -> dict:
     total_deuda = 0.0
     total_recupero = 0.0
     total_meta = 0.0
-    for row in run_query(sql, tuple([periodo, fecha_carga, periodo] + filter_params)):
+    for row in run_query(sql, tuple([periodo, fecha_carga, periodo, periodo] + filter_params)):
         deuda = float(row.get("Deuda_Total") or 0)
         recupero = float(row.get("Recupero_Total") or 0)
         meta = float(row.get("Meta_Recupero") or 0)

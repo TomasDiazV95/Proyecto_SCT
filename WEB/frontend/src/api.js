@@ -240,6 +240,15 @@ export async function fetchGmBucket(filters) {
   return body.data || [];
 }
 
+export async function fetchGmDetail(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/detalle`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el detalle de GM");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
 export async function downloadGmMonthlyExcel(periodo) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/export`, { periodo }));
   if (!res.ok) {

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmFilters } from "../api";
+import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters } from "../api";
 
 const initialFilters = {
   periodo: "",
@@ -37,11 +37,14 @@ function percentile(sortedValues, p) {
 
 export default function GmPage() {
   const { user } = useAuth();
-  const [view, setView] = useState("detalle");
+  const [view, setView] = useState("productividad");
   const [filters, setFilters] = useState(initialFilters);
+  const [detailFilters, setDetailFilters] = useState({ op: "", bucket: "", contenido: "", normalizado: "" });
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
   const [bucketRows, setBucketRows] = useState([]);
+  const [detailRows, setDetailRows] = useState([]);
+  const [detailSortDir, setDetailSortDir] = useState("desc");
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
@@ -72,12 +75,17 @@ export default function GmPage() {
       setLoading(true);
       setError("");
       try {
-        const [cycleData, bucketData] = await Promise.all([
-          fetchGmCycle(filters),
-          fetchGmBucket({ periodo: filters.periodo }),
-        ]);
-        setRows(cycleData);
-        setBucketRows(bucketData);
+        if (view === "detalle") {
+          const detailData = await fetchGmDetail({ ...filters, ...detailFilters });
+          setDetailRows(detailData);
+        } else {
+          const [cycleData, bucketData] = await Promise.all([
+            fetchGmCycle(filters),
+            fetchGmBucket({ periodo: filters.periodo }),
+          ]);
+          setRows(cycleData);
+          setBucketRows(bucketData);
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -86,7 +94,7 @@ export default function GmPage() {
     }
 
     loadData();
-  }, [filters]);
+  }, [filters, detailFilters, view]);
 
   const metaByBucket = useMemo(() => {
     const map = new Map();
@@ -151,6 +159,22 @@ export default function GmPage() {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
 
+  function onDetailChange(name, value) {
+    setDetailFilters((prev) => ({ ...prev, [name]: value }));
+  }
+
+  const sortedDetailRows = useMemo(() => {
+    return [...detailRows].sort((a, b) => {
+      const av = Number(a.peso_bucket_pct || 0);
+      const bv = Number(b.peso_bucket_pct || 0);
+      return detailSortDir === "asc" ? av - bv : bv - av;
+    });
+  }, [detailRows, detailSortDir]);
+
+  function toggleDetailSort() {
+    setDetailSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
+  }
+
   async function onDownload() {
     if (!filters.periodo) {
       return;
@@ -185,11 +209,14 @@ export default function GmPage() {
           </Link>
         </div>
         <div className="btn-group">
-          <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => setView("detalle")}>
-            Vista Detalle
+          <button className={`btn btn-${view === "productividad" ? "primary" : "outline-primary"}`} onClick={() => setView("productividad")}>
+            Productividad
           </button>
           <button className={`btn btn-${view === "bucket" ? "primary" : "outline-primary"}`} onClick={() => setView("bucket")}>
-            Vista Bucket
+            Bucket
+          </button>
+          <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => setView("detalle")}>
+            Detalle
           </button>
           {canDownload && (
             <button className="btn btn-success" onClick={onDownload} disabled={!filters.periodo || downloading}>
@@ -223,44 +250,81 @@ export default function GmPage() {
                 ))}
               </select>
             </div>
+            {view === "detalle" && (
+              <>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Operacion</label>
+                  <input className="form-control" value={detailFilters.op} onChange={(e) => onDetailChange("op", e.target.value)} placeholder="Buscar OP" />
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Bucket</label>
+                  <select className="form-select" value={detailFilters.bucket} onChange={(e) => onDetailChange("bucket", e.target.value)}>
+                    <option value="">Todos</option>
+                    {bucketOrder.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Contenido</label>
+                  <select className="form-select" value={detailFilters.contenido} onChange={(e) => onDetailChange("contenido", e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="1">Si</option>
+                    <option value="0">No</option>
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Normalizado</label>
+                  <select className="form-select" value={detailFilters.normalizado} onChange={(e) => onDetailChange("normalizado", e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="1">Si</option>
+                    <option value="0">No</option>
+                  </select>
+                </div>
+              </>
+            )}
             {view === "bucket" && <div className="col-12 col-md-4 small text-muted d-flex align-items-end">La vista bucket consolida todos los ejecutivos del periodo.</div>}
           </div>
         </div>
       </div>
 
-      <div className="card shadow-sm mb-3 gm-meta-card">
-        <div className="card-body table-responsive p-0">
-          <table className="table mb-0 gm-meta-table">
-            <thead>
-              <tr>
-                <th rowSpan={2}>Bucket</th>
-                <th colSpan={2}>Metas</th>
-                <th colSpan={2}>Ponderador</th>
-              </tr>
-              <tr>
-                <th>% contencion</th>
-                <th>% normalizacion</th>
-                <th>% contencion</th>
-                <th>% normalizacion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bucketOrder.map((bucket) => {
-                const meta = metaByBucket.get(bucket);
-                return (
-                  <tr key={bucket}>
-                    <td>{bucket}</td>
-                    <td>{formatPct(meta?.meta_contencion_pct)}</td>
-                    <td>{formatPct(meta?.meta_normalizacion_pct)}</td>
-                    <td>{formatPct(meta?.ponderador_contencion_pct)}</td>
-                    <td>{formatPct(meta?.ponderador_normalizacion_pct)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {view !== "detalle" && (
+        <div className="card shadow-sm mb-3 gm-meta-card">
+          <div className="card-body table-responsive p-0">
+            <table className="table mb-0 gm-meta-table">
+              <thead>
+                <tr>
+                  <th rowSpan={2}>Bucket</th>
+                  <th colSpan={2}>Metas</th>
+                  <th colSpan={2}>Ponderador</th>
+                </tr>
+                <tr>
+                  <th>% contencion</th>
+                  <th>% normalizacion</th>
+                  <th>% contencion</th>
+                  <th>% normalizacion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bucketOrder.map((bucket) => {
+                  const meta = metaByBucket.get(bucket);
+                  return (
+                    <tr key={bucket}>
+                      <td>{bucket}</td>
+                      <td>{formatPct(meta?.meta_contencion_pct)}</td>
+                      <td>{formatPct(meta?.meta_normalizacion_pct)}</td>
+                      <td>{formatPct(meta?.ponderador_contencion_pct)}</td>
+                      <td>{formatPct(meta?.ponderador_normalizacion_pct)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       {error && <div className="alert alert-danger">{error}</div>}
 
@@ -268,7 +332,7 @@ export default function GmPage() {
         <div className="card-body table-responsive">
           {loading ? (
             <div className="text-center py-4">Cargando...</div>
-          ) : view === "detalle" ? (
+          ) : view === "productividad" ? (
             <table className="table table-striped table-hover align-middle gm-data-table">
               <thead>
                 <tr>
@@ -310,7 +374,7 @@ export default function GmPage() {
                 )}
               </tbody>
             </table>
-          ) : (
+          ) : view === "bucket" ? (
             <table className="table table-striped table-hover align-middle gm-data-table">
               <thead>
                 <tr>
@@ -341,12 +405,58 @@ export default function GmPage() {
                 ))}
               </tbody>
             </table>
+          ) : (
+            <table className="table table-striped table-hover align-middle gm-data-table">
+              <thead>
+                <tr>
+                  <th>Operacion</th>
+                  <th>Bucket</th>
+                  <th>Dias Mora</th>
+                  <th>Deuda</th>
+                  <th>
+                    <button className="btn btn-link btn-sm p-0 text-white fw-semibold text-decoration-none" type="button" onClick={toggleDetailSort}>
+                      Peso % {detailSortDir === "desc" ? "DESC" : "ASC"}
+                    </button>
+                  </th>
+                  <th>Cuota</th>
+                  <th>Ejecutivo</th>
+                  <th>Contenido</th>
+                  <th>Normalizado</th>
+                  <th>Telefono Gestion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedDetailRows.map((row, idx) => (
+                  <tr key={`${row.op}-${idx}`}>
+                    <td>{row.op}</td>
+                    <td>{row.bucket}</td>
+                    <td>{row.dias_de_mora}</td>
+                    <td>${formatMoney(row.deuda)}</td>
+                    <td>{formatPct(row.peso_bucket_pct)}</td>
+                    <td>${formatMoney(row.cuota)}</td>
+                    <td>{row.ejecutivo}</td>
+                    <td>{Number(row.contenido || 0) === 1 ? "Si" : "No"}</td>
+                    <td>{Number(row.normalizado || 0) === 1 ? "Si" : "No"}</td>
+                    <td>{row.telefono_gestion}</td>
+                  </tr>
+                ))}
+                {!sortedDetailRows.length && (
+                  <tr>
+                    <td colSpan={10} className="text-center text-muted py-4">
+                      Sin datos para los filtros seleccionados.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           )}
         </div>
       </div>
-      <div className="mt-1 small text-muted">
-        Umbrales dinamicos: Rojo &lt; {formatPct(dynamicThresholds.p33)} | Amarillo &gt;= {formatPct(dynamicThresholds.p33)} y &lt; {formatPct(dynamicThresholds.p66)} | Verde &gt;= {formatPct(dynamicThresholds.p66)}
-      </div>
+      {view !== "detalle" && (
+        <div className="mt-1 small text-muted">
+          Umbrales dinamicos: Rojo &lt; {formatPct(dynamicThresholds.p33)} | Amarillo &gt;= {formatPct(dynamicThresholds.p33)} y &lt; {formatPct(dynamicThresholds.p66)} | Verde &gt;= {formatPct(dynamicThresholds.p66)}
+        </div>
+      )}
     </div>
   );
 }

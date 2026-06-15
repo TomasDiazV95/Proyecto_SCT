@@ -256,7 +256,7 @@ export default function SthPage() {
                         <th rowSpan={2}>Ejecutivo</th>
                         {block.ciclos.map((ciclo) => (
                           <th key={`${block.producto}-h-${ciclo}`} colSpan={4} className="text-center">
-                            {block.producto === "tarjeta" ? "Multiciclo" : `Ciclo ${ciclo}`}
+                            {block.producto === "tarjeta" ? (Number(ciclo) === 0 ? "Ciclo 0" : "Multiciclo") : `Ciclo ${ciclo}`}
                           </th>
                         ))}
                         <th rowSpan={2}>Cumplimiento Final</th>

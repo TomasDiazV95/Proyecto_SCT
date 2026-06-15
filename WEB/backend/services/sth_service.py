@@ -28,7 +28,7 @@ PRODUCT_CONFIG = {
         "nombre_meta": "Tarjeta",
         "producto_cliente": "Consumo",
         "empresa": "PHOENIX TC",
-        "ciclos": [1, 2, 3, 4, 5, 6],
+        "ciclos": [0, 99],
     },
 }
 
@@ -81,6 +81,8 @@ def _cumplimiento_meta(pct_real: float, meta: float) -> float:
 
 def _tramo_meta(product_key: str, ciclo: int) -> str:
     if product_key == "tarjeta":
+        if ciclo == 0:
+            return "Ciclo 0"
         return "Multiciclo"
     return f"Ciclo {ciclo}"
 
@@ -94,12 +96,14 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
         WITH base AS (
             SELECT
                 ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal') AS ejecutivo,
+                CASE WHEN CAST(b.fld_Ciclo AS INT) = 0 THEN 0 ELSE 99 END AS ciclo,
+                CASE WHEN CAST(b.fld_Ciclo AS INT) = 0 THEN 'Ciclo 0' ELSE 'Multiciclo' END AS tramo,
                 CAST(b.fld_Contenido AS INT) AS contenido,
                 CAST(b.[fld_MM$ Monto] AS FLOAT) AS monto
             FROM dbo.tmp_bench_STH b
             LEFT JOIN dbo.tmp_carterizado_STH c
                 ON b.fld_Rut = c.rut
-               AND c.mes_carterizado = ?
+               AND CONVERT(date, c.mes_carterizado) = ?
             WHERE b.fecha_carga = (
                 SELECT MIN(t.fecha_carga)
                 FROM dbo.tmp_bench_STH t
@@ -107,11 +111,12 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
             )
               AND b.[fld_Producto cliente] = ?
               AND b.fld_Empresa = ?
-              AND CAST(b.fld_Ciclo AS INT) BETWEEN 1 AND 6
+              AND (CAST(b.fld_Ciclo AS INT) = 0 OR CAST(b.fld_Ciclo AS INT) BETWEEN 1 AND 6)
         )
         SELECT
             base.ejecutivo,
-            CAST(0 AS INT) AS ciclo,
+            base.ciclo,
+            base.tramo,
             SUM(base.monto) AS deuda_asignada,
             SUM(CASE WHEN base.contenido = 1 THEN base.monto ELSE 0 END) AS saldo_contenido,
             m.meta_contenido_pct,
@@ -120,9 +125,9 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
         LEFT JOIN dbo.sth_metas_mensuales m
           ON m.periodo = ?
          AND m.producto = ?
-         AND m.tramo = 'Multiciclo'
+         AND m.tramo = base.tramo
          AND m.activo = 1
-        GROUP BY base.ejecutivo, m.meta_contenido_pct, m.ponderador_nivel_1_pct
+        GROUP BY base.ejecutivo, base.ciclo, base.tramo, m.meta_contenido_pct, m.ponderador_nivel_1_pct
         """
         params = [periodo, periodo, periodo, config["producto_cliente"], config["empresa"], periodo, config["nombre_meta"]]
         rows = run_query(sql, tuple(params))
@@ -155,7 +160,7 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
             FROM dbo.tmp_bench_STH b
             LEFT JOIN dbo.tmp_carterizado_STH c
                 ON b.fld_Rut = c.rut
-               AND c.mes_carterizado = ?
+               AND CONVERT(date, c.mes_carterizado) = ?
             WHERE b.fecha_carga = (
                 SELECT MIN(t.fecha_carga)
                 FROM dbo.tmp_bench_STH t
@@ -331,7 +336,9 @@ def get_detail_view(filters: dict) -> list[dict]:
                 elegido = max(ciclos_data, key=lambda x: float(x.get("deuda_asignada") or 0))
                 row_exec["cumplimiento_final"] = float(elegido.get("cumplimiento_meta") or 0)
             else:
-                row_exec["cumplimiento_final"] = float(ciclos_data[0].get("cumplimiento_meta") or 0)
+                row_exec["cumplimiento_final"] = _cap(
+                    sum(float(x.get("cumplimiento_meta") or 0) * (float(x.get("ponderador_nivel_1_pct") or 0) / 100.0) for x in ciclos_data)
+                )
 
             for data in ciclos_data:
                 data["cumplimiento_final"] = row_exec["cumplimiento_final"]

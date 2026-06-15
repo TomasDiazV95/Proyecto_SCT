@@ -9,6 +9,7 @@ from schemas import ApiEnvelope
 from services.gm_service import (
     get_bucket_view,
     get_cycle_view,
+    get_detail_view,
     get_filter_values,
     get_general_view,
     get_monthly_export_rows,
@@ -73,6 +74,32 @@ def productividad_bucket(
 ) -> ApiEnvelope:
     try:
         return ApiEnvelope(data=get_bucket_view({"periodo": periodo}))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/detalle", response_model=ApiEnvelope)
+def detalle(
+    periodo: str | None = Query(default=None),
+    op: str | None = Query(default=None),
+    bucket: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+    contenido: str | None = Query(default=None),
+    normalizado: str | None = Query(default=None),
+) -> ApiEnvelope:
+    try:
+        return ApiEnvelope(
+            data=get_detail_view(
+                {
+                    "periodo": periodo,
+                    "op": op,
+                    "bucket": bucket,
+                    "ejecutivo": ejecutivo,
+                    "contenido": contenido,
+                    "normalizado": normalizado,
+                }
+            )
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
