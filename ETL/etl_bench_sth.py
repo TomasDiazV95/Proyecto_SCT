@@ -20,9 +20,9 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 # ========= BENCH STH =========
 BENCH_FOLDER = Path(r"C:\Users\PC del Marrón\Desktop\Paso")
-BENCH_PATTERN = "seguimiemto al 10-06 - Phoenix.xlsx"
+BENCH_PATTERN = "seguimiento al 15-06 - Phoenix.xlsx"
 TABLE = "dbo.tmp_bench_STH"
-BATCH_SIZE = 2000
+BATCH_SIZE = 10000
 NUMERIC_COLS = {
     "CONTENIDO",
     "CICLO",
@@ -221,7 +221,7 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
     with connect() as cn:
         cn.autocommit = False
         cur = cn.cursor()
-        cur.fast_executemany = False
+        cur.fast_executemany = True
         inserted = 0
         for i in range(0, len(rows), BATCH_SIZE):
             batch = rows[i : i + BATCH_SIZE]
