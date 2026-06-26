@@ -26,7 +26,7 @@ FILE_NAME_CONTAINS = os.getenv("BENCH_TEMP_NAME_CONTAINS", "BENCH MORA TEMPRANA"
 
 TABLE = "dbo.tmp_bench_temp_STC"
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
-BATCH_SIZE = 200
+BATCH_SIZE = 10000
 
 
 def pick_driver() -> str:
@@ -217,7 +217,7 @@ def insert_append(df: pd.DataFrame, source_file: str):
     with connect() as cn:
         cn.autocommit = False
         cur = cn.cursor()
-        cur.fast_executemany = False
+        cur.fast_executemany = True
 
         inserted = 0
         for i in range(0, len(rows), BATCH_SIZE):

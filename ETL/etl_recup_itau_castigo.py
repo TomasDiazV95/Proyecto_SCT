@@ -32,7 +32,7 @@ EXCEL_PATH = ITAU_CASTIGO_FOLDER / ITAU_CASTIGO_FILENAME
 SHEET_NAME = 0
 
 TABLE = "dbo.recup_itau_castigo"
-BATCH_SIZE = 500
+BATCH_SIZE = 5000
 
 COLUMN_SPECS = [
     ("CANAL_ASIG", "text"),
@@ -240,7 +240,7 @@ def sql_type_for(kind: str) -> str:
         return "DATE NULL"
     if kind == "text_date":
         return "NVARCHAR(50) NULL"
-    return "NVARCHAR(MAX) NULL"
+    return "NVARCHAR(100) NULL"
 
 
 def read_excel(path: Path) -> pd.DataFrame:
@@ -319,7 +319,7 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
     with connect() as cn:
         cn.autocommit = False
         cur = cn.cursor()
-        cur.fast_executemany = False
+        cur.fast_executemany = True
 
         inserted = 0
         for i in range(0, len(rows), BATCH_SIZE):

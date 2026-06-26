@@ -107,69 +107,70 @@ def get_filter_values() -> dict:
 def get_general(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
-    filter_sql, filter_params = _base_filters(filters, "d")
+    filter_sql, filter_params = _base_filters(filters, "r")
 
     sql = f"""
-    WITH datos AS (
+    WITH agg AS (
         SELECT
-            base.*,
-            ISNULL(c.ejecutivo, 'Jorge Lopez') AS Ejecutivo
+            ISNULL(c.ejecutivo, 'Jorge Lopez') AS Ejecutivo,
+            base.COBRADOR_DES,
+            COUNT(*) AS cantidad,
+            SUM(COALESCE(CAST(base.MONTO_CASTIGADO AS float), 0)) AS Deuda_Cobrador,
+            SUM(COALESCE(CAST(base.RECUPERO AS float), 0)) AS Recupero_Cobrador
         FROM dbo.recup_itau_castigo base
         LEFT JOIN dbo.tmp_carterizado_ITAU_CASTIGO c
             ON base.RUT = c.rut
            AND c.mes_carterizado = ?
         WHERE base.fecha_carga = ?
-    ), ranking AS (
+        GROUP BY
+            ISNULL(c.ejecutivo, 'Jorge Lopez'),
+            base.COBRADOR_DES
+    ), ranked AS (
         SELECT
             Ejecutivo,
-            COBRADOR_DES,
-            COUNT(*) AS cantidad,
+            COBRADOR_DES AS Cobrador_Vista,
+            SUM(Deuda_Cobrador) OVER (PARTITION BY Ejecutivo) AS Deuda_Total,
+            SUM(Recupero_Cobrador) OVER (PARTITION BY Ejecutivo) AS Recupero_Total,
             ROW_NUMBER() OVER (
                 PARTITION BY Ejecutivo
-                ORDER BY COUNT(*) DESC
+                ORDER BY cantidad DESC
             ) AS rn
-        FROM datos
-        GROUP BY Ejecutivo, COBRADOR_DES
-    ), dominante AS (
-        SELECT
-            Ejecutivo,
-            COBRADOR_DES AS Cobrador_Vista
-        FROM ranking
-        WHERE rn = 1
+        FROM agg
     )
     SELECT
-        d.Ejecutivo,
-        dom.Cobrador_Vista,
-        SUM(COALESCE(CAST(d.MONTO_CASTIGADO AS float), 0)) AS Deuda_Total,
-        SUM(COALESCE(CAST(d.RECUPERO AS float), 0)) AS Recupero_Total,
+        r.Ejecutivo,
+        r.Cobrador_Vista,
+        r.Deuda_Total,
+        r.Recupero_Total,
         MAX(COALESCE(CAST(me.meta_recupero AS float), CAST(m.meta_recupero AS float), 0)) AS Meta_Recupero,
         CAST(
-            SUM(COALESCE(CAST(d.RECUPERO AS float), 0))
+            r.Recupero_Total
             / NULLIF(MAX(COALESCE(CAST(me.meta_recupero AS float), CAST(m.meta_recupero AS float), 0)), 0)
         AS DECIMAL(18, 6)) AS Cumplimiento
-    FROM datos d
-    LEFT JOIN dominante dom
-        ON d.Ejecutivo = dom.Ejecutivo
+    FROM ranked r
     LEFT JOIN dbo.itau_castigo_metas_mensuales m
         ON m.periodo = ?
-       AND m.cobrador_des = dom.Cobrador_Vista
+       AND m.cobrador_des = r.Cobrador_Vista
        AND m.activo = 1
     LEFT JOIN dbo.itau_castigo_metas_ejecutivo me
         ON me.periodo = ?
-       AND UPPER(LTRIM(RTRIM(me.ejecutivo))) = UPPER(LTRIM(RTRIM(d.Ejecutivo)))
+       AND UPPER(LTRIM(RTRIM(me.ejecutivo))) = UPPER(LTRIM(RTRIM(r.Ejecutivo)))
        AND (
             me.cobrador_des IS NULL
-            OR UPPER(LTRIM(RTRIM(me.cobrador_des))) = UPPER(LTRIM(RTRIM(dom.Cobrador_Vista)))
+            OR UPPER(LTRIM(RTRIM(me.cobrador_des))) = UPPER(LTRIM(RTRIM(r.Cobrador_Vista)))
        )
        AND me.activo = 1
     WHERE 1 = 1
     {filter_sql}
+      AND r.rn = 1
     GROUP BY
-        d.Ejecutivo,
-        dom.Cobrador_Vista
+        r.Ejecutivo,
+        r.Cobrador_Vista,
+        r.Deuda_Total,
+        r.Recupero_Total
     ORDER BY
-        dom.Cobrador_Vista,
-        d.Ejecutivo
+        r.Cobrador_Vista,
+        r.Ejecutivo
     """
 
     rows = []
