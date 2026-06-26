@@ -149,6 +149,14 @@ export async function fetchScTempranaCycle(filters) {
   return body.data || [];
 }
 
+export async function fetchScTempranaDetail(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/detalle`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el detalle de SC Temprana");
+  }
+  return res.json();
+}
+
 export async function fetchGmFilters() {
   const res = await apiFetch(`${API_BASE}/api/gm/filtros`);
   if (!res.ok) {

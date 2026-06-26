@@ -65,6 +65,7 @@ def get_filter_values() -> dict:
         "tramos": [],
         "aperturas": [],
         "ejecutivos": ejecutivos,
+        "usuarios_gestion": [{"usuario": user, "nombre": USER_TO_NAME[user]} for user in USER_ORDER],
         "zonas": [],
     }
 
@@ -227,3 +228,189 @@ def get_cycle_view(filters: dict) -> list[dict]:
     )
 
     return rows
+
+
+def get_detail_view(filters: dict) -> dict:
+    periodo = _normalize_period(filters.get("periodo"))
+    operacion = str(filters.get("operacion") or "").strip()
+    contenido = str(filters.get("contenido") or "").strip()
+    normalizado = str(filters.get("normalizado") or "").strip()
+    usuario_gestion = str(filters.get("usuario_gestion") or "").strip().upper()
+    tramo = str(filters.get("tramo") or "").strip().upper()
+    page = max(1, int(filters.get("page") or 1))
+    page_size = min(500, max(1, int(filters.get("page_size") or 100)))
+    offset = (page - 1) * page_size
+
+    where_clauses = []
+    params: list = [periodo, periodo, periodo, periodo]
+
+    if operacion:
+        where_clauses.append("CAST(base.operacion AS VARCHAR(100)) LIKE ?")
+        params.append(f"%{operacion}%")
+    if contenido in {"0", "1"}:
+        where_clauses.append("base.contenido = ?")
+        params.append(int(contenido))
+    if normalizado in {"0", "1"}:
+        where_clauses.append("base.normalizado = ?")
+        params.append(int(normalizado))
+    if usuario_gestion:
+        where_clauses.append("UPPER(LTRIM(RTRIM(ISNULL(base.usuario_gestion, '')))) = ?")
+        params.append(usuario_gestion)
+    if tramo:
+        where_clauses.append("UPPER(LTRIM(RTRIM(base.tramo))) = ?")
+        params.append(tramo)
+
+    extra_where = ""
+    if where_clauses:
+        extra_where = "WHERE " + " AND ".join(where_clauses)
+
+    sql = f"""
+    WITH gestiones AS (
+        SELECT
+            g.rut,
+            g.UsuarioGestion,
+            g.ContactoGestion,
+            g.RespuestaGestion,
+            g.GestionFecha,
+            g.GestionHora,
+            g.telefono,
+            CASE g.RespuestaGestion
+                WHEN 'COMPROMISO NORMALIZACION' THEN 1
+                WHEN 'COMPROMISO CONTENCION' THEN 2
+                WHEN 'COMPROMISO PREPAGO' THEN 3
+                WHEN 'COMPROMISO' THEN 4
+                WHEN 'COMPROMISO ADP (CUOTA)' THEN 5
+                WHEN 'COMPRA DIRECTA EN TRAMITE' THEN 6
+                WHEN 'COMPRA DIRECTA CONCRETADA' THEN 7
+                WHEN 'COMPRA DIRECTA INTERESADO' THEN 8
+                WHEN 'COMPROMISO INTERESADO EN PAC' THEN 9
+                WHEN 'COMPROMISO PUT' THEN 10
+                WHEN 'COMPROMISO SOLICITA PREPAGO' THEN 11
+                WHEN 'DACION' THEN 12
+                WHEN 'NOVACION EN TRMITE' THEN 13
+                WHEN 'NOVACION' THEN 14
+                WHEN 'REFINANCIAMIENTO' THEN 15
+                WHEN 'RECONDUCCION EN TRAMITE' THEN 16
+                WHEN 'RECONDUCCION INTERESADO' THEN 17
+                WHEN 'NOVACION INTERESADO' THEN 18
+                WHEN 'DACION EN TRAMITE' THEN 19
+                WHEN 'DACION INTERESADO' THEN 20
+                WHEN 'REFINANCIAMIENTO EN TRAMITE' THEN 21
+                WHEN 'REFINANCIAMIENTO INTERESADO' THEN 22
+                WHEN 'A LA ESPERA DEL DESCUENTO PAC' THEN 23
+                WHEN 'RENOVACION EN TRAMITE' THEN 24
+                WHEN 'VENTA DIRECTA EN TRAMITE' THEN 25
+                WHEN 'VENTA DIRECTA INTERESADO' THEN 26
+                WHEN 'RENOVACION INTERESADO' THEN 27
+                WHEN 'REGULARIZAR POR SUS PROPIOS MEDIOS' THEN 28
+                WHEN 'ADP EN TRAMITE' THEN 29
+                WHEN 'ADP INTERESADO' THEN 30
+                WHEN 'PAGARE EN TRIBUNALES' THEN 31
+                WHEN 'RENOVACION' THEN 32
+                WHEN 'CESANTE' THEN 33
+                WHEN 'EN TRAMITE CON CONCESIONARIO' THEN 34
+                WHEN 'ENFERMEDAD DEUDOR MUCHOS GASTOS MEDICOS' THEN 35
+                WHEN 'ENFERMEDAD DEUDOR TERMINAL' THEN 36
+                WHEN 'FALLECIDO' THEN 37
+                WHEN 'YA PAGO' THEN 38
+                WHEN 'NOVACION EN TRAMITE' THEN 39
+                WHEN 'PROBLEMA ECONOMICO IMPREVISTO' THEN 40
+                WHEN 'PROBLEMA ECONOMICO SUELDO INSUFICIENTE' THEN 41
+                WHEN 'PROBLEMAS TECNICOS PARA PAGAR CONSUMER.CL' THEN 42
+                WHEN 'PROBLEMAS TECNICOS PARA PAGAR PAC' THEN 43
+                WHEN 'SINIESTRO PERDIDA TOTAL' THEN 44
+                ELSE 999
+            END AS peso_gestion
+        FROM dbo.tmp_GEST_CRM g
+        WHERE g.cartera = 526
+          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND EOMONTH(?)
+          AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
+    ),
+    ranking AS (
+        SELECT
+            *,
+            ROW_NUMBER() OVER (
+                PARTITION BY rut
+                ORDER BY peso_gestion ASC, GestionFecha DESC, GestionHora DESC
+            ) AS rn
+        FROM gestiones
+        WHERE peso_gestion <> 999
+    ),
+    mejor_gestion AS (
+        SELECT
+            rut,
+            UsuarioGestion,
+            RespuestaGestion,
+            GestionFecha,
+            telefono
+        FROM ranking
+        WHERE rn = 1
+    ),
+    base AS (
+        SELECT
+            b.fld_OPERACION AS operacion,
+            CAST(ISNULL(b.fld_DEUDA_INI, 0) AS FLOAT) AS deuda,
+            LTRIM(RTRIM(b.fld_TRAMO_MORA)) AS tramo,
+            CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN 1 ELSE 0 END AS contenido,
+            CASE WHEN ISNULL(b.fld_NORMALIZADO, 0) <> 0 THEN 1 ELSE 0 END AS normalizado,
+            mg.UsuarioGestion AS usuario_gestion,
+            mg.RespuestaGestion AS respuesta_gestion,
+            mg.GestionFecha AS gestion_fecha,
+            mg.telefono AS telefono
+        FROM dbo.tmp_bench_temp_STC b
+        LEFT JOIN mejor_gestion mg
+            ON b.fld_RUT = mg.rut
+        WHERE b.fecha_carga = ?
+    )
+    SELECT
+        base.operacion,
+        base.deuda,
+        base.tramo,
+        base.contenido,
+        base.normalizado,
+        base.usuario_gestion,
+        base.respuesta_gestion,
+        base.gestion_fecha,
+        base.telefono,
+        COUNT_BIG(1) OVER () AS total_count
+    FROM base
+    {extra_where}
+    ORDER BY
+        CASE
+            WHEN base.tramo = 'C1' THEN 1
+            WHEN base.tramo = 'C2' THEN 2
+            ELSE 99
+        END,
+        base.deuda DESC,
+        base.operacion
+    OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+    """
+
+    rows = []
+    total = 0
+    query_params = [*params, offset, page_size]
+    for row in run_query(sql, tuple(query_params)):
+        total = int(row.get("total_count") or 0)
+        usuario = str(row.get("usuario_gestion") or "").strip().upper()
+        rows.append(
+            {
+                "periodo": periodo,
+                "operacion": row.get("operacion"),
+                "deuda": float(row.get("deuda") or 0),
+                "tramo": row.get("tramo") or "",
+                "contenido": int(row.get("contenido") or 0),
+                "normalizado": int(row.get("normalizado") or 0),
+                "usuario_gestion": usuario,
+                "ejecutivo": USER_TO_NAME.get(usuario, usuario or "SIN GESTION"),
+                "respuesta_gestion": row.get("respuesta_gestion") or "",
+                "gestion_fecha": str(row.get("gestion_fecha") or ""),
+                "telefono": row.get("telefono") or "",
+            }
+        )
+
+    return {
+        "data": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

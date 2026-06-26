@@ -20,7 +20,7 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 # ========= BENCH STH =========
 BENCH_FOLDER = Path(r"C:\Users\PC del Marrón\Desktop\Paso")
-BENCH_PATTERN = "seguimiento al 15-06 - Phoenix.xlsx"
+BENCH_PATTERN = "seguimiento al 24-06 Phoenix.xlsx"
 TABLE = "dbo.tmp_bench_STH"
 BATCH_SIZE = 10000
 NUMERIC_COLS = {

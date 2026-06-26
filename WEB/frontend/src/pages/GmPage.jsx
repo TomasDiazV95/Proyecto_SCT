@@ -7,6 +7,7 @@ const initialFilters = {
   periodo: "",
   ejecutivo: "",
 };
+const initialDetailFilters = { op: "", bucket: "", contenido: "", normalizado: "" };
 
 const bucketOrder = ["6 a 30", "31 a 60", "61 a 90", "91 a 150"];
 
@@ -39,7 +40,7 @@ export default function GmPage() {
   const { user } = useAuth();
   const [view, setView] = useState("productividad");
   const [filters, setFilters] = useState(initialFilters);
-  const [detailFilters, setDetailFilters] = useState({ op: "", bucket: "", contenido: "", normalizado: "" });
+  const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
   const [bucketRows, setBucketRows] = useState([]);
@@ -49,6 +50,20 @@ export default function GmPage() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
   const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
+  const hasActiveFilters =
+    filters.ejecutivo ||
+    detailFilters.op ||
+    detailFilters.contenido ||
+    detailFilters.normalizado ||
+    detailFilters.bucket;
+  
+  function clearFilters() {
+    setFilters((prev) => ({
+      ...prev,
+      ejecutivo: "",
+    }));
+    setDetailFilters(initialDetailFilters);
+  }
 
   useEffect(() => {
     async function loadFilters() {
@@ -286,6 +301,11 @@ export default function GmPage() {
               </>
             )}
             {view === "bucket" && <div className="col-12 col-md-4 small text-muted d-flex align-items-end">La vista bucket consolida todos los ejecutivos del periodo.</div>}
+            <div className="col-12 col-md-auto d-flex align-items-end">
+              <button className="btn btn-outline-secondary w-100" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
+                Limpiar filtros
+              </button>
+            </div>            
           </div>
         </div>
       </div>

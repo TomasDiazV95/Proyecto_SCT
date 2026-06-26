@@ -1,10 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchScTempranaCycle, fetchScTempranaFilters, fetchScTempranaGeneral } from "../api";
+import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters, fetchScTempranaGeneral } from "../api";
 
 const initialFilters = {
   periodo: "",
   ejecutivo: "",
+};
+
+const initialDetailFilters = {
+  operacion: "",
+  contenido: "",
+  normalizado: "",
+  usuario_gestion: "",
+  tramo: "",
 };
 
 function formatPct(value) {
@@ -13,6 +21,10 @@ function formatPct(value) {
 
 function formatMoney(value) {
   return `$${new Intl.NumberFormat("es-CL", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Number(value || 0))}`;
+}
+
+function yesNo(value) {
+  return Number(value || 0) === 1 ? "Si" : "No";
 }
 
 function percentile(sortedValues, p) {
@@ -43,11 +55,35 @@ function dotClassByThresholds(value, thresholds) {
 export default function ScTempranaPage() {
   const [view, setView] = useState("ejecutivos");
   const [filters, setFilters] = useState(initialFilters);
-  const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
+  const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
+  const [options, setOptions] = useState({ periodos: [], ejecutivos: [], usuarios_gestion: [] });
   const [generalRows, setGeneralRows] = useState([]);
   const [cycleRows, setCycleRows] = useState([]);
+  const [detailRows, setDetailRows] = useState([]);
+  const [detailTotal, setDetailTotal] = useState(0);
+  const [detailPage, setDetailPage] = useState(1);
+  const [detailPageSize, setDetailPageSize] = useState(100);
+  const [operationSearch, setOperationSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const hasActiveFilters =
+  filters.ejecutivo ||
+  operationSearch ||
+  detailFilters.operacion ||
+  detailFilters.contenido ||
+  detailFilters.normalizado ||
+  detailFilters.usuario_gestion ||
+  detailFilters.tramo;
+  
+  function clearFilters() {
+    setFilters((prev) => ({
+      ...prev,
+      ejecutivo: "",
+    }));
+    setDetailFilters(initialDetailFilters);
+    setOperationSearch("");
+    setDetailPage(1);
+  }
 
   useEffect(() => {
     async function loadFilters() {
@@ -56,6 +92,7 @@ export default function ScTempranaPage() {
         setOptions({
           periodos: data.periodos || [],
           ejecutivos: data.ejecutivos || [],
+          usuarios_gestion: data.usuarios_gestion || [],
         });
         setFilters((prev) => ({
           ...prev,
@@ -69,6 +106,15 @@ export default function ScTempranaPage() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDetailFilters((prev) => ({ ...prev, operacion: operationSearch.trim() }));
+      setDetailPage(1);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [operationSearch]);
+
+  useEffect(() => {
     async function loadData() {
       if (!filters.periodo) {
         return;
@@ -76,9 +122,15 @@ export default function ScTempranaPage() {
       setLoading(true);
       setError("");
       try {
-        const [general, cycle] = await Promise.all([fetchScTempranaGeneral(filters), fetchScTempranaCycle(filters)]);
-        setGeneralRows(general);
-        setCycleRows(cycle);
+        if (view === "detalle") {
+          const detail = await fetchScTempranaDetail({ ...filters, ...detailFilters, page: detailPage, page_size: detailPageSize });
+          setDetailRows(detail.data || []);
+          setDetailTotal(Number(detail.total || 0));
+        } else {
+          const [general, cycle] = await Promise.all([fetchScTempranaGeneral(filters), fetchScTempranaCycle(filters)]);
+          setGeneralRows(general);
+          setCycleRows(cycle);
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -86,10 +138,16 @@ export default function ScTempranaPage() {
       }
     }
     loadData();
-  }, [filters]);
+  }, [filters, detailFilters, detailPage, detailPageSize, view]);
 
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
+    setDetailPage(1);
+  }
+
+  function onDetailChange(name, value) {
+    setDetailFilters((prev) => ({ ...prev, [name]: value }));
+    setDetailPage(1);
   }
 
   const cycleDataRows = useMemo(() => cycleRows.filter((row) => row.ejecutivo !== "Total"), [cycleRows]);
@@ -117,6 +175,10 @@ export default function ScTempranaPage() {
     };
   }, [cycleDataRows]);
 
+  const detailTotalPages = Math.max(1, Math.ceil(detailTotal / detailPageSize));
+  const detailFrom = detailTotal ? (detailPage - 1) * detailPageSize + 1 : 0;
+  const detailTo = detailTotal ? Math.min(detailPage * detailPageSize, detailTotal) : 0;
+
   return (
     <div className="container-fluid py-4 app-shell">
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -128,10 +190,13 @@ export default function ScTempranaPage() {
         </div>
         <div className="btn-group">
           <button className={`btn btn-${view === "general" ? "primary" : "outline-primary"}`} onClick={() => setView("general")}>
-            Vista General
+            General
           </button>
           <button className={`btn btn-${view === "ejecutivos" ? "primary" : "outline-primary"}`} onClick={() => setView("ejecutivos")}>
-            Vista Ejecutivos
+            Ejecutivos
+          </button>
+          <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => setView("detalle")}>
+            Detalle
           </button>
         </div>
       </div>
@@ -149,16 +214,81 @@ export default function ScTempranaPage() {
                 ))}
               </select>
             </div>
-            <div className="col-12 col-md-3">
-              <label className="form-label">Ejecutivo</label>
-              <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
-                <option value="">Todos</option>
-                {options.ejecutivos.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
+            {view !== "detalle" && (
+              <div className="col-12 col-md-3">
+                <label className="form-label">Ejecutivo</label>
+                <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
+                  <option value="">Todos</option>
+                  {options.ejecutivos.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {view === "detalle" && (
+              <>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Operacion</label>
+                  <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Contenido</label>
+                  <select className="form-select" value={detailFilters.contenido} onChange={(e) => onDetailChange("contenido", e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="1">Si</option>
+                    <option value="0">No</option>
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Normalizado</label>
+                  <select className="form-select" value={detailFilters.normalizado} onChange={(e) => onDetailChange("normalizado", e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="1">Si</option>
+                    <option value="0">No</option>
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Usuario Gestion</label>
+                  <select className="form-select" value={detailFilters.usuario_gestion} onChange={(e) => onDetailChange("usuario_gestion", e.target.value)}>
+                    <option value="">Todos</option>
+                    {options.usuarios_gestion.map((item) => (
+                      <option key={item.usuario} value={item.usuario}>
+                        {item.usuario}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Tramo</label>
+                  <select className="form-select" value={detailFilters.tramo} onChange={(e) => onDetailChange("tramo", e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="C1">C1</option>
+                    <option value="C2">C2</option>
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Filas</label>
+                  <select
+                    className="form-select"
+                    value={detailPageSize}
+                    onChange={(e) => {
+                      setDetailPageSize(Number(e.target.value));
+                      setDetailPage(1);
+                    }}
+                  >
+                    <option value={100}>100</option>
+                    <option value={250}>250</option>
+                    <option value={500}>500</option>
+                  </select>
+                </div>
+              </>
+            )}
+            <div className="col-12 col-md-auto d-flex align-items-end">
+              <button className="btn btn-outline-secondary w-100" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
+                Limpiar filtros
+              </button>
             </div>
           </div>
         </div>
@@ -172,7 +302,7 @@ export default function ScTempranaPage() {
             <div className="text-center py-4">Cargando...</div>
           ) : view === "general" ? (
             <div className="text-center py-4 text-muted">Sin informacion disponible para vista general.</div>
-          ) : (
+          ) : view === "ejecutivos" ? (
             <table className="table table-striped table-hover align-middle">
               <thead>
                 <tr>
@@ -228,6 +358,59 @@ export default function ScTempranaPage() {
                 )}
               </tbody>
             </table>
+          ) : (
+            <>
+              <table className="table table-striped table-hover align-middle">
+                <thead>
+                  <tr>
+                    <th>Operacion</th>
+                    <th>Deuda</th>
+                    <th>Tramo</th>
+                    <th>Contenido</th>
+                    <th>Normalizado</th>
+                    <th>Usuario Gestion</th>
+                    <th>Respuesta Gestion</th>
+                    <th>Gestion Fecha</th>
+                    <th>Telefono</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detailRows.map((row, idx) => (
+                    <tr key={`${row.operacion}-${idx}`}>
+                      <td>{row.operacion}</td>
+                      <td>{formatMoney(row.deuda)}</td>
+                      <td>{row.tramo}</td>
+                      <td>{yesNo(row.contenido)}</td>
+                      <td>{yesNo(row.normalizado)}</td>
+                      <td>{row.usuario_gestion || "SIN GESTION"}</td>
+                      <td>{row.respuesta_gestion || "-"}</td>
+                      <td>{String(row.gestion_fecha || "").slice(0, 10) || "-"}</td>
+                      <td>{row.telefono || "-"}</td>
+                    </tr>
+                  ))}
+                  {!detailRows.length && (
+                    <tr>
+                      <td colSpan={9} className="text-center text-muted py-4">
+                        Sin datos para los filtros seleccionados.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="d-flex flex-column flex-md-row gap-2 justify-content-between align-items-md-center mt-2">
+                <div className="small text-muted">
+                  Mostrando {detailFrom}-{detailTo} de {detailTotal} operaciones. Pagina {detailPage} de {detailTotalPages}.
+                </div>
+                <div className="btn-group">
+                  <button className="btn btn-outline-primary" onClick={() => setDetailPage((prev) => Math.max(1, prev - 1))} disabled={detailPage <= 1 || loading}>
+                    Anterior
+                  </button>
+                  <button className="btn btn-outline-primary" onClick={() => setDetailPage((prev) => Math.min(detailTotalPages, prev + 1))} disabled={detailPage >= detailTotalPages || loading}>
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
