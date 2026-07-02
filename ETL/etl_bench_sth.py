@@ -19,8 +19,8 @@ USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 # ========= BENCH STH =========
-BENCH_FOLDER = Path(r"C:\Users\PC del Marrón\Desktop\Paso")
-BENCH_PATTERN = "seguimiento al 24-06 Phoenix.xlsx"
+BENCH_FOLDER = Path(os.getenv("BENCH_STH_FOLDER"))
+BENCH_PATTERN = os.getenv("BENCH_STH_PATTERN")
 TABLE = "dbo.tmp_bench_STH"
 BATCH_SIZE = 10000
 NUMERIC_COLS = {
@@ -91,11 +91,17 @@ def sql_type_for(col: str) -> str:
         return "DECIMAL(38,2) NULL"
     return "DECIMAL(38,0) NULL" if col_is_numeric(col) else "NVARCHAR(MAX) NULL"
 def clean_numeric(value) -> Decimal | None:
-    if value is None or value is pd.NA:
+    if pd.isna(value):
         return None
     s = str(value).strip()
     if s == "" or s.lower() == "nan":
         return None
+    # Permitir notación científica: 9.8e-05
+    try:
+        if re.match(r"^-?\d+(\.\d+)?e-?\d+$", s.lower()):
+            return Decimal(s)
+    except Exception:
+        pass
     s = re.sub(r"[^0-9,\.\-]", "", s)
     if s in ("", "-", ".", ","):
         return None
@@ -121,7 +127,7 @@ def to_sql_numeric(col: str, value):
     if number is None:
         return None
     if col_is_mm_monto(col):
-        return number * Decimal("1000000")
+        return (number * Decimal("1000000")).quantize(Decimal("1"))
     if col_is_numeric(col):
         return int(number)
     return number
@@ -199,6 +205,36 @@ def ensure_table_and_columns(df: pd.DataFrame) -> None:
                     f"ALTER TABLE {TABLE} ALTER COLUMN {sql_ident(f'fld_{original}')} DECIMAL(38,0) NULL;"
                 )
         cn.commit()
+def validar_numericos(df: pd.DataFrame) -> None:
+    errores = []
+
+    for idx, row in df.iterrows():
+        for col in df.columns:
+            if not col_is_numeric(col):
+                continue
+
+            value = row[col]
+
+            if pd.isna(value) or str(value).strip() == "":
+                continue
+
+            number = clean_numeric(value)
+
+            if number is None:
+                errores.append({
+                    "excel_fila": idx + 2,
+                    "columna": col,
+                    "valor": value,
+                    "motivo": "No se pudo convertir a número"
+                })
+
+    if errores:
+        print("Errores numéricos detectados antes de insertar:")
+        for e in errores[:20]:
+            print(e)
+        raise RuntimeError(
+            f"Se encontraron {len(errores)} errores numéricos. Corrige el Excel antes de cargar."
+        )
 def insert_append(df: pd.DataFrame, source_file: str) -> None:
     excel_cols = [normalize_excel_col(c) for c in df.columns]
     fld_cols = [f"fld_{c}" for c in excel_cols]
@@ -212,7 +248,7 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
             if col_is_numeric(col):
                 out.append(to_sql_numeric(col, value))
             else:
-                if value is None or value is pd.NA:
+                if pd.isna(value):
                     out.append(None)
                 else:
                     text = str(value)
@@ -241,10 +277,9 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
                     except pyodbc.Error as e2:
                         cn.rollback()
                         global_idx = i + j
-                        print(
-                            f"Saltando fila problematica global #{global_idx} (Excel aprox fila {global_idx + 2})"
-                        )
+                        print(f"Fila problemática Excel aprox: {global_idx + 2}")
                         print("Detalle:", e2)
+                        print("Registro:", record)
                         continue
     print(f"OK: insertadas {inserted} filas")
 def main() -> None:
@@ -252,6 +287,7 @@ def main() -> None:
     if not excel_path.exists():
         raise FileNotFoundError(f"No existe archivo: {excel_path}")
     df = read_excel(excel_path)
+    validar_numericos(df)
     source_file = excel_path.name
     print(f"Archivo: {source_file}")
     print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
