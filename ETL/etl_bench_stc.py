@@ -36,7 +36,7 @@ def get_latest_bench_file(folder: Path, pattern: str) -> str:
     if not folder.exists():
         raise FileNotFoundError(f"La carpeta no existe: {folder}")
 
-    files = list(folder.glob(pattern))
+    files = [f for f in folder.glob(pattern) if not f.name.startswith("~$")]
 
     if not files:
         raise FileNotFoundError(
@@ -176,6 +176,28 @@ def normalize_rule_text(v) -> str | None:
     return s.upper()
 
 
+def normalize_sheet_name(name: str) -> str:
+    s = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("utf-8")
+    s = re.sub(r"\s+", "", s)
+    return s.strip().upper()
+
+
+def resolve_sheet_name(raw: bytes, requested_sheet: str | None):
+    excel_file = pd.ExcelFile(BytesIO(raw), engine="openpyxl")
+
+    if not requested_sheet:
+        return 0, excel_file.sheet_names
+
+    requested_norm = normalize_sheet_name(requested_sheet)
+    for sheet_name in excel_file.sheet_names:
+        if normalize_sheet_name(sheet_name) == requested_norm:
+            return sheet_name, excel_file.sheet_names
+
+    raise ValueError(
+        f"Worksheet named '{requested_sheet}' not found. Hojas disponibles: {excel_file.sheet_names}"
+    )
+
+
 def compute_meta_values(tramo_raw, apertura_raw) -> tuple[int | None, int | None]:
     tramo = normalize_rule_text(tramo_raw)
     apertura = normalize_rule_text(apertura_raw)
@@ -204,10 +226,9 @@ def read_excel(path: str, sheet: str | None) -> pd.DataFrame:
         raise FileNotFoundError(f"No existe el Excel en: {path}")
 
     raw = p.read_bytes()
-    if sheet:
-        df = pd.read_excel(BytesIO(raw), sheet_name=sheet, dtype=str, engine="openpyxl")
-    else:
-        df = pd.read_excel(BytesIO(raw), sheet_name=0, dtype=str, engine="openpyxl")
+    resolved_sheet, available_sheets = resolve_sheet_name(raw, sheet)
+    df = pd.read_excel(BytesIO(raw), sheet_name=resolved_sheet, dtype=str, engine="openpyxl")
+    print(f"Hoja Excel usada: {resolved_sheet} | Hojas disponibles: {available_sheets}")
 
     df.columns = [normalize_excel_col(c) for c in df.columns]
 

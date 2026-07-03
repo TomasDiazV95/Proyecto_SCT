@@ -12,8 +12,6 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    allowedHosts: [
-      "productividad-cobranza.ph.local"
-    ]
+    allowedHosts: true,
   },
 });

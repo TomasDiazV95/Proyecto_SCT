@@ -1,4 +1,22 @@
-const API_BASE = import.meta.env.VITE_API_URL || "";
+function resolveApiBase() {
+  const envBase = import.meta.env.VITE_API_URL;
+  if (envBase) {
+    return envBase;
+  }
+
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const devPorts = new Set(["5173", "5174"]);
+  if (devPorts.has(window.location.port)) {
+    return "";
+  }
+
+  return `${window.location.protocol}//${window.location.hostname}:8000`;
+}
+
+const API_BASE = resolveApiBase();
 
 async function apiFetch(url, options = {}, retry = true) {
   const token = localStorage.getItem("auth_access_token") || "";
@@ -215,6 +233,31 @@ export async function fetchBitDetalle(filters) {
   return res.json();
 }
 
+export async function fetchBitCastigoFilters() {
+  const res = await apiFetch(`${API_BASE}/api/bit-castigo/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de BIT Castigo");
+  }
+  return res.json();
+}
+
+export async function fetchBitCastigoGeneral(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de BIT Castigo");
+  }
+  return res.json();
+}
+
+export async function fetchFacturaBitDashboard(periodo = "", scope = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/factura/bit`, { periodo, scope }));
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo cargar la simulacion de factura BIT");
+  }
+  return body;
+}
+
 export async function fetchItauCastigoFilters() {
   const res = await apiFetch(`${API_BASE}/api/itau-castigo/filtros`);
   if (!res.ok) {
@@ -252,6 +295,31 @@ export async function fetchGmDetail(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/detalle`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el detalle de GM");
+  }
+  return res.json();
+}
+
+export async function fetchKpiDiarioFilters() {
+  const res = await apiFetch(`${API_BASE}/api/kpi-diario/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de KPI diario");
+  }
+  return res.json();
+}
+
+export async function fetchKpiDiarioGeneral(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de KPI diario");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchKpiDiarioCycle(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/ciclo`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista por ciclo de KPI diario");
   }
   const body = await res.json();
   return body.data || [];
