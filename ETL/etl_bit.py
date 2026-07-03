@@ -184,16 +184,16 @@ def resolve_monto_uf(periodo: str) -> tuple[Decimal, str, str | None]:
             ultimo_dia = calendar.monthrange(year, month)[1]
             ultimo_registro = max(registros_mes, key=lambda item: str(item.get("fecha") or ""))
             ultimo_registro_dia = int(str(ultimo_registro.get("fecha") or "")[8:10])
-            valor = soft_decimal(ultimo_registro.get("valor"))
-            if valor is not None and valor > 0:
-                warning = None
-                if ultimo_registro_dia != ultimo_dia:
-                    warning = (
-                        f"Mindicador no devolvio el ultimo dia calendario de {periodo}. "
-                        f"Se esperaba dia {ultimo_dia:02d} y se uso el ultimo valor disponible del mes: dia {ultimo_registro_dia:02d}"
-                    )
-                return valor, "mindicador", warning
-            api_error = f"Mindicador devolvio un valor UF invalido para {periodo}"
+            if ultimo_registro_dia != ultimo_dia:
+                api_error = (
+                    f"Mindicador no devolvio el ultimo dia calendario de {periodo}. "
+                    f"Se esperaba dia {ultimo_dia:02d} y llego {ultimo_registro_dia:02d}"
+                )
+            else:
+                valor = soft_decimal(ultimo_registro.get("valor"))
+                if valor is not None and valor > 0:
+                    return valor, "mindicador", None
+                api_error = f"Mindicador devolvio un valor UF invalido para {periodo}"
         elif not api_error:
             api_error = f"Mindicador no devolvio registros UF para {periodo}"
     except Exception as exc:

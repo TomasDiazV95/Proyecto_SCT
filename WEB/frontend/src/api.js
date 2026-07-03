@@ -295,10 +295,6 @@ export async function fetchGmDetail(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/detalle`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el detalle de GM");
-  }
-  return res.json();
-}
-
 export async function fetchKpiDiarioFilters() {
   const res = await apiFetch(`${API_BASE}/api/kpi-diario/filtros`);
   if (!res.ok) {
