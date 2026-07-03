@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pandas as pd
 import pyodbc
-import msoffcrypto
 from dotenv import load_dotenv
 
 
@@ -25,87 +24,61 @@ USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
-ITAU_CASTIGO_FOLDER = Path(os.getenv("BENCH_ITAU_CASTIGO_FOLDER"))
-ITAU_CASTIGO_FILENAME = os.getenv("BENCH_ITAU_CASTIGO_PATTERN")
-EXCEL_PASSWORD = os.getenv("PASS_BENCH_ITAU_CASTIGO")
-EXCEL_PATH = ITAU_CASTIGO_FOLDER / ITAU_CASTIGO_FILENAME
+BENCH_FOLDER = Path(os.getenv("BENCH_SC_CASTIGO_FOLDER"))
+BENCH_PATTERN = os.getenv("BENCH_SC_CASTIGO_PATTERN")
 SHEET_NAME = 0
 
-TABLE = "dbo.recup_itau_castigo"
+TABLE = "dbo.tmp_bench_SC_Castigo"
 BATCH_SIZE = 5000
 
 COLUMN_SPECS = [
-    ("CANAL_ASIG", "text"),
-    ("ANO_DEL_CASTIGO", "integer"),
-    ("CONVENIO", "text"),
-    ("CONDICION_CONVENIO", "text"),
-    ("RECUPERO", "integer"),
-    ("FLAG_REC", "integer"),
-    ("MONTO_CASTIGADO", "integer"),
-    ("ORIGEN", "text"),
-    ("ACRE", "text"),
+    ("FECHA", "text8"),
+    ("PERIODO", "text6"),
     ("RUT", "integer"),
-    ("DV", "text"),
-    ("NOMBRES", "text"),
-    ("APELLIDO_PAT", "text"),
-    ("SUPERVISOR", "text"),
-    ("COBRADOR", "text"),
-    ("COBRADOR_DES", "text"),
-    ("COBRADOR_AJUSTADO", "text"),
-    ("META", "decimal4"),
-    ("CALCULO_META", "integer"),
-    ("RESPONSABLE", "text"),
-    ("FECHA_RECUPERO", "text_date"),
-    ("GESTOR", "text"),
-    ("SEGMENTO", "text"),
-    ("SEG_AGRUP", "text"),
-    ("ZONA", "text"),
-    ("ZONAL", "text"),
-    ("DESGLOSE_NO_ASIGNABLE", "text"),
-    ("ESTADO_JUDICIAL", "text"),
-    ("EJECUTIVO_JUDICIAL", "text"),
-    ("ABOGADO", "text"),
-    ("ROL", "text"),
-    ("TRIBUNAL", "text"),
-    ("SEG", "text"),
-    ("RECMAYOR$MM100", "text"),
-    ("CLUSTER", "text"),
-    ("TIPO", "text"),
-    ("MARCA", "text"),
-    ("MARCA_CJ", "text"),
-    ("TIPO_CARTERA_JUDICIAL", "text"),
-    ("CON_HIPO", "text"),
-    ("BIENES_RAICES", "text"),
-    ("BNS", "text"),
-    ("REGION", "text"),
-    ("TIPO_GESTION", "text"),
-    ("TIPO_PERSONA", "text"),
-    ("GESTIONADO", "integer"),
-    ("FECHA_COMPROMISO", "integer"),
-    ("DIAS_COMPROMISO", "integer"),
-    ("MONTO_COMPROMISO", "integer"),
-    ("COMPROMISO_VIGENTE", "text"),
-    ("DP_CIERRE_TOT", "integer"),
-    ("DP_CIERRE_ACT", "integer"),
-    ("PROY_TUBO", "integer"),
-    ("FALTANTE", "integer"),
-    ("VEL_NEC", "integer"),
-    ("VEL_ACUM", "integer"),
-    ("BRECHA", "integer"),
-    ("MOB", "text"),
-    ("MOB_AGRUP", "text"),
-    ("NOTA", "text"),
-    ("NOTA_CHECK_PILOTO", "text"),
-    ("SEG_PILOTO_NOTA", "text"),
-    ("META_PILOTO_NOTA", "decimal4"),
-    ("CALCULO_META_PILOTO", "integer"),
-    ("PROY_TUBO_PILOTO", "integer"),
-    ("FALTANTE_PILOTO", "integer"),
-    ("VEL_NEC_PILOTO", "integer"),
-    ("VEL_ACUM_PILOTO", "integer"),
-    ("BRECHA_PILOTO", "integer"),
-    ("FECHA_PROCESO", "date_ddmmyyyy"),
-    ("NT", "integer"),
+    ("OPERACION", "integer"),
+    ("NOMBRE", "text100"),
+    ("REGION", "text40"),
+    ("COMUNA", "text40"),
+    ("ZONA", "text20"),
+    ("EMPRESA", "text20"),
+    ("TIPO_EMP", "text20"),
+    ("SUPER_EXT", "text40"),
+    ("COBRADOR", "text40"),
+    ("CONCURSO_BENCH", "text100"),
+    ("AVAN_BENCH", "text10"),
+    ("CUOTAS_PLA", "integer"),
+    ("TRAMO_MORA", "text5"),
+    ("DEUDA_AP", "integer"),
+    ("DEUDA_ACT", "integer"),
+    ("DM_INI", "integer"),
+    ("DM_ACT", "integer"),
+    ("DM_CIERRE", "integer"),
+    ("RECUP", "integer"),
+    ("ESTADO_JUICIO", "text100"),
+    ("SUBESTADO_JUICIO", "text100"),
+    ("ABOGADO", "text40"),
+    ("DACION", "text10"),
+    ("MARCA_RENE", "text10"),
+    ("CAMPAÑA_PUT", "text100"),
+    ("CAMPAÑA_RECON", "text100"),
+    ("CONTACTO", "text40"),
+    ("CANAL", "text20"),
+    ("ORIGENGESTION", "text20"),
+    ("CLASIFICACIONGESTION", "text20"),
+    ("ACCION", "text40"),
+    ("ESTADO", "text100"),
+    ("SUBESTADO", "text40"),
+    ("FECH_INGR", "date_ddmmyyyy"),
+    ("COMENTARIO", "textmax"),
+    ("FECHA_COMP", "date_ddmmyyyy"),
+    ("REGION_DRIVE", "text40"),
+    ("ZONA_DRIVE", "text20"),
+    ("COMUNA_DRIVE", "text40"),
+    ("DIRECCION_DRIVE", "textmax"),
+    ("TELEFONO_CASA_DRIVE", "phone"),
+    ("TELEFONO_MOVIL_DRIVE", "phone"),
+    ("TELEFONO_COMERCIAL_DRIVE", "phone"),
+    ("EMAIL_DRIVE", "text100"),
 ]
 
 COLUMN_KINDS = dict(COLUMN_SPECS)
@@ -144,7 +117,6 @@ def connect() -> pyodbc.Connection:
 
     driver = pick_driver()
     print(f"ODBC driver usado: {driver}")
-
     conn_str = (
         f"Driver={{{driver}}};"
         f"Server={SERVER};"
@@ -158,7 +130,7 @@ def connect() -> pyodbc.Connection:
 
 
 def sql_ident(name: str) -> str:
-    return "[" + str(name).replace("]", "]]" ) + "]"
+    return "[" + str(name).replace("]", "]]") + "]"
 
 
 def normalize_excel_col(value: object) -> str:
@@ -172,13 +144,21 @@ def clean_cell(value: object) -> str | None:
         return None
     if isinstance(value, float) and pd.isna(value):
         return None
-    text = str(value).strip()
+    text = str(value).replace("\x00", "").strip()
     if not text or text.lower() == "nan":
         return None
-    return text.replace("\x00", "")
+    return text
 
 
-def parse_decimal(value: object, scale: int) -> str | None:
+def clean_text(value: object) -> str | None:
+    text = clean_cell(value)
+    if text is None:
+        return None
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or None
+
+
+def clean_numeric(value: object) -> str | None:
     text = clean_cell(value)
     if text is None:
         return None
@@ -201,27 +181,30 @@ def parse_decimal(value: object, scale: int) -> str | None:
         text = text.replace(".", "")
 
     try:
-        number = Decimal(text)
+        return str(int(Decimal(text)))
     except Exception:
         return None
 
-    if scale == 0:
-        return str(int(number))
 
-    return str(number.quantize(Decimal("1." + "0" * scale)))
-
-
-def parse_fecha_proceso(value: object):
-    if value is None or value is pd.NA:
+def clean_text_digits(value: object, max_len: int | None = None) -> str | None:
+    text = clean_numeric(value)
+    if text is None:
         return None
+    text = text.lstrip("-")
+    if max_len is not None and len(text) > max_len:
+        text = text[:max_len]
+    return text or None
+
+
+def parse_date_ddmmyyyy(value: object):
+    text = clean_cell(value)
+    if text is None:
+        return None
+
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, pd.Timestamp):
         return value.date()
-
-    text = clean_cell(value)
-    if text is None:
-        return None
 
     for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d"):
         try:
@@ -231,30 +214,56 @@ def parse_fecha_proceso(value: object):
     return None
 
 
+def clean_phone(value: object) -> str | None:
+    text = clean_cell(value)
+    if text is None:
+        return None
+
+    digits = re.sub(r"\D", "", text)
+    if not digits:
+        return None
+
+    if len(digits) > 9:
+        digits = digits[-9:]
+    if len(digits) == 8:
+        digits = "9" + digits
+    if len(digits) != 9 or digits.startswith("1"):
+        return None
+    return digits
+
+
 def sql_type_for(kind: str) -> str:
     if kind == "integer":
         return "DECIMAL(38,0) NULL"
-    if kind == "decimal4":
-        return "DECIMAL(38,4) NULL"
+    if kind == "phone":
+        return "NVARCHAR(9) NULL"
     if kind == "date_ddmmyyyy":
         return "DATE NULL"
-    if kind == "text_date":
-        return "NVARCHAR(50) NULL"
-    return "NVARCHAR(100) NULL"
+    if kind == "textmax":
+        return "NVARCHAR(MAX) NULL"
+    if kind.startswith("text") and kind[4:].isdigit():
+        return f"NVARCHAR({kind[4:]}) NULL"
+    return "NVARCHAR(MAX) NULL"
+
+
+def get_input_excel_path() -> Path:
+    if not BENCH_FOLDER.exists():
+        raise FileNotFoundError(f"La carpeta no existe: {BENCH_FOLDER}")
+
+    files = [p for p in BENCH_FOLDER.glob(BENCH_PATTERN) if not p.name.startswith("~$")]
+    if not files:
+        raise FileNotFoundError(
+            f"No se encontro ningun archivo que cumpla el patron '{BENCH_PATTERN}' en {BENCH_FOLDER}"
+        )
+    return max(files, key=lambda p: p.stat().st_mtime)
 
 
 def read_excel(path: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"No existe el Excel en: {path}")
 
-    decrypted = BytesIO()
-    with path.open("rb") as handle:
-        office_file = msoffcrypto.OfficeFile(handle)
-        office_file.load_key(password=EXCEL_PASSWORD)
-        office_file.decrypt(decrypted)
-
-    decrypted.seek(0)
-    df = pd.read_excel(decrypted, sheet_name=SHEET_NAME, dtype=object, engine="openpyxl")
+    raw = path.read_bytes()
+    df = pd.read_excel(BytesIO(raw), sheet_name=SHEET_NAME, dtype=object, engine="openpyxl")
     df.columns = [normalize_excel_col(c) for c in df.columns]
     df = df.where(pd.notnull(df), None)
 
@@ -267,7 +276,7 @@ def read_excel(path: Path) -> pd.DataFrame:
 
 def ensure_table() -> None:
     column_definitions = ",\n                    ".join(
-        f"{sql_ident(name)} {sql_type_for(kind)}" for name, kind in COLUMN_SPECS
+        f"{sql_ident('fld_' + name)} {sql_type_for(kind)}" for name, kind in COLUMN_SPECS
     )
 
     with connect() as cn:
@@ -277,32 +286,64 @@ def ensure_table() -> None:
             IF OBJECT_ID('{TABLE}', 'U') IS NULL
             BEGIN
                 CREATE TABLE {TABLE} (
-                    id_recup_itau_castigo BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                    fecha_carga DATE NOT NULL CONSTRAINT DF_recup_itau_castigo_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
-                    ts_carga DATETIME2(0) NOT NULL CONSTRAINT DF_recup_itau_castigo_ts_carga DEFAULT (SYSDATETIME()),
+                    id_bench_sc_castigo BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                    fecha_carga DATE NOT NULL CONSTRAINT DF_tmp_bench_SC_Castigo_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
+                    ts_carga DATETIME2(0) NOT NULL CONSTRAINT DF_tmp_bench_SC_Castigo_ts_carga DEFAULT (SYSDATETIME()),
                     source_file NVARCHAR(260) NULL,
                     {column_definitions}
                 );
-                CREATE INDEX IX_recup_itau_castigo_fecha_carga ON {TABLE}(fecha_carga);
+                CREATE INDEX IX_tmp_bench_SC_Castigo_fecha_carga ON {TABLE}(fecha_carga);
+                CREATE INDEX IX_tmp_bench_SC_Castigo_source_file ON {TABLE}(source_file);
             END
             """
         )
         cn.commit()
 
+        schema, table_name = TABLE.split(".")
+        cur.execute(
+            """
+            SELECT c.name
+            FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = ? AND t.name = ?
+            """,
+            (schema, table_name),
+        )
+        existing = {row[0] for row in cur.fetchall()}
+
+        for name, kind in COLUMN_SPECS:
+            column_name = "fld_" + name
+            if column_name not in existing:
+                cur.execute(f"ALTER TABLE {TABLE} ADD {sql_ident(column_name)} {sql_type_for(kind)};")
+        cn.commit()
+
+
+def source_file_exists(source_file: str) -> bool:
+    try:
+        with connect() as cn:
+            cur = cn.cursor()
+            cur.execute(f"SELECT COUNT(1) FROM {TABLE} WHERE source_file = ?", (source_file,))
+            return (cur.fetchone()[0] or 0) > 0
+    except pyodbc.Error:
+        return False
+
 
 def value_for_insert(column: str, value: object):
     kind = COLUMN_KINDS[column]
     if kind == "integer":
-        return parse_decimal(value, 0)
-    if kind == "decimal4":
-        return parse_decimal(value, 4)
+        return clean_numeric(value)
+    if kind == "phone":
+        return clean_phone(value)
     if kind == "date_ddmmyyyy":
-        return parse_fecha_proceso(value)
-    return clean_cell(value)
+        return parse_date_ddmmyyyy(value)
+    if column in {"FECHA", "PERIODO"}:
+        return clean_text_digits(value, 8 if column == "FECHA" else 6)
+    return clean_text(value)
 
 
 def insert_append(df: pd.DataFrame, source_file: str) -> None:
-    insert_cols = ["source_file"] + EXPECTED_COLUMNS
+    insert_cols = ["source_file"] + ["fld_" + col for col in EXPECTED_COLUMNS]
     placeholders = ",".join(["?"] * len(insert_cols))
     sql = f"""
     INSERT INTO {TABLE} ({','.join(map(sql_ident, insert_cols))})
@@ -347,13 +388,18 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
 
 
 def main() -> None:
-    source_file = EXCEL_PATH.name
-    print(f"Archivo ITAU castigo: {EXCEL_PATH}")
+    excel_path = get_input_excel_path()
+    source_file = excel_path.name
 
-    df = read_excel(EXCEL_PATH)
-    print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
-
+    print(f"Archivo SC Castigo: {excel_path}")
     ensure_table()
+
+    if source_file_exists(source_file):
+        print(f"Ya cargado, se omite: {source_file}")
+        return
+
+    df = read_excel(excel_path)
+    print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
     insert_append(df, source_file)
 
 
