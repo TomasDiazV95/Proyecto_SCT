@@ -23,6 +23,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'sc-temprana')
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'gm')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('gm', 'GM', '/gm');
 
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'kpi-diario')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('kpi-diario', 'KPI Cumplimiento Diario', '/kpi-cumplimiento-diario');
+ELSE
+    UPDATE dbo.modules SET display_name = 'KPI Cumplimiento Diario', route_path = '/kpi-cumplimiento-diario', is_active = 1 WHERE code = 'kpi-diario';
+
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'la-araucana')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('la-araucana', 'La Araucana', '/la-araucana');
 
@@ -34,6 +39,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'sth')
 
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'bit')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('bit', 'BIT', '/bit');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'bit-castigo')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('bit-castigo', 'BIT Castigo', '/bit-castigo');
+ELSE
+    UPDATE dbo.modules SET display_name = 'BIT Castigo', route_path = '/bit-castigo', is_active = 1 WHERE code = 'bit-castigo';
 
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'itau-castigo')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('itau-castigo', 'Itaú Castigo', '/itau-castigo');

@@ -23,6 +23,7 @@ WITH carterizado_unico AS (
             END AS operation_key,
             id
         FROM dbo.tmp_BIT_carterizado
+        WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) = 'VIGENTE'
     ) src
 ), dotacion AS (
     SELECT
@@ -121,6 +122,7 @@ WITH carterizado_unico AS (
             END AS operation_key,
             id
         FROM dbo.tmp_BIT_carterizado
+        WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) = 'VIGENTE'
     ) src
 ), dotacion AS (
     SELECT

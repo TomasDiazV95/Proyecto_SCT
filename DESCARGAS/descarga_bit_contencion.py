@@ -23,6 +23,7 @@ class RemoteFileMatch:
     filename: str
     periodo: str
     variant: str
+    period_key: str
     detected_at: datetime
     mtime: datetime
 
@@ -56,13 +57,18 @@ def _write_metadata(metadata_path: Path, payload: dict) -> None:
     metadata_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _remove_previous_files(local_dir: Path, pattern: str, keep_name: str) -> None:
+def _remove_previous_files(local_dir: Path, pattern: str, keep_name: str) -> list[Path]:
     keep_name_upper = keep_name.upper()
+    skipped_files: list[Path] = []
     for path in local_dir.glob(pattern):
         if path.name.upper() == keep_name_upper:
             continue
         if path.is_file():
-            path.unlink(missing_ok=True)
+            try:
+                path.unlink(missing_ok=True)
+            except PermissionError:
+                skipped_files.append(path)
+    return skipped_files
 
 
 def _download_original_name(
@@ -71,12 +77,12 @@ def _download_original_name(
     file_name: str,
     local_dir: Path,
     cleanup_pattern: str,
-) -> Path:
+) -> tuple[Path, list[Path]]:
     local_path = local_dir / file_name
     remote_file = f"{remote_dir}/{file_name}"
     _download_with_replace(sftp, remote_file, local_path)
-    _remove_previous_files(local_dir, cleanup_pattern, file_name)
-    return local_path
+    skipped_files = _remove_previous_files(local_dir, cleanup_pattern, file_name)
+    return local_path, skipped_files
 
 
 def pick_latest_bit_file(sftp: paramiko.SFTPClient, remote_dir: str) -> tuple[str, datetime]:
@@ -100,7 +106,8 @@ def pick_latest_bit_file(sftp: paramiko.SFTPClient, remote_dir: str) -> tuple[st
 
 
 def pick_latest_castigo_file(sftp: paramiko.SFTPClient, remote_dir: str) -> RemoteFileMatch:
-    pattern = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6})(?:_(PRECIERRE|CIERRE))?\.xlsx$")
+    pattern = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6}|\d{8})(?:_(PRECIERRE|CIERRE))?\.xlsx$")
+    variant_priority = {"base": 0, "PRECIERRE": 1, "CIERRE": 2}
     candidates: list[RemoteFileMatch] = []
 
     for entry in sftp.listdir_attr(remote_dir):
@@ -113,28 +120,38 @@ def pick_latest_castigo_file(sftp: paramiko.SFTPClient, remote_dir: str) -> Remo
         variant = match.group(2) or "base"
         periodo = f"{raw_period[:4]}-{raw_period[4:6]}"
         mtime = datetime.fromtimestamp(entry.st_mtime)
+        detected_at = datetime.strptime(raw_period, "%Y%m%d") if len(raw_period) == 8 else datetime.strptime(raw_period, "%Y%m")
         candidates.append(
             RemoteFileMatch(
                 filename=name,
                 periodo=periodo,
                 variant=variant,
-                detected_at=datetime.strptime(raw_period, "%Y%m"),
+                period_key=raw_period,
+                detected_at=detected_at,
                 mtime=mtime,
             )
         )
 
     if not candidates:
         raise FileNotFoundError(
-            f"No se encontraron archivos con formato Detalle_Recuperos_Castigo_YYYYMM[_PRECIERRE|_CIERRE].xlsx en {remote_dir}"
+            f"No se encontraron archivos con formato Detalle_Recuperos_Castigo_YYYYMM[DD][_PRECIERRE|_CIERRE].xlsx en {remote_dir}"
         )
 
-    return max(candidates, key=lambda item: item.mtime)
+    return max(
+        candidates,
+        key=lambda item: (
+            item.mtime,
+            item.period_key,
+            variant_priority.get(item.variant, -1),
+            item.filename.upper(),
+        ),
+    )
 
 
 def download_contencion(sftp: paramiko.SFTPClient, remote_dir: str, local_dir: Path) -> None:
     latest_name, latest_date = pick_latest_bit_file(sftp, remote_dir)
     metadata_path = local_dir / CONT_METADATA_NAME
-    local_path = _download_original_name(sftp, remote_dir, latest_name, local_dir, CONT_LOCAL_GLOB)
+    local_path, skipped_files = _download_original_name(sftp, remote_dir, latest_name, local_dir, CONT_LOCAL_GLOB)
 
     period = latest_date.strftime("%Y-%m")
     _write_metadata(
@@ -151,12 +168,14 @@ def download_contencion(sftp: paramiko.SFTPClient, remote_dir: str, local_dir: P
     print(f"Periodo contencion detectado: {period}")
     print(f"Guardado en: {local_path}")
     print(f"Metadata guardada en: {metadata_path}")
+    for skipped_file in skipped_files:
+        print(f"Advertencia: no se pudo eliminar archivo anterior en uso: {skipped_file}")
 
 
 def download_castigo(sftp: paramiko.SFTPClient, remote_dir: str, local_dir: Path) -> None:
     latest = pick_latest_castigo_file(sftp, remote_dir)
     metadata_path = local_dir / CASTIGO_METADATA_NAME
-    local_path = _download_original_name(sftp, remote_dir, latest.filename, local_dir, CASTIGO_LOCAL_GLOB)
+    local_path, skipped_files = _download_original_name(sftp, remote_dir, latest.filename, local_dir, CASTIGO_LOCAL_GLOB)
     _write_metadata(
         metadata_path,
         {
@@ -173,6 +192,8 @@ def download_castigo(sftp: paramiko.SFTPClient, remote_dir: str, local_dir: Path
     print(f"Variante castigo: {latest.variant}")
     print(f"Guardado en: {local_path}")
     print(f"Metadata guardada en: {metadata_path}")
+    for skipped_file in skipped_files:
+        print(f"Advertencia: no se pudo eliminar archivo anterior en uso: {skipped_file}")
 
 
 def main() -> None:

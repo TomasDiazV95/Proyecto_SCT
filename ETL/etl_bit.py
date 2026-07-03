@@ -1,4 +1,5 @@
 import argparse
+import calendar
 import json
 import os
 import re
@@ -8,17 +9,30 @@ from pathlib import Path
 
 import pandas as pd
 import pyodbc
+import requests
 from dotenv import load_dotenv
 
 
 CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
 CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
 CARTERIZADO_TABLE = "dbo.tmp_BIT_carterizado"
-CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
+CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6}|\d{8})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
 CONTENCION_PATTERN = re.compile(r"^Seguimiento_Metas_PHOENIX_(\d{8})\.xlsx$", re.IGNORECASE)
-CASTIGO_NUMERIC_COLUMNS = {"MTO_RECUPERO_FINAL"}
-CONTENCION_NUMERIC_COLUMNS = {"MTO_CUOTA", "MONTO_UF", "MTO_CUOTA_UF"}
+CASTIGO_NUMERIC_COLUMNS = {"MTO_RECUPERO_FINAL", "GC_CASTIGO"}
+CONTENCION_NUMERIC_COLUMNS = {
+    "MTO_CUOTA",
+    "MONTO_UF",
+    "MTO_CUOTA_UF",
+    "GASTO_COBRANZA",
+    "GC_MUY_BAJO",
+    "GC_BAJO",
+    "GC_ESPERADO",
+    "GC_SOBRE",
+}
 RESERVED_METADATA_COLUMNS = {"ID", "PERIODO", "SOURCE_FILE", "FECHA_CARGA"}
+UF_FALLBACK_BY_PERIOD = {
+    "2026-06": Decimal("40820.31"),
+}
 
 
 @dataclass
@@ -148,6 +162,94 @@ def soft_decimal(value: object) -> Decimal | None:
         return None
 
 
+def parse_period(periodo: str) -> tuple[int, int]:
+    match = re.fullmatch(r"(\d{4})-(\d{2})", str(periodo).strip())
+    if not match:
+        raise RuntimeError(f"Periodo invalido para UF: {periodo}. Se esperaba YYYY-MM")
+    return int(match.group(1)), int(match.group(2))
+
+
+def resolve_monto_uf(periodo: str) -> tuple[Decimal, str, str | None]:
+    year, month = parse_period(periodo)
+    api_url = f"https://mindicador.cl/api/uf/{year}"
+    api_error = None
+
+    try:
+        response = requests.get(api_url, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        serie = payload.get("serie") or []
+        registros_mes = [item for item in serie if str(item.get("fecha") or "")[5:7] == f"{month:02d}"]
+        if registros_mes:
+            ultimo_dia = calendar.monthrange(year, month)[1]
+            ultimo_registro = max(registros_mes, key=lambda item: str(item.get("fecha") or ""))
+            ultimo_registro_dia = int(str(ultimo_registro.get("fecha") or "")[8:10])
+            valor = soft_decimal(ultimo_registro.get("valor"))
+            if valor is not None and valor > 0:
+                warning = None
+                if ultimo_registro_dia != ultimo_dia:
+                    warning = (
+                        f"Mindicador no devolvio el ultimo dia calendario de {periodo}. "
+                        f"Se esperaba dia {ultimo_dia:02d} y se uso el ultimo valor disponible del mes: dia {ultimo_registro_dia:02d}"
+                    )
+                return valor, "mindicador", warning
+            api_error = f"Mindicador devolvio un valor UF invalido para {periodo}"
+        elif not api_error:
+            api_error = f"Mindicador no devolvio registros UF para {periodo}"
+    except Exception as exc:
+        api_error = f"Error consultando Mindicador para {periodo}: {exc}"
+
+    fallback_value = UF_FALLBACK_BY_PERIOD.get(periodo)
+    if fallback_value is not None and fallback_value > 0:
+        return fallback_value, "fallback", api_error
+
+    raise RuntimeError(
+        f"No se pudo obtener MONTO_UF para {periodo} desde Mindicador y no existe fallback local. "
+        f"Detalle: {api_error}"
+    )
+
+
+def resolve_contencion_tramo(value: object) -> str | None:
+    prefix = str(clean_cell(value) or "").upper()[:2]
+    if prefix in {"T1", "T2", "T3"}:
+        return "30-90"
+    if prefix in {"T4", "T5", "T6", "T7"}:
+        return "90+"
+    return None
+
+
+def contiene_aplica(value: object) -> bool:
+    cleaned = clean_cell(value)
+    if cleaned is None:
+        return False
+
+    parsed = soft_decimal(cleaned)
+    if parsed is not None:
+        return parsed == Decimal("1")
+
+    return str(cleaned).strip().upper() in {"1", "SI", "SÍ", "TRUE", "X"}
+
+
+def calculate_gasto_cobranza(mto_cuota_uf: Decimal, monto_uf: Decimal, contiene: object) -> Decimal:
+    if not contiene_aplica(contiene):
+        return Decimal("0")
+    if mto_cuota_uf <= 0 or monto_uf <= 0:
+        return Decimal("0")
+
+    if mto_cuota_uf <= Decimal("10"):
+        gasto_base_uf = mto_cuota_uf * Decimal("0.09")
+    elif mto_cuota_uf <= Decimal("50"):
+        gasto_base_uf = (Decimal("10") * Decimal("0.09")) + ((mto_cuota_uf - Decimal("10")) * Decimal("0.06"))
+    else:
+        gasto_base_uf = (
+        (Decimal("10") * Decimal("0.09"))
+        + (Decimal("40") * Decimal("0.06"))
+        + ((mto_cuota_uf - Decimal("50")) * Decimal("0.03"))
+        )
+
+    return gasto_base_uf * monto_uf
+
+
 def read_metadata(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -178,7 +280,7 @@ def extract_castigo_period(file_name: str) -> str:
     if not match:
         raise RuntimeError(
             "No se pudo obtener el periodo del archivo castigo. "
-            f"Nombre recibido: {file_name}. Se esperaba Detalle_Recuperos_Castigo_YYYYMM[_PRECIERRE|_CIERRE].xlsx"
+            f"Nombre recibido: {file_name}. Se esperaba Detalle_Recuperos_Castigo_YYYYMM[DD][_PRECIERRE|_CIERRE].xlsx"
         )
     raw_period = match.group(1)
     return f"{raw_period[:4]}-{raw_period[4:6]}"
@@ -234,7 +336,8 @@ def ensure_dynamic_table(
     table_name: str,
     excel_columns: list[str],
     numeric_columns: set[str] | None = None,
-) -> list[str]:
+    include_source_file: bool = True,
+) -> tuple[list[str], list[str]]:
     if not excel_columns:
         raise RuntimeError(f"El archivo para {table_name} no tiene columnas para cargar.")
 
@@ -256,43 +359,101 @@ def ensure_dynamic_table(
             CREATE TABLE {table_name} (
                 id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
                 periodo NVARCHAR(7) NOT NULL,
-                source_file NVARCHAR(260) NOT NULL,
+                {"source_file NVARCHAR(260) NOT NULL," if include_source_file else ""}
                 fecha_carga DATE NOT NULL CONSTRAINT DF_{table}_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
                 {dynamic_cols}
             )
             """
         )
-        return excel_columns
+        return excel_columns, list(excel_columns)
 
     missing = [col for col in excel_columns if col.upper() not in existing]
     for col in missing:
         column_type = "DECIMAL(18,2)" if col.upper() in numeric_columns else "NVARCHAR(MAX)"
         cur.execute(f"ALTER TABLE {table_name} ADD {quote_ident(col)} {column_type} NULL")
 
-    return excel_columns
+    return excel_columns, missing
 
 
-def ensure_castigo_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> list[str]:
-    return ensure_dynamic_table(cur, CASTIGO_TABLE, excel_columns, CASTIGO_NUMERIC_COLUMNS)
+def ensure_castigo_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> tuple[list[str], list[str]]:
+    requested_columns = [str(col) for col in excel_columns]
+    if "GC_CASTIGO" not in {col.upper() for col in requested_columns}:
+        requested_columns.append("GC_CASTIGO")
+    return ensure_dynamic_table(cur, CASTIGO_TABLE, requested_columns, CASTIGO_NUMERIC_COLUMNS)
 
 
-def prepare_contencion_dataframe(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+def ensure_carterizado_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> tuple[list[str], list[str]]:
+    excel_columns, added_columns = ensure_dynamic_table(
+        cur,
+        CARTERIZADO_TABLE,
+        excel_columns,
+        include_source_file=False,
+    )
+    existing = get_table_columns(cur, CARTERIZADO_TABLE)
+    if "SOURCE_FILE" in existing:
+        cur.execute(f"ALTER TABLE {CARTERIZADO_TABLE} DROP COLUMN [source_file]")
+    return excel_columns, added_columns
+
+
+def prepare_contencion_dataframe(df: pd.DataFrame, periodo: str | None = None) -> tuple[pd.DataFrame, dict[str, object]]:
+    if not periodo:
+        raise RuntimeError("No se puede preparar contencion sin periodo para resolver MONTO_UF")
+
+    resolved_monto_uf, uf_source, uf_error = resolve_monto_uf(periodo)
     prepared = df.copy()
-    invalid_rows = 0
-    if "MTO_CUOTA_UF" not in prepared.columns:
-        prepared["MTO_CUOTA_UF"] = None
+    stats = {
+        "invalid_mto_cuota": 0,
+        "invalid_monto_uf_original": 0,
+        "monto_uf_aplicado": 0,
+        "unknown_tramo": 0,
+        "monto_uf_source": uf_source,
+        "monto_uf_error": uf_error,
+    }
+    for column in ["MTO_CUOTA_UF", "GASTO_COBRANZA", "GC_MUY_BAJO", "GC_BAJO", "GC_ESPERADO", "GC_SOBRE"]:
+        if column not in prepared.columns:
+            prepared[column] = None
 
     for index, row in prepared.iterrows():
         cuota = soft_decimal(row.get("MTO_CUOTA"))
-        monto_uf = soft_decimal(row.get("MONTO_UF"))
-        if monto_uf is None or monto_uf <= 0 or cuota is None:
-            prepared.at[index, "MTO_CUOTA_UF"] = Decimal("0")
-            if clean_cell(row.get("MTO_CUOTA")) is not None or clean_cell(row.get("MONTO_UF")) is not None:
-                invalid_rows += 1
-            continue
-        prepared.at[index, "MTO_CUOTA_UF"] = cuota / monto_uf
+        original_monto_uf = soft_decimal(row.get("MONTO_UF"))
+        if original_monto_uf is None or original_monto_uf <= 0:
+            stats["invalid_monto_uf_original"] += 1
+        monto_uf = resolved_monto_uf
+        prepared.at[index, "MONTO_UF"] = monto_uf
+        stats["monto_uf_aplicado"] += 1
+        tramo = resolve_contencion_tramo(row.get("TRAMO_PROYECTADO_NUEVO"))
 
-    return prepared, invalid_rows
+        if cuota is None:
+            stats["invalid_mto_cuota"] += 1
+        if tramo is None:
+            stats["unknown_tramo"] += 1
+
+        if cuota is None or monto_uf <= 0:
+            prepared.at[index, "MTO_CUOTA_UF"] = Decimal("0")
+        else:
+            prepared.at[index, "MTO_CUOTA_UF"] = cuota / monto_uf
+
+        mto_cuota_uf = prepared.at[index, "MTO_CUOTA_UF"]
+        gasto_cobranza = calculate_gasto_cobranza(mto_cuota_uf, monto_uf, row.get("CONTIENE"))
+        prepared.at[index, "GASTO_COBRANZA"] = gasto_cobranza
+
+        if tramo == "30-90":
+            prepared.at[index, "GC_MUY_BAJO"] = Decimal("0.20")
+            prepared.at[index, "GC_BAJO"] = Decimal("0.25")
+            prepared.at[index, "GC_ESPERADO"] = Decimal("0.30")
+            prepared.at[index, "GC_SOBRE"] = Decimal("0.35")
+        elif tramo == "90+":
+            prepared.at[index, "GC_MUY_BAJO"] = Decimal("0.45")
+            prepared.at[index, "GC_BAJO"] = Decimal("0.50")
+            prepared.at[index, "GC_ESPERADO"] = Decimal("0.60")
+            prepared.at[index, "GC_SOBRE"] = Decimal("0.65")
+        else:
+            prepared.at[index, "GC_MUY_BAJO"] = None
+            prepared.at[index, "GC_BAJO"] = None
+            prepared.at[index, "GC_ESPERADO"] = None
+            prepared.at[index, "GC_SOBRE"] = None
+
+    return prepared, stats
 
 
 def resolve_castigo_source(folder: Path) -> tuple[Path, str, str]:
@@ -401,7 +562,7 @@ def resolve_contencion_period(requested_periodo: str | None, sources: BitSources
 
 
 def insert_castigo(cur: pyodbc.Cursor, periodo: str, castigo_df: pd.DataFrame, source_file: str) -> int:
-    excel_columns = ensure_castigo_table(cur, [str(col) for col in castigo_df.columns])
+    excel_columns, added_columns = ensure_castigo_table(cur, [str(col) for col in castigo_df.columns])
     cur.execute(f"DELETE FROM {CASTIGO_TABLE} WHERE periodo = ?", (periodo,))
 
     insert_columns = ["periodo", "source_file"] + excel_columns
@@ -413,6 +574,10 @@ def insert_castigo(cur: pyodbc.Cursor, periodo: str, castigo_df: pd.DataFrame, s
     for _, row in castigo_df.iterrows():
         out = [periodo, source_file]
         for col in excel_columns:
+            if col.upper() == "GC_CASTIGO":
+                out.append(Decimal("0.25"))
+                continue
+
             value = row.get(col)
             if col.upper() in CASTIGO_NUMERIC_COLUMNS:
                 out.append(to_decimal(value, col))
@@ -422,6 +587,9 @@ def insert_castigo(cur: pyodbc.Cursor, periodo: str, castigo_df: pd.DataFrame, s
 
     if castigo_rows:
         cur.executemany(insert_sql, castigo_rows)
+
+    if added_columns:
+        print(f"{CASTIGO_TABLE}: columnas nuevas detectadas y agregadas: {', '.join(added_columns)}")
 
     return len(castigo_rows)
 
@@ -434,11 +602,21 @@ def insert_dynamic_sheet(
     source_file: str,
     numeric_columns: set[str] | None = None,
     skip_null_column: str | None = None,
+    include_source_file: bool = True,
 ) -> tuple[int, int]:
-    excel_columns = ensure_dynamic_table(cur, table_name, [str(col) for col in df.columns], numeric_columns)
+    if table_name == CARTERIZADO_TABLE and not include_source_file:
+        excel_columns, added_columns = ensure_carterizado_table(cur, [str(col) for col in df.columns])
+    else:
+        excel_columns, added_columns = ensure_dynamic_table(
+            cur,
+            table_name,
+            [str(col) for col in df.columns],
+            numeric_columns,
+            include_source_file=include_source_file,
+        )
     cur.execute(f"DELETE FROM {table_name} WHERE periodo = ?", (periodo,))
 
-    insert_columns = ["periodo", "source_file"] + excel_columns
+    insert_columns = ["periodo"] + (["source_file"] if include_source_file else []) + excel_columns
     values_sql = ", ".join("?" for _ in insert_columns)
     cols_sql = ", ".join(quote_ident(col) for col in insert_columns)
     insert_sql = f"INSERT INTO {table_name} ({cols_sql}) VALUES ({values_sql})"
@@ -452,7 +630,9 @@ def insert_dynamic_sheet(
             skipped_rows += 1
             continue
 
-        out = [periodo, source_file]
+        out = [periodo]
+        if include_source_file:
+            out.append(source_file)
         for col in excel_columns:
             value = row.get(col)
             if col.upper() in numeric_columns:
@@ -464,6 +644,9 @@ def insert_dynamic_sheet(
     if rows:
         cur.executemany(insert_sql, rows)
 
+    if added_columns:
+        print(f"{table_name}: columnas nuevas detectadas y agregadas: {', '.join(added_columns)}")
+
     return len(rows), skipped_rows
 
 
@@ -472,7 +655,7 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
     cont_period = resolve_contencion_period(periodo, sources)
     castigo_period = sources.castigo_period
     skipped_cart_rows = 0
-    prepared_cont, invalid_contencion_uf_rows = prepare_contencion_dataframe(sources.cont)
+    prepared_cont, contencion_stats = prepare_contencion_dataframe(sources.cont, cont_period)
 
     with connect() as cn:
         cn.autocommit = False
@@ -493,6 +676,7 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
             sources.cart,
             sources.cart_source_file,
             skip_null_column="NRO_OPERACION",
+            include_source_file=False,
         )
 
         castigo_rows = insert_castigo(cur, castigo_period, sources.castigo, sources.castigo_source_file)
@@ -502,7 +686,12 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
     print(
         f"Carga BIT completada. periodo_contencion={cont_period}, contencion={cont_rows}, "
         f"carterizado={cart_rows}, carterizado_omitido_sin_nro_operacion={skipped_cart_rows}, "
-        f"contencion_mto_cuota_uf_invalido={invalid_contencion_uf_rows}, "
+        f"contencion_mto_cuota_invalido={contencion_stats['invalid_mto_cuota']}, "
+        f"contencion_monto_uf_invalido_original={contencion_stats['invalid_monto_uf_original']}, "
+        f"contencion_monto_uf_aplicado={contencion_stats['monto_uf_aplicado']}, "
+        f"contencion_monto_uf_source={contencion_stats['monto_uf_source']}, "
+        f"contencion_monto_uf_error={contencion_stats['monto_uf_error'] or 'none'}, "
+        f"contencion_tramo_desconocido={contencion_stats['unknown_tramo']}, "
         f"periodo_castigo={castigo_period}, castigo={castigo_rows}"
     )
 

@@ -53,9 +53,16 @@ export const modulePanels = [
       {
         code: "bit",
         title: "Banco Internacional Vigente",
-        description: "Seguimiento y cumplimiento de BIT.",
+        description: "Seguimiento y cumplimiento de BIT Cartera Vigente.",
         path: "/bit",
-        buttonLabel: "Ir a BIT",
+        buttonLabel: "Ir a BIT Vigente",
+      },
+      {
+        code: "bit-castigo",
+        title: "Banco Internacional Castigo",
+        description: "Seguimiento y cumplimiento de BIT Cartera Castigo.",
+        path: "/bit-castigo",
+        buttonLabel: "Ir a BIT Castigo",
       },
       {
         code: "la-araucana",
@@ -63,6 +70,22 @@ export const modulePanels = [
         description: "Productividad La Araucana.",
         path: "/la-araucana",
         buttonLabel: "Ir a La Araucana",
+      },
+    ],
+  },
+  {
+    code: "kpi",
+    title: "Panel KPI",
+    description: "Seguimiento diario de cumplimiento, deuda y casos asignados.",
+    path: "/kpi",
+    accent: "success",
+    modules: [
+      {
+        code: "kpi-diario",
+        title: "KPI Cumplimiento diario",
+        description: "Vista diaria de cumplimiento, deuda y casos asignados.",
+        path: "/kpi-cumplimiento-diario",
+        buttonLabel: "Abrir KPI Diario",
       },
     ],
   },
