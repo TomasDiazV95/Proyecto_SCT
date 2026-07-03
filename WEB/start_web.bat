@@ -44,6 +44,9 @@ echo Backend local:  http://localhost:8000
 if defined LOCAL_IP (
   echo Frontend red:   http://%LOCAL_IP%:5173
   echo Backend red:    http://%LOCAL_IP%:8000
+  echo.
+  echo Abre desde otro equipo en la misma red:
+  echo   http://%LOCAL_IP%:5173
 ) else (
   echo No se pudo detectar IP local automaticamente.
 )

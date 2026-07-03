@@ -827,3 +827,1039 @@ th {
   padding: 8px 10px;
   background: #fff;
 }
+
+.factura-page {
+  --factura-navy: #09285f;
+  --factura-blue: #1456d8;
+  --factura-blue-soft: #eef4ff;
+  --factura-green: #0e8a3f;
+  --factura-green-soft: #eff9f2;
+  --factura-green-border: #b7e1c2;
+  --factura-slate: #6f84a6;
+  --factura-slate-soft: #edf2f8;
+  --factura-purple: #6d5bd0;
+  --factura-orange: #d98b16;
+  --factura-danger: #c94a3d;
+  min-height: 100vh;
+  --factura-page-pad-x: clamp(14px, 1.8vw, 30px);
+  --factura-page-pad-y: 20px;
+  padding: 0 var(--factura-page-pad-x) var(--factura-page-pad-y);
+  background:
+    radial-gradient(circle at top right, rgba(71, 123, 255, 0.08), transparent 32%),
+    linear-gradient(180deg, #f7f9fc 0%, #eef3f8 100%);
+  font-family: "Inter", "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
+.factura-page *,
+.factura-page *::before,
+.factura-page *::after {
+  font-family: inherit;
+}
+
+.factura-dashboard-shell {
+  display: block;
+  width: 100%;
+  max-width: none;
+  margin: 0 auto;
+}
+
+.factura-sidebar {
+  display: none;
+}
+
+.factura-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.factura-sidebar-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #0b4fc8 0%, #11347e 100%);
+  color: #fff;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.factura-sidebar-title {
+  color: #0c2249;
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.factura-sidebar-subtitle {
+  margin-top: 4px;
+  color: #5f7294;
+  font-size: 0.92rem;
+}
+
+.factura-sidebar-heading {
+  margin-bottom: 14px;
+  color: #223b64;
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.factura-sidebar-menu {
+  display: grid;
+  gap: 10px;
+}
+
+.factura-sidebar-item {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #dbe4f2;
+  border-radius: 14px;
+  background: #fff;
+  color: #334d73;
+  font-weight: 700;
+  text-align: left;
+  padding: 0 14px;
+}
+
+.factura-sidebar-item.is-active {
+  border-color: #2a66de;
+  background: linear-gradient(135deg, #0d56d5 0%, #13419b 100%);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(13, 86, 213, 0.24);
+}
+
+.factura-sidebar-item.is-secondary-active {
+  border-color: #c6d5ec;
+  background: #eef4ff;
+  color: #16386f;
+}
+
+.factura-sidebar-item:disabled {
+  opacity: 0.78;
+}
+
+.factura-sidebar-period {
+  margin-top: auto;
+  padding: 16px;
+  border: 1px solid #dbe4f2;
+  border-radius: 18px;
+  background: #fbfdff;
+}
+
+.factura-sidebar-period .factura-sidebar-heading {
+  margin-bottom: 8px;
+}
+
+.factura-sidebar-period .factura-sidebar-subtitle {
+  margin-top: 0;
+  line-height: 1.5;
+}
+
+.factura-main {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+}
+
+.factura-scope-shell {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  width: calc(100% + (var(--factura-page-pad-x) * 2));
+  margin-left: calc(var(--factura-page-pad-x) * -1);
+  margin-right: calc(var(--factura-page-pad-x) * -1);
+  margin-top: 0;
+}
+
+.factura-scope-home {
+  color: #5d6f8c;
+  font-size: 12px;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.factura-scope-home-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+}
+
+.factura-home-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.factura-business-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+  align-items: center;
+  padding: 0 16px;
+  min-height: 52px;
+  background: linear-gradient(180deg, #f7faff 0%, #eef4ff 100%);
+  border-bottom: 1px solid #d9e4f5;
+}
+
+.factura-business-tab {
+  min-height: 46px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #9aa8bc;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 12px 2px 10px;
+}
+
+.factura-business-tab.is-active {
+  border-bottom-color: #2f66db;
+  color: #2f66db;
+}
+
+.factura-business-tab:disabled {
+  color: #9aa8bc;
+  opacity: 0.9;
+  cursor: default;
+}
+
+.factura-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 14px;
+}
+
+.factura-breadcrumb a {
+  color: #2e67d7;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.factura-topbar h1 {
+  margin: 6px 0 4px;
+  color: #10244d;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.factura-topbar-subtitle {
+  margin: 0;
+  color: #334d73;
+  font-size: 16px;
+  font-weight: 400;
+  max-width: 760px;
+}
+
+.factura-topbar-controls {
+  min-width: 220px;
+}
+
+.factura-empty-state {
+  margin-bottom: 0;
+  border-radius: 14px;
+  font-size: 13px;
+}
+
+.factura-no-data-panel {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+}
+
+.factura-no-data-card {
+  width: min(720px, 100%);
+  padding: 28px 30px;
+  border: 1px solid #dbe4f2;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(20, 46, 88, 0.05);
+  text-align: center;
+}
+
+.factura-no-data-title {
+  color: #10244d;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.factura-no-data-copy {
+  margin-top: 10px;
+  color: #49607f;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.factura-no-data-copy code {
+  color: #17325e;
+  background: #eef4ff;
+  border-radius: 8px;
+  padding: 2px 6px;
+}
+
+.factura-period-inline {
+  padding: 10px 12px;
+  border: 1px solid #dbe4f2;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.factura-global-summary-panel {
+  border: 1px solid #dbe4f2;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 14px 28px rgba(20, 46, 88, 0.055);
+  padding: 16px;
+}
+
+.factura-global-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.factura-global-stat-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid #dbe4f2;
+  border-radius: 16px;
+  background: #f9fbff;
+}
+
+.factura-global-stat-card span {
+  color: #7083a2;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.factura-global-stat-card strong {
+  color: #10244d;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.factura-scenario-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border: 1px solid #dbe4f2;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.factura-scenario-copy {
+  color: #2d466a;
+}
+
+.factura-scenario-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.factura-scenario-tab {
+  min-height: 40px;
+  border: 1px solid #dbe4f2;
+  border-radius: 999px;
+  background: #fff;
+  color: #385173;
+  font-size: 0.92rem;
+  font-weight: 700;
+  padding: 0 16px;
+}
+
+.factura-scenario-tab.is-active {
+  border-color: #9fd0ad;
+  background: var(--factura-green-soft);
+  color: var(--factura-green);
+  box-shadow: 0 0 0 3px rgba(14, 138, 63, 0.08);
+}
+
+.factura-kpi-grid {
+  display: grid;
+  grid-template-columns: 1.45fr repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.factura-hero-card,
+.factura-mini-card,
+.factura-panel {
+  border: 1px solid #dbe4f2;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 14px 28px rgba(20, 46, 88, 0.055);
+}
+
+.factura-hero-card,
+.factura-mini-card {
+  padding: 16px 18px 14px;
+  border-color: #dce7f4;
+  background: #ffffff;
+}
+
+.factura-kpi-primary,
+.factura-kpi-secondary {
+  min-height: 150px;
+}
+
+.factura-hero-card-label,
+.factura-mini-card-label {
+  color: #22395d;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.factura-hero-card-value,
+.factura-mini-card-value {
+  margin-top: 8px;
+  color: var(--factura-green);
+  font-size: 52px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.factura-mini-card-value {
+  font-size: 42px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.factura-hero-card-badge,
+.factura-mini-card-badge,
+.factura-compare-caption {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 14px;
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 0 14px;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.factura-hero-card-note,
+.factura-mini-card-note {
+  margin-top: 10px;
+  color: #537091;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.factura-mini-card-select {
+  margin-top: 10px;
+  min-height: 38px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.factura-mini-card-select.is-success {
+  border-color: #9fd0ad;
+  background-color: var(--factura-green-soft);
+  color: var(--factura-green);
+}
+
+.factura-mini-card-select.is-primary {
+  border-color: #bfd3ff;
+  background-color: #edf3ff;
+  color: #1456d8;
+}
+
+.factura-mini-card-select.is-warning {
+  border-color: #dbe4f2;
+  background-color: var(--factura-slate-soft);
+  color: #415a7d;
+}
+
+.factura-mini-card-select.is-danger {
+  border-color: #dbe4f2;
+  background-color: var(--factura-slate-soft);
+  color: #415a7d;
+}
+
+.factura-hero-card-badge.is-success,
+.factura-mini-card-badge.is-success,
+.factura-compare-caption.is-success {
+  background: var(--factura-green-soft);
+  color: var(--factura-green);
+}
+
+.factura-hero-card-badge.is-primary,
+.factura-mini-card-badge.is-primary,
+.factura-compare-caption.is-primary {
+  background: #edf3ff;
+  color: #1456d8;
+}
+
+.factura-hero-card-badge.is-warning,
+.factura-mini-card-badge.is-warning,
+.factura-compare-caption.is-warning {
+  background: var(--factura-slate-soft);
+  color: #415a7d;
+}
+
+.factura-hero-card-badge.is-danger,
+.factura-mini-card-badge.is-danger,
+.factura-compare-caption.is-danger {
+  background: var(--factura-slate-soft);
+  color: #415a7d;
+}
+
+.factura-content-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.factura-bottom-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.factura-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.factura-content-grid > .factura-panel,
+.factura-bottom-grid > .factura-panel {
+  min-height: 410px;
+}
+
+.factura-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.factura-panel h2 {
+  margin: 0;
+  color: #10244d;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+.factura-panel p {
+  margin: 4px 0 0;
+  color: #576d8d;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.factura-inline-status {
+  color: #617998;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.factura-sim-table thead th,
+.factura-rules-table thead th {
+  background: var(--factura-navy);
+  color: #fff;
+  border-color: #0a2248;
+  vertical-align: middle;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.factura-sim-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.factura-rules-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.factura-sim-table thead th:first-child,
+.factura-rules-table thead th:first-child {
+  border-top-left-radius: 12px;
+}
+
+.factura-sim-table thead th:last-child,
+.factura-rules-table thead th:last-child {
+  border-top-right-radius: 12px;
+}
+
+.factura-sim-table th,
+.factura-sim-table td,
+.factura-rules-table th,
+.factura-rules-table td {
+  padding: 0.8rem 0.72rem;
+  border-color: #dde6f3;
+}
+
+.factura-sim-table tbody th,
+.factura-rules-table tbody th {
+  background: #f7faff;
+  color: #112a54;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.factura-sim-table td,
+.factura-rules-table td {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.factura-sim-table th:first-child,
+.factura-sim-table td:first-child {
+  width: 170px;
+  text-align: left;
+}
+
+.factura-sim-table th:not(:first-child),
+.factura-sim-table td:not(:first-child) {
+  width: calc((100% - 170px) / 4);
+  text-align: center;
+}
+
+.factura-rules-table th:first-child,
+.factura-rules-table td:first-child {
+  width: 220px;
+  text-align: left;
+}
+
+.factura-rules-table th:not(:first-child),
+.factura-rules-table td:not(:first-child) {
+  width: calc((100% - 220px) / 3);
+  text-align: center;
+}
+
+.factura-rules-table tbody td {
+  background: #ffffff;
+}
+
+.factura-rules-table tbody th {
+  background: #eef3fb;
+  font-weight: 700;
+}
+
+.factura-table-scenario-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 800;
+  padding: 0;
+}
+
+.factura-sim-table .is-selected {
+  background: inherit;
+  color: inherit;
+  font-weight: inherit;
+}
+
+.factura-sim-table thead .is-selected {
+  background: var(--factura-navy);
+  border-color: #0a2248;
+  box-shadow: none;
+}
+
+.factura-rules-table .is-selected td,
+.factura-rules-table .is-selected th {
+  background: #dde8f8;
+  color: inherit;
+  font-weight: 800;
+}
+
+.factura-sim-total-row th,
+.factura-sim-total-row td {
+  background: #edf6ff;
+  font-weight: 800;
+  border-top: 2px solid #b9d2f1;
+}
+
+.factura-panel-footnote {
+  margin-top: auto;
+  padding-top: 12px;
+  color: #49607f;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.factura-panel .table-responsive {
+  flex: 1;
+  min-height: 0;
+}
+
+.factura-compare-card {
+  padding: 14px;
+  border: 1px solid #dfe7f4;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.factura-compare-split {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.factura-compare-label {
+  color: #334d73;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.factura-compare-value {
+  margin-top: 6px;
+  color: var(--factura-green);
+  font-size: 42px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.factura-compare-value.is-muted {
+  color: #8ca0bc;
+}
+
+.factura-compare-versus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid #dbe4f2;
+  border-radius: 999px;
+  background: #fff;
+  color: #0f2d62;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.factura-status-list {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #dfe7f4;
+  border-radius: 18px;
+}
+
+.factura-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 46px;
+  padding: 0 16px;
+  background: #fff;
+  border-top: 1px solid #e6edf8;
+}
+
+.factura-status-row:first-child {
+  border-top: 0;
+}
+
+.factura-status-row span {
+  color: #17325e;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.factura-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 0 14px;
+  background: #fff3de;
+  color: var(--factura-orange);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.factura-composition-grid {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  flex: 1;
+}
+
+.factura-donut-shell {
+  display: flex;
+  justify-content: center;
+}
+
+.factura-donut {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  animation: facturaDonutEntrance 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: center;
+  transition:
+    background 700ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 220ms ease,
+    filter 220ms ease;
+  will-change: background, transform;
+}
+
+.factura-donut-hole {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 142px;
+  height: 142px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #e1e8f4;
+  text-align: center;
+  padding: 14px 14px 12px;
+  animation: facturaDonutCenterEntrance 0.55s ease-out 0.12s both;
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+
+.factura-donut:hover {
+  transform: scale(1.01);
+  filter: saturate(1.02);
+}
+
+.factura-donut:hover .factura-donut-hole {
+  transform: scale(0.985);
+}
+
+.factura-donut-hole span {
+  color: #536985;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.factura-donut-hole strong {
+  color: #10244d;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  word-break: keep-all;
+}
+
+.factura-composition-legend {
+  display: grid;
+  gap: 12px;
+}
+
+.factura-composition-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e4ebf6;
+}
+
+.factura-composition-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.factura-composition-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #17325e;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.factura-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.factura-dot.is-blue {
+  background: #1456d8;
+}
+
+.factura-dot.is-purple {
+  background: #7747d0;
+}
+
+.factura-dot.is-orange {
+  background: #ff9800;
+}
+
+.factura-composition-values {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.factura-composition-values strong {
+  color: #10244d;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.factura-composition-values span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #eef4ff;
+  color: #1456d8;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.factura-goal-strip {
+  padding: 18px 22px;
+  border: 1px solid #dbe4f2;
+  border-radius: 20px;
+  background: linear-gradient(90deg, #f7fbff 0%, #fbfdff 100%);
+  color: #2f4768;
+  font-size: 1rem;
+}
+
+.factura-goal-strip strong {
+  color: var(--factura-green);
+}
+
+@keyframes facturaDonutEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes facturaDonutCenterEntrance {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 1280px) {
+  .factura-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .factura-global-summary-cards,
+  .factura-content-grid,
+  .factura-bottom-grid,
+  .factura-composition-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 992px) {
+  .factura-topbar {
+    flex-direction: column;
+  }
+
+  .factura-topbar-controls {
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .factura-page {
+    --factura-page-pad-x: 12px;
+    --factura-page-pad-y: 12px;
+  }
+
+  .factura-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .factura-global-summary-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .factura-compare-split {
+    grid-template-columns: 1fr;
+  }
+
+  .factura-compare-versus {
+    margin: 0 auto;
+  }
+
+  .factura-scenario-tabs {
+    width: 100%;
+  }
+
+  .factura-scenario-tab {
+    flex: 1 1 180px;
+  }
+
+  .factura-panel h2 {
+    font-size: 1.18rem;
+  }
+
+  .factura-hero-card-value,
+  .factura-mini-card-value,
+  .factura-compare-value {
+    font-size: 1.9rem;
+  }
+
+  .factura-sim-table th:first-child,
+  .factura-rules-table th:first-child {
+    min-width: 160px;
+  }
+}
