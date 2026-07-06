@@ -295,30 +295,24 @@ export async function fetchGmDetail(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/detalle`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el detalle de GM");
-export async function fetchKpiDiarioFilters() {
-  const res = await apiFetch(`${API_BASE}/api/kpi-diario/filtros`);
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de KPI diario");
   }
   return res.json();
 }
 
-export async function fetchKpiDiarioGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/general`, filters));
+export async function fetchBenchFilters(filters = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bench/filtros`, filters));
   if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de KPI diario");
+    throw new Error("No se pudieron cargar los filtros de BENCH");
   }
-  const body = await res.json();
-  return body.data || [];
+  return res.json();
 }
 
-export async function fetchKpiDiarioCycle(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/ciclo`, filters));
+export async function fetchBenchKpi(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bench/kpi`, filters));
   if (!res.ok) {
-    throw new Error("No se pudo cargar la vista por ciclo de KPI diario");
+    throw new Error("No se pudo cargar el panel BENCH");
   }
-  const body = await res.json();
-  return body.data || [];
+  return res.json();
 }
 
 export async function downloadGmMonthlyExcel(periodo) {
@@ -396,13 +390,22 @@ export async function updateAdminUserModules(userId, moduleCodes) {
   const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}/modules`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ module_codes: moduleCodes }),
+    body: JSON.stringify(payloadOrModules(moduleCodes)),
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(body?.detail || "No se pudieron actualizar los modulos");
   }
   return body;
+}
+
+function payloadOrModules(value) {
+  if (Array.isArray(value)) {
+    return { module_codes: value };
+  }
+  return {
+    module_codes: value?.module_codes || [],
+  };
 }
 
 export async function updateAdminUserStatus(userId, isActive) {

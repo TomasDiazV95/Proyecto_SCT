@@ -2,6 +2,7 @@ import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import AdminUsersPage from "./pages/AdminUsersPage";
+import BenchPage from "./pages/BenchPage";
 import BitCastigoPage from "./pages/BitCastigoPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import BitPage from "./pages/BitPage";
@@ -9,7 +10,6 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import FacturaPage from "./pages/FacturaPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
-import KpiCumplimientoDiarioPage from "./pages/KpiCumplimientoDiarioPage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
 import LoginPage from "./pages/LoginPage";
@@ -36,7 +36,7 @@ export default function App() {
       <Route path="/sc-tardia" element={<ProtectedRoute moduleCode="sc-tardia"><ScTardiaPage /></ProtectedRoute>} />
       <Route path="/sc-temprana" element={<ProtectedRoute moduleCode="sc-temprana"><ScTempranaPage /></ProtectedRoute>} />
       <Route path="/gm" element={<ProtectedRoute moduleCode="gm"><GmPage /></ProtectedRoute>} />
-      <Route path="/kpi-cumplimiento-diario" element={<ProtectedRoute moduleCode="kpi-diario"><KpiCumplimientoDiarioPage /></ProtectedRoute>} />
+      <Route path="/bench" element={<ProtectedRoute moduleCode="bench"><BenchPage /></ProtectedRoute>} />
       <Route path="/itau-castigo" element={<ProtectedRoute moduleCode="itau-castigo"><ItauCastigoPage /></ProtectedRoute>} />
       <Route path="/bit-castigo" element={<ProtectedRoute moduleCode="bit-castigo"><BitCastigoPage /></ProtectedRoute>} />
       <Route path="/bit" element={<ProtectedRoute moduleCode="bit"><BitPage /></ProtectedRoute>} />
