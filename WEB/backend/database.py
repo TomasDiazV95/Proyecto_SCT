@@ -30,6 +30,32 @@ def pick_driver() -> str:
     raise RuntimeError(f"No hay driver ODBC para SQL Server. Drivers encontrados: {available}")
 
 
+def _driver_candidates() -> list[str]:
+    available = list(pyodbc.drivers())
+    driver_env = os.getenv("DB_DRIVER")
+    preferred = []
+    if driver_env:
+        preferred.append(driver_env)
+    preferred += [
+        "ODBC Driver 18 for SQL Server",
+        "ODBC Driver 17 for SQL Server",
+        "SQL Server",
+    ]
+
+    ordered: list[str] = []
+    for driver in preferred:
+        if driver in available and driver not in ordered:
+            ordered.append(driver)
+    return ordered
+
+
+def _encrypt_candidates() -> list[str | None]:
+    encrypt_env = os.getenv("DB_ENCRYPT")
+    if encrypt_env is not None and str(encrypt_env).strip():
+        return [str(encrypt_env).strip()]
+    return ["yes", "no", None]
+
+
 def get_connection() -> pyodbc.Connection:
     load_env_files()
 
@@ -38,21 +64,31 @@ def get_connection() -> pyodbc.Connection:
     database = os.getenv("DB_NAME")
     user = os.getenv("DB_USER")
     password = os.getenv("DB_PASSWORD")
-    encrypt = os.getenv("DB_ENCRYPT", "no")
 
     if not all([server, database, user, password]):
         raise RuntimeError("Faltan variables DB_SERVER, DB_NAME, DB_USER o DB_PASSWORD en .env")
 
-    conn_str = (
-        f"Driver={{{driver}}};"
-        f"Server={server};"
-        f"Database={database};"
-        f"Uid={user};"
-        f"Pwd={password};"
-        "TrustServerCertificate=yes;"
-        f"Encrypt={encrypt};"
-    )
-    return pyodbc.connect(conn_str)
+    errors: list[str] = []
+    for candidate_driver in _driver_candidates() or [driver]:
+        for encrypt in _encrypt_candidates():
+            parts = [
+                f"Driver={{{candidate_driver}}}",
+                f"Server={server}",
+                f"Database={database}",
+                f"Uid={user}",
+                f"Pwd={password}",
+                "TrustServerCertificate=yes",
+            ]
+            if candidate_driver != "SQL Server" and encrypt is not None:
+                parts.append(f"Encrypt={encrypt}")
+
+            conn_str = ";".join(parts) + ";"
+            try:
+                return pyodbc.connect(conn_str)
+            except pyodbc.Error as exc:
+                errors.append(f"{candidate_driver} / Encrypt={encrypt}: {exc}")
+
+    raise RuntimeError("No se pudo conectar a SQL Server. Intentos: " + " | ".join(errors))
 
 
 def run_query(sql: str, params: tuple = ()) -> list[dict]:

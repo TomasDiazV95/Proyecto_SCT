@@ -1,4 +1,22 @@
-const API_BASE = import.meta.env.VITE_API_URL || "";
+function resolveApiBase() {
+  const envBase = import.meta.env.VITE_API_URL;
+  if (envBase) {
+    return envBase;
+  }
+
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const devPorts = new Set(["5173", "5174"]);
+  if (devPorts.has(window.location.port)) {
+    return "";
+  }
+
+  return `${window.location.protocol}//${window.location.hostname}:8000`;
+}
+
+const API_BASE = resolveApiBase();
 
 export async function authLogin(email, password) {
   const res = await fetch(`${API_BASE}/api/auth/login`, {

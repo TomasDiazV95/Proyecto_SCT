@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pyodbc
@@ -33,6 +34,7 @@ RESERVED_METADATA_COLUMNS = {"ID", "PERIODO", "SOURCE_FILE", "FECHA_CARGA"}
 UF_FALLBACK_BY_PERIOD = {
     "2026-06": Decimal("40820.31"),
 }
+UF_CACHE_PATH = Path(__file__).resolve().parents[1] / "Logs" / "bit_uf_cache.json"
 
 
 @dataclass
@@ -169,6 +171,95 @@ def parse_period(periodo: str) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
+def _period_sort_key(periodo: str) -> tuple[int, int]:
+    return parse_period(periodo)
+
+
+def _read_uf_cache() -> dict[str, str]:
+    if not UF_CACHE_PATH.exists():
+        return {}
+    try:
+        payload = json.loads(UF_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {str(key): str(value) for key, value in payload.items()}
+
+
+def _write_uf_cache(cache: dict[str, str]) -> None:
+    UF_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    UF_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _save_uf_cache(periodo: str, valor: Decimal) -> None:
+    if valor <= 0:
+        return
+    cache = _read_uf_cache()
+    cache[str(periodo)] = str(valor)
+    _write_uf_cache(cache)
+
+
+def _lookup_cached_uf(periodo: str) -> tuple[Decimal | None, str | None]:
+    cache = _read_uf_cache()
+    exact = soft_decimal(cache.get(periodo))
+    if exact is not None and exact > 0:
+        return exact, "cache_exact"
+
+    eligible = []
+    for key, raw_value in cache.items():
+        try:
+            if _period_sort_key(key) <= _period_sort_key(periodo):
+                value = soft_decimal(raw_value)
+                if value is not None and value > 0:
+                    eligible.append((key, value))
+        except Exception:
+            continue
+    if eligible:
+        key, value = max(eligible, key=lambda item: _period_sort_key(item[0]))
+        return value, f"cache_previous:{key}"
+    return None, None
+
+
+def _lookup_db_uf(periodo: str) -> tuple[Decimal | None, str | None]:
+    try:
+        with connect() as cn:
+            cur = cn.cursor()
+            cur.execute(
+                f"""
+                SELECT TOP 1 MONTO_UF
+                FROM {CONTENCION_TABLE}
+                WHERE periodo = ? AND MONTO_UF IS NOT NULL AND MONTO_UF > 0
+                ORDER BY ID DESC
+                """,
+                (periodo,),
+            )
+            row = cur.fetchone()
+            if row:
+                value = soft_decimal(row[0])
+                if value is not None and value > 0:
+                    return value, "db_exact"
+
+            cur.execute(
+                f"""
+                SELECT TOP 1 periodo, MONTO_UF
+                FROM {CONTENCION_TABLE}
+                WHERE periodo <= ? AND MONTO_UF IS NOT NULL AND MONTO_UF > 0
+                ORDER BY periodo DESC, ID DESC
+                """,
+                (periodo,),
+            )
+            row = cur.fetchone()
+            if row:
+                value = soft_decimal(row[1])
+                source_period = str(row[0]).strip()
+                if value is not None and value > 0:
+                    return value, f"db_previous:{source_period}"
+    except Exception:
+        return None, None
+    return None, None
+
+
 def resolve_monto_uf(periodo: str) -> tuple[Decimal, str, str | None]:
     year, month = parse_period(periodo)
     api_url = f"https://mindicador.cl/api/uf/{year}"
@@ -182,18 +273,29 @@ def resolve_monto_uf(periodo: str) -> tuple[Decimal, str, str | None]:
         registros_mes = [item for item in serie if str(item.get("fecha") or "")[5:7] == f"{month:02d}"]
         if registros_mes:
             ultimo_dia = calendar.monthrange(year, month)[1]
-            ultimo_registro = max(registros_mes, key=lambda item: str(item.get("fecha") or ""))
-            ultimo_registro_dia = int(str(ultimo_registro.get("fecha") or "")[8:10])
-            valor = soft_decimal(ultimo_registro.get("valor"))
-            if valor is not None and valor > 0:
-                warning = None
-                if ultimo_registro_dia != ultimo_dia:
-                    warning = (
+            registros_validos = []
+            for item in registros_mes:
+                valor = soft_decimal(item.get("valor"))
+                fecha = str(item.get("fecha") or "")
+                if valor is not None and valor > 0 and fecha:
+                    registros_validos.append((fecha, valor))
+
+            if registros_validos:
+                ultimo_registro_fecha, ultimo_registro_valor = max(registros_validos, key=lambda item: item[0])
+                ultimo_registro_dia = int(ultimo_registro_fecha[8:10])
+                if ultimo_registro_dia == ultimo_dia:
+                    _save_uf_cache(periodo, ultimo_registro_valor)
+                    return ultimo_registro_valor, "mindicador", None
+                _save_uf_cache(periodo, ultimo_registro_valor)
+                return (
+                    ultimo_registro_valor,
+                    "mindicador_last_available",
+                    (
                         f"Mindicador no devolvio el ultimo dia calendario de {periodo}. "
-                        f"Se esperaba dia {ultimo_dia:02d} y se uso el ultimo valor disponible del mes: dia {ultimo_registro_dia:02d}"
-                    )
-                return valor, "mindicador", warning
-            api_error = f"Mindicador devolvio un valor UF invalido para {periodo}"
+                        f"Se esperaba dia {ultimo_dia:02d} y se uso el ultimo dia disponible {ultimo_registro_dia:02d}"
+                    ),
+                )
+            api_error = f"Mindicador no devolvio un valor UF valido para {periodo}"
         elif not api_error:
             api_error = f"Mindicador no devolvio registros UF para {periodo}"
     except Exception as exc:
@@ -201,7 +303,17 @@ def resolve_monto_uf(periodo: str) -> tuple[Decimal, str, str | None]:
 
     fallback_value = UF_FALLBACK_BY_PERIOD.get(periodo)
     if fallback_value is not None and fallback_value > 0:
+        _save_uf_cache(periodo, fallback_value)
         return fallback_value, "fallback", api_error
+
+    cached_value, cached_source = _lookup_cached_uf(periodo)
+    if cached_value is not None and cached_source:
+        return cached_value, cached_source, api_error
+
+    db_value, db_source = _lookup_db_uf(periodo)
+    if db_value is not None and db_source:
+        _save_uf_cache(periodo, db_value)
+        return db_value, db_source, api_error
 
     raise RuntimeError(
         f"No se pudo obtener MONTO_UF para {periodo} desde Mindicador y no existe fallback local. "
