@@ -6,7 +6,6 @@ from routers.bench import router as bench_router
 from routers.auth import router as auth_router
 from routers.bit_castigo import router as bit_castigo_router
 from routers.bit import router as bit_router
-from routers.factura import router as factura_router
 from routers.gm import router as gm_router
 from routers.itau_castigo import router as itau_castigo_router
 from routers.la_araucana import router as la_araucana_router
@@ -50,7 +49,7 @@ app.include_router(bench_router, prefix="/api/bench", tags=["bench"])
 app.include_router(itau_castigo_router, prefix="/api/itau-castigo", tags=["itau-castigo"])
 app.include_router(bit_castigo_router, prefix="/api/bit-castigo", tags=["bit-castigo"])
 app.include_router(bit_router, prefix="/api/bit", tags=["bit"])
-app.include_router(factura_router, prefix="/api/factura", tags=["factura"])
+# app.include_router(factura_router, prefix="/api/factura", tags=["factura"])
 app.include_router(la_araucana_router, prefix="/api/la-araucana", tags=["la-araucana"])
 app.include_router(porsche_router, prefix="/api", tags=["porsche"])
 app.include_router(sth_router, prefix="/api/sth", tags=["sth"])

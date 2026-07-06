@@ -49,13 +49,14 @@ def setup_logging() -> Path:
     log_dir = Path(os.getenv("BENCH_LOG_DIR") or DEFAULT_LOG_DIR)
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"etl_bench_control_{datetime.now().strftime('%Y%m%d')}.log"
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    stream_handler = logging.StreamHandler()
+    file_handler.setLevel(logging.INFO)
+    stream_handler.setLevel(logging.ERROR)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(),
-        ],
+        handlers=[file_handler, stream_handler],
     )
     return log_path
 
@@ -589,7 +590,7 @@ def load_already_processed(source_path: Path, source_mtime: datetime) -> bool:
     )
 
 
-def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int]:
+def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int, int]:
     cur.execute(
         """
         CREATE TABLE #bench_stage (
@@ -627,6 +628,32 @@ def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int]:
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         stage_rows,
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE #bench_scope (
+            negocio NVARCHAR(150) NOT NULL,
+            periodo CHAR(7) NOT NULL,
+            PRIMARY KEY (negocio, periodo)
+        )
+        """
+    )
+    scope_rows = sorted(
+        {
+            (
+                str(row["negocio"]),
+                str(row["fecha"])[:7],
+            )
+            for _, row in df.iterrows()
+        }
+    )
+    cur.executemany(
+        """
+        INSERT INTO #bench_scope (negocio, periodo)
+        VALUES (?, ?)
+        """,
+        scope_rows,
     )
 
     cur.execute("CREATE TABLE #bench_merge_actions (action_name NVARCHAR(10) NOT NULL)")
@@ -667,6 +694,14 @@ def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int]:
                 source.cumplimiento,
                 source.fecha_actualizacion
             )
+        WHEN NOT MATCHED BY SOURCE
+         AND EXISTS (
+            SELECT 1
+            FROM #bench_scope scope
+            WHERE scope.negocio = target.negocio
+              AND scope.periodo = CONVERT(char(7), target.fecha, 126)
+         ) THEN
+            DELETE
         OUTPUT $action INTO #bench_merge_actions(action_name);
         """
     )
@@ -674,14 +709,16 @@ def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int]:
         """
         SELECT
             SUM(CASE WHEN action_name = 'INSERT' THEN 1 ELSE 0 END) AS inserted_rows,
-            SUM(CASE WHEN action_name = 'UPDATE' THEN 1 ELSE 0 END) AS updated_rows
+            SUM(CASE WHEN action_name = 'UPDATE' THEN 1 ELSE 0 END) AS updated_rows,
+            SUM(CASE WHEN action_name = 'DELETE' THEN 1 ELSE 0 END) AS deleted_rows
         FROM #bench_merge_actions
         """
     )
     row = cur.fetchone()
     inserted_rows = int(row[0] or 0)
     updated_rows = int(row[1] or 0)
-    return inserted_rows, updated_rows
+    deleted_rows = int(row[2] or 0)
+    return inserted_rows, updated_rows, deleted_rows
 
 
 def build_summary_payload(
@@ -699,6 +736,7 @@ def build_summary_payload(
     stats: dict[str, Any] | None = None,
     inserted_rows: int = 0,
     updated_rows: int = 0,
+    deleted_rows: int = 0,
     skipped_unchanged: bool = False,
     periodos: list[str] | None = None,
     columns_detected: list[str] | None = None,
@@ -721,6 +759,7 @@ def build_summary_payload(
         "skipped_rows": 0,
         "inserted_rows": inserted_rows,
         "updated_rows": updated_rows,
+        "deleted_rows": deleted_rows,
         "skipped_unchanged": skipped_unchanged,
         "periodos": periodos or [],
         "columns_detected": columns_detected or [],
@@ -786,7 +825,7 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
             cn.autocommit = False
             cur = cn.cursor()
             ensure_table(cur)
-            inserted, updated = merge_rows(cur, df_prepared)
+            inserted, updated, deleted = merge_rows(cur, df_prepared)
             cn.commit()
 
         write_state_file(
@@ -813,6 +852,7 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
             stats=stats,
             inserted_rows=inserted,
             updated_rows=updated,
+            deleted_rows=deleted,
             periodos=safe_period_values(df_prepared),
             columns_detected=columns_detected,
         )

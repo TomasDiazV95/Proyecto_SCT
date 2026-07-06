@@ -249,14 +249,14 @@ export async function fetchBitCastigoGeneral(filters) {
   return res.json();
 }
 
-export async function fetchFacturaBitDashboard(periodo = "", scope = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/factura/bit`, { periodo, scope }));
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body?.detail || "No se pudo cargar la simulacion de factura BIT");
-  }
-  return body;
-}
+// export async function fetchFacturaBitDashboard(periodo = "", scope = "") {
+//   const res = await apiFetch(withQuery(`${API_BASE}/api/factura/bit`, { periodo, scope }));
+//   const body = await res.json().catch(() => ({}));
+//   if (!res.ok) {
+//     throw new Error(body?.detail || "No se pudo cargar la simulacion de factura BIT");
+//   }
+//   return body;
+// }
 
 export async function fetchItauCastigoFilters() {
   const res = await apiFetch(`${API_BASE}/api/itau-castigo/filtros`);

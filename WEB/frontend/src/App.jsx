@@ -7,7 +7,6 @@ import BitCastigoPage from "./pages/BitCastigoPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import BitPage from "./pages/BitPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import FacturaPage from "./pages/FacturaPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
@@ -43,8 +42,7 @@ export default function App() {
       <Route path="/la-araucana" element={<ProtectedRoute moduleCode="la-araucana"><LaAraucanaPage /></ProtectedRoute>} />
       <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} />
       <Route path="/sth" element={<ProtectedRoute moduleCode="sth"><SthPage /></ProtectedRoute>} />
-      <Route path="/factura" element={<ProtectedRoute moduleCode="factura"><FacturaPage /></ProtectedRoute>} />
-      <Route path="/factura/reportes" element={<ProtectedRoute moduleCode="factura"><PlaceholderPage title="Reportes Facturacion" description="Reportes y seguimiento de facturacion." /></ProtectedRoute>} />
+      <Route path="/factura" element={<ProtectedRoute moduleCode="factura"><PanelPage panelCode="factura" emptyTitle="Panel de Factura en preparacion" emptyDescription="Este modulo esta reservado para simular facturas" /></ProtectedRoute>} />
       <Route path="/administrativas" element={<ProtectedRoute><PanelPage panelCode="administrativas" emptyTitle="Panel de Administrativas en preparacion" emptyDescription="Este panel quedo reservado para el formulario administrativo futuro." /></ProtectedRoute>} />
       <Route path="/admin/permisos" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Permisos" description="Administracion avanzada de permisos." /></ProtectedRoute>} />
       <Route path="/admin/configuracion" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Configuracion" description="Configuracion general de la plataforma." /></ProtectedRoute>} />
