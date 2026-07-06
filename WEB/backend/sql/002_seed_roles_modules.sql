@@ -65,10 +65,10 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'contactabilidad')
 ELSE
     UPDATE dbo.modules SET display_name = 'Panel de Contactabilidad', route_path = '/contactabilidad', is_active = 1 WHERE code = 'contactabilidad';
 
-IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'factura')
-    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('factura', 'Panel de Factura', '/factura');
-ELSE
-    UPDATE dbo.modules SET display_name = 'Panel de Factura', route_path = '/factura', is_active = 1 WHERE code = 'factura';
+-- IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'factura')
+--     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('factura', 'Panel de Factura', '/factura');
+-- ELSE
+--     UPDATE dbo.modules SET display_name = 'Panel de Factura', route_path = '/factura', is_active = 1 WHERE code = 'factura';
 
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'administrativas')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('administrativas', 'Panel de Administrativas', '/administrativas');
