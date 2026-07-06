@@ -248,10 +248,14 @@ def get_filter_values() -> dict:
     """
     ejecutivos = [r["ejecutivo"] for r in run_query(sql_ejecutivos) if r.get("ejecutivo")]
 
+    productos_detalle = sorted({config["producto_cliente"] for config in PRODUCT_CONFIG.values()})
+
     return {
         "periodos": periodos,
         "ejecutivos": ejecutivos,
         "productos": PRODUCT_ORDER,
+        "productos_detalle": productos_detalle,
+        "ciclos": list(range(0, 7)),
     }
 
 
@@ -389,6 +393,431 @@ def get_detail_view(filters: dict) -> list[dict]:
         )
 
     return result
+
+
+def _get_operations_detail_view_legacy(filters: dict) -> dict:
+    periodo = _period_start(filters.get("periodo"))
+    operacion = str(filters.get("operacion") or "").strip()
+    ejecutivo = str(filters.get("ejecutivo") or "").strip()
+    producto = str(filters.get("producto") or "").strip()
+    ciclo = str(filters.get("ciclo") or "").strip()
+    contenido = str(filters.get("contenido") or "").strip()
+    page = max(1, int(filters.get("page") or 1))
+    page_size = min(500, max(1, int(filters.get("page_size") or 100)))
+    offset = (page - 1) * page_size
+
+    where_clauses = []
+    params: list = [periodo] * 7
+
+    if operacion:
+        where_clauses.append("CAST(base.operacion AS VARCHAR(100)) LIKE ?")
+        params.append(f"%{operacion}%")
+    if ejecutivo:
+        where_clauses.append("base.ejecutivo = ?")
+        params.append(ejecutivo)
+    if producto:
+        where_clauses.append("base.producto = ?")
+        params.append(producto)
+    if ciclo:
+        where_clauses.append("CAST(base.ciclo AS VARCHAR(20)) = ?")
+        params.append(ciclo)
+    if contenido in {"0", "1"}:
+        where_clauses.append("base.contenido = ?")
+        params.append(int(contenido))
+    extra_where = ""
+    if where_clauses:
+        extra_where = "WHERE " + " AND ".join(where_clauses)
+
+    sql = f"""
+    WITH asignacion AS (
+        SELECT
+            bench.fld_Rut AS rut,
+            bench.fld_Operaciones AS operacion,
+            bench.fld_Contenido AS contenido,
+            bench.fld_Ciclo AS ciclo,
+            bench.[fld_MM$ Monto] AS deuda,
+            bench.[fld_Producto cliente] AS producto
+        FROM dbo.tmp_bench_STH bench
+        WHERE bench.fecha_carga = (
+            SELECT MIN(t.fecha_carga)
+            FROM dbo.tmp_bench_STH t
+            WHERE t.fecha_carga >= ?
+              AND t.fecha_carga < DATEADD(MONTH, 1, CAST(? AS date))
+        )
+    ),
+    gestiones AS (
+        SELECT
+            g.rut,
+            g.UsuarioGestion,
+            g.RespuestaGestion,
+            g.GestionFecha,
+            g.GestionHora,
+            g.telefono,
+            CASE g.RespuestaGestion
+                WHEN 'COMPROMISO DE PAGO TELEFONICO' THEN 1
+                WHEN 'COMPROMISO HTML' THEN 2
+                WHEN 'OFERTA HIPOTECARIA' THEN 3
+                WHEN 'OFERTA DERIVACIÓN EN LINEA' THEN 4
+                WHEN 'OFERTA CAMPAÑA' THEN 5
+                WHEN 'APOYO EN LINEA CAMPAÑA HB' THEN 6
+                WHEN 'OFERTA CAMPAÑA WHATSAPP' THEN 7
+                WHEN 'POSTERGA FECHA DE PAGO' THEN 8
+                WHEN 'SOLICITA RENEGOCIAR' THEN 9
+                WHEN 'TRAMITANDO CAMPAÑA RENEGOCIACION' THEN 10
+                WHEN 'CLIENTE PAGO O REGULARIZO' THEN 11
+                WHEN 'CLIENTE TITULAR CORTA LLAMADO' THEN 12
+                WHEN 'RECHAZA PAGAR' THEN 13
+                WHEN 'POSTERGAR LLAMADO' THEN 14
+                WHEN 'CESANTE' THEN 15
+                WHEN 'CIERRE DE PRODUCTO' THEN 16
+                WHEN 'DESCONOCE DEUDA' THEN 17
+                WHEN 'TÉRMINO DE CONTRATO' THEN 18
+                WHEN 'FRAUDE' THEN 19
+                WHEN 'ENFERMEDAD GRAVE - PROPIA' THEN 20
+                WHEN 'SOBRECARGA FINANCIERA POR IMPREVISTOS MAYORES' THEN 21
+                WHEN 'ENFERMEDAD PROPIA O TERCERO' THEN 22
+                WHEN 'ENFERMEDAD GRAVE - DE UN FAMILIAR DIRECTO' THEN 23
+                WHEN 'EMERGENCIA FAMILIAR RELEVANTE - FALLECIMIENTO' THEN 24
+                WHEN 'EMERGENCIA FAMILIAR RELEVANTE - ACCIDENTES' THEN 25
+                WHEN 'GASTOS MÉDICOS O URGENCIAS NO CUBIERTAS POR S' THEN 26
+                WHEN 'REDUCCIÓN DE JORNADA' THEN 27
+                WHEN 'TRAMITANDO SEGURO' THEN 28
+                WHEN 'CAÍDA DE COMISIONES' THEN 29
+                WHEN 'INUBICABLE' THEN 30
+                ELSE 999
+            END AS peso_gestion
+        FROM dbo.tmp_GEST_CRM g
+        WHERE g.cartera = 530
+          AND g.GestionFecha >= ?
+          AND g.GestionFecha < DATEADD(MONTH, 1, CAST(? AS date))
+          AND g.AccionGestion = 'CONTACTO TITULAR'
+    ),
+    mejor_gestion AS (
+        SELECT rut, UsuarioGestion, RespuestaGestion, GestionFecha, telefono
+        FROM (
+            SELECT
+                gestiones.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY rut
+                    ORDER BY peso_gestion ASC, GestionFecha DESC, GestionHora DESC
+                ) AS rn
+            FROM gestiones
+        ) ranking
+        WHERE rn = 1
+    ),
+    compromisos AS (
+        SELECT RutCliente, FechaCompromiso
+        FROM (
+            SELECT
+                fc.RutCliente,
+                fc.FechaCompromiso,
+                ROW_NUMBER() OVER (
+                    PARTITION BY fc.RutCliente
+                    ORDER BY fc.FechaGestion DESC, fc.FechaCompromiso DESC
+                ) AS rn
+            FROM dbo.tmp_FECHA_COMPROMISO_CRM fc
+            WHERE fc.FechaGestion >= ?
+              AND fc.FechaGestion < DATEADD(MONTH, 1, CAST(? AS date))
+        ) ranking
+        WHERE rn = 1
+    ),
+    carterizado AS (
+        SELECT
+            car.rut,
+            MAX(NULLIF(LTRIM(RTRIM(car.ejecutivo)), '')) AS ejecutivo
+        FROM dbo.tmp_carterizado_STH car
+        WHERE CONVERT(date, car.mes_carterizado) = ?
+        GROUP BY car.rut
+    ),
+    base AS (
+        SELECT
+            bench.rut,
+            ISNULL(NULLIF(LTRIM(RTRIM(car.ejecutivo)), ''), 'Grupal') AS ejecutivo,
+            bench.operacion,
+            CASE WHEN TRY_CAST(bench.contenido AS INT) <> 0 THEN 1 ELSE 0 END AS contenido,
+            TRY_CAST(bench.ciclo AS INT) AS ciclo,
+            CAST(ISNULL(bench.deuda, 0) AS FLOAT) AS deuda,
+            bench.producto
+        FROM asignacion bench
+        LEFT JOIN carterizado car
+            ON bench.rut = car.rut
+    ),
+    filtered AS (
+        SELECT *
+        FROM base
+        {extra_where}
+    ),
+    paged AS (
+        SELECT
+            filtered.*,
+            COUNT_BIG(1) OVER () AS total_count
+        FROM filtered
+        ORDER BY ciclo, deuda DESC, operacion
+        OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+    )
+    SELECT
+        paged.*,
+        mg.UsuarioGestion AS usuario_gestion,
+        mg.RespuestaGestion AS mejor_gestion,
+        mg.GestionFecha AS gestion_fecha,
+        mg.telefono AS telefono_gestion,
+        comp.FechaCompromiso AS fecha_compromiso
+    FROM paged
+    LEFT JOIN mejor_gestion mg
+        ON paged.rut = mg.rut
+    LEFT JOIN compromisos comp
+        ON paged.rut = comp.RutCliente
+    ORDER BY paged.ciclo, paged.deuda DESC, paged.operacion
+    """
+
+    query_params = [*params, offset, page_size]
+    rows = []
+    total = 0
+    for row in run_query(sql, tuple(query_params)):
+        total = int(row.get("total_count") or 0)
+        rows.append(
+            {
+                "periodo": periodo,
+                "ejecutivo": row.get("ejecutivo") or "Grupal",
+                "operacion": row.get("operacion"),
+                "contenido": int(row.get("contenido") or 0),
+                "ciclo": row.get("ciclo"),
+                "deuda": float(row.get("deuda") or 0),
+                "producto": row.get("producto") or "",
+                "usuario_gestion": row.get("usuario_gestion") or "",
+                "mejor_gestion": row.get("mejor_gestion") or "",
+                "gestion_fecha": str(row.get("gestion_fecha") or ""),
+                "telefono_gestion": row.get("telefono_gestion") or "",
+                "fecha_compromiso": str(row.get("fecha_compromiso") or ""),
+            }
+        )
+
+    return {
+        "data": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+def get_operations_detail_view(filters: dict) -> dict:
+    periodo = _period_start(filters.get("periodo"))
+    operacion = str(filters.get("operacion") or "").strip()
+    ejecutivo = str(filters.get("ejecutivo") or "").strip()
+    producto = str(filters.get("producto") or "").strip()
+    ciclo = str(filters.get("ciclo") or "").strip()
+    contenido = str(filters.get("contenido") or "").strip()
+    page = max(1, int(filters.get("page") or 1))
+    page_size = min(500, max(1, int(filters.get("page_size") or 100)))
+    offset = (page - 1) * page_size
+
+    carterizado_filter = ""
+    join_type = "LEFT JOIN"
+    params: list = [periodo, periodo]
+    where_clauses = []
+
+    if ejecutivo and ejecutivo.lower() != "grupal":
+        carterizado_filter = "AND LTRIM(RTRIM(car.ejecutivo)) = ?"
+        params.append(ejecutivo)
+        join_type = "INNER JOIN"
+
+    params.extend([periodo, periodo])
+
+    if ejecutivo.lower() == "grupal":
+        where_clauses.append("base.ejecutivo = 'Grupal'")
+    if operacion:
+        where_clauses.append("CAST(base.operacion AS VARCHAR(100)) LIKE ?")
+        params.append(f"%{operacion}%")
+    if producto:
+        where_clauses.append("base.producto = ?")
+        params.append(producto)
+    if ciclo:
+        where_clauses.append("CAST(base.ciclo AS VARCHAR(20)) = ?")
+        params.append(ciclo)
+    if contenido in {"0", "1"}:
+        where_clauses.append("base.contenido = ?")
+        params.append(int(contenido))
+
+    extra_where = ""
+    if where_clauses:
+        extra_where = "WHERE " + " AND ".join(where_clauses)
+
+    page_sql = f"""
+    WITH carterizado AS (
+        SELECT
+            car.rut,
+            MAX(NULLIF(LTRIM(RTRIM(car.ejecutivo)), '')) AS ejecutivo
+        FROM dbo.tmp_carterizado_STH car
+        WHERE car.mes_carterizado >= ?
+          AND car.mes_carterizado < DATEADD(DAY, 1, CAST(? AS date))
+          {carterizado_filter}
+        GROUP BY car.rut
+    ),
+    base AS (
+        SELECT
+            bench.fld_Rut AS rut,
+            ISNULL(car.ejecutivo, 'Grupal') AS ejecutivo,
+            bench.fld_Operaciones AS operacion,
+            CASE WHEN TRY_CAST(bench.fld_Contenido AS INT) <> 0 THEN 1 ELSE 0 END AS contenido,
+            TRY_CAST(bench.fld_Ciclo AS INT) AS ciclo,
+            CAST(ISNULL(bench.[fld_MM$ Monto], 0) AS FLOAT) AS deuda,
+            bench.[fld_Producto cliente] AS producto
+        FROM dbo.tmp_bench_STH bench
+        {join_type} carterizado car
+            ON bench.fld_Rut = car.rut
+        WHERE bench.fecha_carga = (
+            SELECT MIN(t.fecha_carga)
+            FROM dbo.tmp_bench_STH t
+            WHERE t.fecha_carga >= ?
+              AND t.fecha_carga < DATEADD(MONTH, 1, CAST(? AS date))
+        )
+    )
+    SELECT
+        base.*,
+        COUNT_BIG(1) OVER () AS total_count
+    FROM base
+    {extra_where}
+    ORDER BY base.ciclo, base.deuda DESC, base.operacion
+    OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
+    OPTION (RECOMPILE)
+    """
+
+    page_rows = run_query(page_sql, tuple([*params, offset, page_size]))
+    total = int(page_rows[0].get("total_count") or 0) if page_rows else 0
+
+    unique_ruts: list = []
+    seen_ruts: set[str] = set()
+    for row in page_rows:
+        rut = row.get("rut")
+        key = str(rut or "").strip()
+        if key and key not in seen_ruts:
+            seen_ruts.add(key)
+            unique_ruts.append(rut)
+
+    management_by_rut: dict[str, dict] = {}
+    commitment_by_rut: dict[str, dict] = {}
+
+    if unique_ruts:
+        rut_marks = ",".join("?" for _ in unique_ruts)
+        response_priority = [
+            "COMPROMISO DE PAGO TELEFONICO",
+            "COMPROMISO HTML",
+            "OFERTA HIPOTECARIA",
+            "OFERTA DERIVACIÓN EN LINEA",
+            "OFERTA CAMPAÑA",
+            "APOYO EN LINEA CAMPAÑA HB",
+            "OFERTA CAMPAÑA WHATSAPP",
+            "POSTERGA FECHA DE PAGO",
+            "SOLICITA RENEGOCIAR",
+            "TRAMITANDO CAMPAÑA RENEGOCIACION",
+            "CLIENTE PAGO O REGULARIZO",
+            "CLIENTE TITULAR CORTA LLAMADO",
+            "RECHAZA PAGAR",
+            "POSTERGAR LLAMADO",
+            "CESANTE",
+            "CIERRE DE PRODUCTO",
+            "DESCONOCE DEUDA",
+            "TÉRMINO DE CONTRATO",
+            "FRAUDE",
+            "ENFERMEDAD GRAVE - PROPIA",
+            "SOBRECARGA FINANCIERA POR IMPREVISTOS MAYORES",
+            "ENFERMEDAD PROPIA O TERCERO",
+            "ENFERMEDAD GRAVE - DE UN FAMILIAR DIRECTO",
+            "EMERGENCIA FAMILIAR RELEVANTE - FALLECIMIENTO",
+            "EMERGENCIA FAMILIAR RELEVANTE - ACCIDENTES",
+            "GASTOS MÉDICOS O URGENCIAS NO CUBIERTAS POR S",
+            "REDUCCIÓN DE JORNADA",
+            "TRAMITANDO SEGURO",
+            "CAÍDA DE COMISIONES",
+            "INUBICABLE",
+        ]
+        priority_cases = "\n".join(
+            f"WHEN N'{response.replace("'", "''")}' THEN {position}"
+            for position, response in enumerate(response_priority, start=1)
+        )
+
+        management_sql = f"""
+        WITH ranked AS (
+            SELECT
+                g.rut,
+                g.UsuarioGestion,
+                g.RespuestaGestion,
+                g.GestionFecha,
+                g.telefono,
+                ROW_NUMBER() OVER (
+                    PARTITION BY g.rut
+                    ORDER BY
+                        CASE g.RespuestaGestion
+                            {priority_cases}
+                            ELSE 999
+                        END,
+                        g.GestionFecha DESC,
+                        g.GestionHora DESC
+                ) AS rn
+            FROM dbo.tmp_GEST_CRM g
+            WHERE g.cartera = 530
+              AND g.GestionFecha >= ?
+              AND g.GestionFecha < DATEADD(MONTH, 1, CAST(? AS date))
+              AND g.AccionGestion = 'CONTACTO TITULAR'
+              AND g.rut IN ({rut_marks})
+        )
+        SELECT rut, UsuarioGestion, RespuestaGestion, GestionFecha, telefono
+        FROM ranked
+        WHERE rn = 1
+        """
+        for row in run_query(management_sql, tuple([periodo, periodo, *unique_ruts])):
+            management_by_rut[str(row.get("rut") or "").strip()] = row
+
+        commitment_sql = f"""
+        WITH ranked AS (
+            SELECT
+                fc.RutCliente,
+                fc.FechaCompromiso,
+                ROW_NUMBER() OVER (
+                    PARTITION BY fc.RutCliente
+                    ORDER BY fc.FechaGestion DESC, fc.FechaCompromiso DESC
+                ) AS rn
+            FROM dbo.tmp_FECHA_COMPROMISO_CRM fc
+            WHERE fc.cartera = 530
+              AND fc.FechaGestion >= ?
+              AND fc.FechaGestion < DATEADD(MONTH, 1, CAST(? AS date))
+              AND fc.RutCliente IN ({rut_marks})
+        )
+        SELECT RutCliente, FechaCompromiso
+        FROM ranked
+        WHERE rn = 1
+        """
+        for row in run_query(commitment_sql, tuple([periodo, periodo, *unique_ruts])):
+            commitment_by_rut[str(row.get("RutCliente") or "").strip()] = row
+
+    rows = []
+    for row in page_rows:
+        rut_key = str(row.get("rut") or "").strip()
+        management = management_by_rut.get(rut_key, {})
+        commitment = commitment_by_rut.get(rut_key, {})
+        rows.append(
+            {
+                "periodo": periodo,
+                "ejecutivo": row.get("ejecutivo") or "Grupal",
+                "operacion": row.get("operacion"),
+                "contenido": int(row.get("contenido") or 0),
+                "ciclo": row.get("ciclo"),
+                "deuda": float(row.get("deuda") or 0),
+                "producto": row.get("producto") or "",
+                "usuario_gestion": management.get("UsuarioGestion") or "",
+                "mejor_gestion": management.get("RespuestaGestion") or "",
+                "gestion_fecha": str(management.get("GestionFecha") or ""),
+                "telefono_gestion": management.get("telefono") or "",
+                "fecha_compromiso": str(commitment.get("FechaCompromiso") or ""),
+            }
+        )
+
+    return {
+        "data": rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 def get_general_view(filters: dict) -> list[dict]:
