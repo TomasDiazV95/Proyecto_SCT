@@ -1,10 +1,17 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchSthDetail, fetchSthFilters, fetchSthGeneral } from "../api";
+import { fetchSthDetail, fetchSthFilters, fetchSthGeneral, fetchSthOperationsDetail } from "../api";
 
 const initialFilters = {
   periodo: "",
   ejecutivo: "",
+};
+
+const initialOperationsFilters = {
+  operacion: "",
+  producto: "",
+  ciclo: "",
+  contenido: "",
 };
 
 const productLabel = {
@@ -30,6 +37,10 @@ function formatMoney(value) {
 
 function formatMM(value) {
   return formatMoney(Number(value || 0) / 1000000);
+}
+
+function yesNo(value) {
+  return Number(value || 0) === 1 ? "Si" : "No";
 }
 
 function percentile(sortedValues, p) {
@@ -60,9 +71,15 @@ function dotClassByThresholds(value, thresholds) {
 export default function SthPage() {
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
-  const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
+  const [operationsFilters, setOperationsFilters] = useState(initialOperationsFilters);
+  const [operationSearch, setOperationSearch] = useState("");
+  const [options, setOptions] = useState({ periodos: [], ejecutivos: [], productos_detalle: [], ciclos: [] });
   const [generalRows, setGeneralRows] = useState([]);
   const [detailBlocks, setDetailBlocks] = useState([]);
+  const [operationsRows, setOperationsRows] = useState([]);
+  const [operationsTotal, setOperationsTotal] = useState(0);
+  const [operationsPage, setOperationsPage] = useState(1);
+  const [operationsPageSize, setOperationsPageSize] = useState(100);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -83,6 +100,15 @@ export default function SthPage() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setOperationsFilters((prev) => ({ ...prev, operacion: operationSearch.trim() }));
+      setOperationsPage(1);
+    }, 450);
+
+    return () => window.clearTimeout(timer);
+  }, [operationSearch]);
+
+  useEffect(() => {
     async function loadData() {
       if (!filters.periodo) {
         return;
@@ -90,9 +116,20 @@ export default function SthPage() {
       setLoading(true);
       setError("");
       try {
-        const [general, detail] = await Promise.all([fetchSthGeneral(filters), fetchSthDetail(filters)]);
-        setGeneralRows(general);
-        setDetailBlocks(detail);
+        if (view === "detalle") {
+          const detail = await fetchSthOperationsDetail({
+            ...filters,
+            ...operationsFilters,
+            page: operationsPage,
+            page_size: operationsPageSize,
+          });
+          setOperationsRows(detail.data || []);
+          setOperationsTotal(Number(detail.total || 0));
+        } else {
+          const [general, detail] = await Promise.all([fetchSthGeneral(filters), fetchSthDetail(filters)]);
+          setGeneralRows(general);
+          setDetailBlocks(detail);
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -100,7 +137,7 @@ export default function SthPage() {
       }
     }
     loadData();
-  }, [filters]);
+  }, [filters, operationsFilters, operationsPage, operationsPageSize, view]);
 
   const generalHeaders = useMemo(
     () => [
@@ -158,7 +195,25 @@ export default function SthPage() {
 
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
+    setOperationsPage(1);
   }
+
+  function onOperationsChange(name, value) {
+    setOperationsFilters((prev) => ({ ...prev, [name]: value }));
+    setOperationsPage(1);
+  }
+
+  function clearOperationsFilters() {
+    setFilters((prev) => ({ ...prev, ejecutivo: "" }));
+    setOperationsFilters(initialOperationsFilters);
+    setOperationSearch("");
+    setOperationsPage(1);
+  }
+
+  const operationsTotalPages = Math.max(1, Math.ceil(operationsTotal / operationsPageSize));
+  const operationsFrom = operationsTotal ? (operationsPage - 1) * operationsPageSize + 1 : 0;
+  const operationsTo = operationsTotal ? Math.min(operationsPage * operationsPageSize, operationsTotal) : 0;
+  const hasOperationsFilters = filters.ejecutivo || operationSearch || Object.values(operationsFilters).some(Boolean);
 
   return (
     <div className="container-fluid py-4 app-shell sth-page">
@@ -175,6 +230,9 @@ export default function SthPage() {
           </button>
           <button className={`btn btn-${view === "desglosada" ? "warning" : "outline-warning"}`} onClick={() => setView("desglosada")}>
             Vista Desglosada
+          </button>
+          <button className={`btn btn-${view === "detalle" ? "warning" : "outline-warning"}`} onClick={() => setView("detalle")}>
+            Detalle
           </button>
         </div>
       </div>
@@ -203,6 +261,60 @@ export default function SthPage() {
                 ))}
               </select>
             </div>
+            {view === "detalle" && (
+              <>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Operacion</label>
+                  <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Producto</label>
+                  <select className="form-select" value={operationsFilters.producto} onChange={(e) => onOperationsChange("producto", e.target.value)}>
+                    <option value="">Todos</option>
+                    {options.productos_detalle.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Ciclo</label>
+                  <select className="form-select" value={operationsFilters.ciclo} onChange={(e) => onOperationsChange("ciclo", e.target.value)}>
+                    <option value="">Todos</option>
+                    {options.ciclos.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Contenido</label>
+                  <select className="form-select" value={operationsFilters.contenido} onChange={(e) => onOperationsChange("contenido", e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="1">Si</option>
+                    <option value="0">No</option>
+                  </select>
+                </div>
+                <div className="col-12 col-md-2">
+                  <label className="form-label">Filas</label>
+                  <select
+                    className="form-select"
+                    value={operationsPageSize}
+                    onChange={(e) => {
+                      setOperationsPageSize(Number(e.target.value));
+                      setOperationsPage(1);
+                    }}
+                  >
+                    <option value={100}>100</option>
+                    <option value={250}>250</option>
+                    <option value={500}>500</option>
+                  </select>
+                </div>
+                <div className="col-12 col-md-auto d-flex align-items-end">
+                  <button className="btn btn-outline-secondary w-100" onClick={clearOperationsFilters} disabled={!hasOperationsFilters || loading}>
+                    Limpiar filtros
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -242,7 +354,7 @@ export default function SthPage() {
                 ))}
               </tbody>
             </table>
-          ) : (
+          ) : view === "desglosada" ? (
             <div className="sth-detail-wrap">
               {detailBlocks.map((block) => (
                 <div className="mb-4" key={block.producto}>
@@ -330,6 +442,63 @@ export default function SthPage() {
                 </div>
               ))}
             </div>
+          ) : (
+            <>
+              <table className="table table-striped table-hover align-middle sth-detail-table sth-compact-table">
+                <thead>
+                  <tr>
+                    <th>Ejecutivo</th>
+                    <th>Operacion</th>
+                    <th>Contenido</th>
+                    <th>Ciclo</th>
+                    <th>Deuda</th>
+                    <th>Producto</th>
+                    <th>Usuario Gestion</th>
+                    <th>Mejor Gestion</th>
+                    <th>Fecha Gestion</th>
+                    <th>Telefono</th>
+                    <th>Fecha Compromiso</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {operationsRows.map((row, idx) => (
+                    <tr key={`${row.operacion}-${idx}`}>
+                      <td>{row.ejecutivo}</td>
+                      <td>{row.operacion}</td>
+                      <td>{yesNo(row.contenido)}</td>
+                      <td>{row.ciclo ?? "-"}</td>
+                      <td>${formatMoney(row.deuda)}</td>
+                      <td>{row.producto || "-"}</td>
+                      <td>{row.usuario_gestion || "SIN GESTION"}</td>
+                      <td>{row.mejor_gestion || "-"}</td>
+                      <td>{String(row.gestion_fecha || "").slice(0, 10) || "-"}</td>
+                      <td>{row.telefono_gestion || "-"}</td>
+                      <td>{String(row.fecha_compromiso || "").slice(0, 10) || "-"}</td>
+                    </tr>
+                  ))}
+                  {!operationsRows.length && (
+                    <tr>
+                      <td colSpan={11} className="text-center text-muted py-4">
+                        Sin datos para los filtros seleccionados.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              <div className="d-flex flex-column flex-md-row gap-2 justify-content-between align-items-md-center mt-2">
+                <div className="small text-muted">
+                  Mostrando {operationsFrom}-{operationsTo} de {operationsTotal} operaciones. Pagina {operationsPage} de {operationsTotalPages}.
+                </div>
+                <div className="btn-group">
+                  <button className="btn btn-outline-warning" onClick={() => setOperationsPage((prev) => Math.max(1, prev - 1))} disabled={operationsPage <= 1 || loading}>
+                    Anterior
+                  </button>
+                  <button className="btn btn-outline-warning" onClick={() => setOperationsPage((prev) => Math.min(operationsTotalPages, prev + 1))} disabled={operationsPage >= operationsTotalPages || loading}>
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>

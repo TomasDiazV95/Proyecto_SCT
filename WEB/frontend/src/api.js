@@ -365,6 +365,14 @@ export async function fetchSthDetail(filters) {
   return body.data || [];
 }
 
+export async function fetchSthOperationsDetail(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/detalle`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el detalle de STH");
+  }
+  return res.json();
+}
+
 export async function fetchAdminModules() {
   const res = await apiFetch(`${API_BASE}/api/admin/modules`);
   if (!res.ok) {

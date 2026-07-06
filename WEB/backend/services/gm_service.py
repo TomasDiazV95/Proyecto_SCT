@@ -84,7 +84,14 @@ def get_cycle_view(filters: dict) -> list[dict]:
         extra_clause = " AND base.ejecutivo = ?"
 
     sql = f"""
-    WITH asig AS (
+    WITH porcentajes_manual AS (
+        SELECT CAST('2026-04-01' AS DATE) AS periodo, 'Daniela Cañicul' AS ejecutivo, '6 a 30' AS bucket, CAST(24.58 AS DECIMAL(10, 2)) AS porcentaje
+        UNION ALL
+        SELECT CAST('2026-05-01' AS DATE), 'Luis Toledo', '6 a 30', CAST(26.39 AS DECIMAL(10, 2))
+        UNION ALL
+        SELECT CAST('2026-06-01' AS DATE), 'Erika Alderete', '6 a 30', CAST(24.16 AS DECIMAL(10, 2))
+    ),
+    asig AS (
         SELECT
             t.[fld_Agreement Number] AS op,
             LTRIM(RTRIM(t.fld_bucket)) AS bucket,
@@ -94,16 +101,16 @@ def get_cycle_view(filters: dict) -> list[dict]:
             ISNULL(p.normalizado, 0) AS normalizado
         FROM (
             SELECT *,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY [fld_Agreement Number]
-                       ORDER BY fecha_carga ASC
-                   ) AS rn
+                ROW_NUMBER() OVER (
+                    PARTITION BY [fld_Agreement Number]
+                    ORDER BY fecha_carga ASC
+                ) AS rn
             FROM dbo.tmp_asig_GM
             WHERE fecha_carga BETWEEN ? AND EOMONTH(?)
         ) t
         LEFT JOIN dbo.tmp_carterizado_GM c
             ON t.[fld_Agreement Number] = c.op
-           AND c.mes_carterizado = ?
+        AND c.mes_carterizado = ?
         LEFT JOIN (
             SELECT
                 operacion,
@@ -123,23 +130,31 @@ def get_cycle_view(filters: dict) -> list[dict]:
             SUM(base.deuda) AS deuda_asignada,
             SUM(CASE WHEN base.contenido = 1 THEN base.deuda ELSE 0 END) AS saldo_contenido,
             SUM(CASE WHEN base.normalizado = 1 THEN base.deuda ELSE 0 END) AS saldo_normalizado,
+
             CAST(
                 (SUM(CASE WHEN base.contenido = 1 THEN base.deuda ELSE 0 END) * 100.0)
                 / NULLIF(SUM(base.deuda), 0)
             AS DECIMAL(10, 2)) AS porcentaje_contencion,
-            CASE
-                WHEN base.ejecutivo = 'Daniela Cañicul' AND base.bucket = '6 a 30' THEN CAST(24.58 AS DECIMAL(10, 2))
-                WHEN base.ejecutivo = 'Luis Toledo' AND base.bucket = '6 a 30' THEN CAST(26.39 AS DECIMAL(10, 2))
-                WHEN base.ejecutivo = 'Erika Alderete' AND base.bucket = '6 a 30' THEN CAST(15.71 AS DECIMAL(10, 2))
-                ELSE CAST(
+
+            ISNULL(
+                pm.porcentaje,
+                CAST(
                     (SUM(CASE WHEN base.normalizado = 1 THEN base.deuda ELSE 0 END) * 100.0)
                     / NULLIF(SUM(base.deuda), 0)
                 AS DECIMAL(10, 2))
-            END AS porcentaje_normalizado
+            ) AS porcentaje_normalizado
+
         FROM asig base
+        LEFT JOIN porcentajes_manual pm
+            ON pm.periodo = ?
+        AND pm.ejecutivo = base.ejecutivo
+        AND pm.bucket = base.bucket
         WHERE base.bucket IN ('6 a 30', '31 a 60', '61 a 90', '91 a 150')
         {extra_clause}
-        GROUP BY base.ejecutivo, base.bucket
+        GROUP BY 
+            base.ejecutivo, 
+            base.bucket,
+            pm.porcentaje
     )
     SELECT
         agg.ejecutivo,
@@ -156,11 +171,11 @@ def get_cycle_view(filters: dict) -> list[dict]:
     FROM agg
     LEFT JOIN dbo.gm_metas_mensuales m
         ON m.periodo = ?
-       AND m.bucket = agg.bucket
+    AND m.bucket = agg.bucket
     ORDER BY agg.bucket, agg.ejecutivo
     """
 
-    data_params = [periodo, periodo, periodo, periodo, periodo]
+    data_params = [periodo, periodo, periodo, periodo, periodo, periodo]
     if ejecutivo:
         data_params.append(ejecutivo)
     data_params.append(periodo)
