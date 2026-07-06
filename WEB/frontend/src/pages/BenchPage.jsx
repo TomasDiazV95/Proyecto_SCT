@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { fetchBenchFilters, fetchBenchKpi } from "../api";
 
 
@@ -87,6 +88,7 @@ function buildCompanyColorMap(series, ranking) {
 
 
 function Chart({ series, companyColors }) {
+  const [hoveredIndex, setHoveredIndex] = useState(null);
   const width = 860;
   const height = 290;
   const padding = { top: 28, right: 26, bottom: 38, left: 42 };
@@ -98,6 +100,22 @@ function Chart({ series, companyColors }) {
   const xStep = series.length > 1 ? (width - padding.left - padding.right) / (series.length - 1) : 0;
   const yRange = Math.max(valueCeil - valueFloor, 1);
   const companyNames = Array.from(new Set(series.flatMap((item) => Object.keys(item.empresas || {}))));
+  const hoveredItem = hoveredIndex === null ? null : series[hoveredIndex] || null;
+  const hoveredRows = hoveredItem
+    ? companyNames
+        .map((company) => {
+          const value = hoveredItem.empresas?.[company];
+          if (value === undefined || value === null) {
+            return null;
+          }
+          return { company, value };
+        })
+        .filter(Boolean)
+        .sort((a, b) => Number(b.value || 0) - Number(a.value || 0) || String(a.company).localeCompare(String(b.company)))
+    : [];
+  const maxTooltipLabelLength = hoveredRows.length
+    ? Math.max(...hoveredRows.map((row) => String(row.company || "").length))
+    : 0;
 
   function xFor(index) {
     return padding.left + xStep * index;
@@ -108,9 +126,31 @@ function Chart({ series, companyColors }) {
   }
 
   const ticks = Array.from({ length: 5 }, (_, index) => valueFloor + (yRange / 4) * index);
+  const tooltipWidth = Math.min(240, Math.max(176, 112 + maxTooltipLabelLength * 6));
+  const tooltipPaddingX = 14;
+  const tooltipPaddingY = 12;
+  const tooltipHeaderHeight = 22;
+  const tooltipRowHeight = 20;
+  const tooltipHeight = tooltipPaddingY * 2 + tooltipHeaderHeight + hoveredRows.length * tooltipRowHeight;
+  const hoveredX = hoveredIndex === null ? null : xFor(hoveredIndex);
+  const tooltipX = hoveredX === null
+    ? 0
+    : Math.min(
+        width - padding.right - tooltipWidth,
+        Math.max(padding.left, hoveredX + 16 > width - padding.right - tooltipWidth ? hoveredX - tooltipWidth - 16 : hoveredX + 16),
+      );
+  const tooltipY = Math.min(height - padding.bottom - tooltipHeight, padding.top + 12);
+
+  function truncateTooltipLabel(value) {
+    const text = String(value || "");
+    if (text.length <= 16) {
+      return text;
+    }
+    return `${text.slice(0, 13)}...`;
+  }
 
   return (
-    <div className="bench-chart-block">
+    <div className="bench-chart-block" onMouseLeave={() => setHoveredIndex(null)}>
       <div className="bench-panel-head">
         <div className="bench-panel-title">Cumplimiento Diario vs. Competencia</div>
         <div className="bench-panel-legend">
@@ -161,11 +201,87 @@ function Chart({ series, companyColors }) {
                 if (value === undefined || value === null) {
                   return null;
                 }
-                return <circle key={`${company}-${item.fecha}`} cx={xFor(index)} cy={yFor(value)} r="4.5" fill={color} />;
+                const isHovered = hoveredIndex === index;
+                return (
+                  <circle
+                    key={`${company}-${item.fecha}`}
+                    cx={xFor(index)}
+                    cy={yFor(value)}
+                    r={isHovered ? "6" : "4.5"}
+                    fill={color}
+                    className={isHovered ? "bench-point-active" : ""}
+                  />
+                );
               })}
             </g>
           );
         })}
+
+        {series.map((item, index) => {
+          const currentX = xFor(index);
+          const previousX = index === 0 ? padding.left : (xFor(index - 1) + currentX) / 2;
+          const nextX = index === series.length - 1 ? width - padding.right : (currentX + xFor(index + 1)) / 2;
+          const zoneWidth = Math.max(nextX - previousX, 24);
+
+          return (
+            <rect
+              key={`hover-zone-${item.fecha}`}
+              x={previousX}
+              y={padding.top}
+              width={zoneWidth}
+              height={height - padding.top - padding.bottom}
+              fill="transparent"
+              className="bench-hover-zone"
+              onMouseEnter={() => setHoveredIndex(index)}
+              onMouseMove={() => setHoveredIndex(index)}
+            />
+          );
+        })}
+
+        {hoveredIndex !== null && hoveredX !== null && hoveredRows.length > 0 && (
+          <g className="bench-tooltip-layer">
+            <line
+              x1={hoveredX}
+              y1={padding.top}
+              x2={hoveredX}
+              y2={height - padding.bottom}
+              className="bench-hover-guide"
+            />
+
+            <g transform={`translate(${tooltipX}, ${tooltipY})`} className="bench-tooltip-card">
+              <rect
+                width={tooltipWidth}
+                height={tooltipHeight}
+                rx="12"
+                className="bench-tooltip-box"
+              />
+              <text x={tooltipPaddingX} y={tooltipPaddingY + 6} className="bench-tooltip-title">
+                {formatDateLabel(hoveredItem.fecha)}
+              </text>
+
+              {hoveredRows.map((row, rowIndex) => {
+                const y = tooltipPaddingY + tooltipHeaderHeight + rowIndex * tooltipRowHeight;
+                return (
+                  <g key={`tooltip-${row.company}`} transform={`translate(0, ${y})`} className="bench-tooltip-row">
+                    <circle
+                      cx={tooltipPaddingX + 5}
+                      cy="6"
+                      r="4.5"
+                      fill={companyColors[row.company]}
+                      className="bench-tooltip-dot"
+                    />
+                    <text x={tooltipPaddingX + 18} y="10" className="bench-tooltip-label">
+                      {truncateTooltipLabel(row.company)}
+                    </text>
+                    <text x={tooltipWidth - tooltipPaddingX} y="10" textAnchor="end" className="bench-tooltip-value">
+                      {formatPct(row.value)}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+          </g>
+        )}
       </svg>
     </div>
   );
@@ -317,13 +433,18 @@ export default function BenchPage() {
   return (
     <div className="container-fluid py-4 app-shell bench-page bench-page-dark">
       <div className="bench-clean-header">
-        <div className="bench-clean-title">
-          <div className="bench-clean-logo">
-            <i className="fi fi-br-dashboard-monitor bench-dashboard-monitor-icon" aria-hidden="true" />
+        <div className="bench-header-context">
+          <div className="bench-breadcrumb">
+            <Link to="/" className="bench-breadcrumb-link">
+              <i className="fi fi-br-home" aria-hidden="true" />
+              <span>Inicio</span>
+            </Link>
+            <span className="bench-breadcrumb-separator">&gt;</span>
+            <span className="bench-breadcrumb-current">Cumplimiento diario y Ranking</span>
           </div>
-          <div>
-            <h1>Cumplimiento diario y Ranking</h1>
-            <p>Actualizado {updatedLabel}</p>
+          <div className="bench-updated-line">
+            <i className="fi fi-br-clock-three" aria-hidden="true" />
+            <span>Actualizado {updatedLabel}</span>
           </div>
         </div>
 
@@ -370,7 +491,7 @@ export default function BenchPage() {
           active
         />
         <MetricCard
-          title={`${isPhoenixLeader ? "Competidor más cercano" : "Líder"} · ${leaderItem?.empresa || "N/D"}`}
+          title={`${isPhoenixLeader ? "Competidor mÃ¡s cercano" : "Líder"} · ${leaderItem?.empresa || "N/D"}`}
           value={formatPct(leaderItem?.debug_ultimo_dia || comparison.competitor)}
           subtitle={isPhoenixLeader ? `a ${Math.abs(Number(comparison.value || 0)).toFixed(1)} pp de Phoenix` : "a superar"}
           tone="leader"
@@ -383,7 +504,7 @@ export default function BenchPage() {
           tone={avgDelta < 0 ? "danger" : "neutral"}
         />
         <MetricCard
-          title="Brecha vs líder"
+          title="Brecha vs lí­der"
           value={formatPp(comparison.value)}
           subtitle={isPhoenixLeader ? "liderando" : "para liderar"}
           tone={Number(comparison.value || 0) < 0 ? "danger" : "positive"}
@@ -440,3 +561,4 @@ export default function BenchPage() {
     </div>
   );
 }
+

@@ -643,12 +643,68 @@ body {
   background: linear-gradient(180deg, #0e1623 0%, #101926 100%);
 }
 
+.bench-page.app-shell {
+  width: 100%;
+  max-width: none;
+}
+
+.bench-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.bench-breadcrumb-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbd5e1;
+  text-decoration: none;
+}
+
+.bench-breadcrumb-link:hover {
+  color: #f8fafc;
+}
+
+.bench-breadcrumb-separator {
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.bench-breadcrumb-current {
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.bench-updated-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.bench-header-context {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .bench-clean-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 16px;
+}
+
+.bench-clean-title:empty {
+  display: none;
 }
 
 .bench-clean-title {
@@ -837,7 +893,7 @@ body {
 
 .bench-clean-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
   gap: 12px;
 }
 
@@ -846,7 +902,7 @@ body {
 }
 
 .bench-chart-block {
-  min-height: 390px;
+  position: relative;
 }
 
 .bench-panel-head {
@@ -908,6 +964,7 @@ body {
 .bench-chart-svg-clean {
   width: 100%;
   height: auto;
+  overflow: visible;
 }
 
 .bench-grid-line-clean {
@@ -922,6 +979,49 @@ body {
 }
 
 .bench-axis-label-y-clean { text-anchor: end; }
+
+.bench-hover-zone {
+  cursor: crosshair;
+}
+
+.bench-hover-guide {
+  stroke: rgba(226, 232, 240, 0.7);
+  stroke-width: 1;
+}
+
+.bench-point-active {
+  filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.22));
+}
+
+.bench-tooltip-layer {
+  pointer-events: none;
+}
+
+.bench-tooltip-box {
+  fill: rgba(15, 23, 42, 0.96);
+  stroke: rgba(148, 163, 184, 0.3);
+  stroke-width: 1;
+  filter: drop-shadow(0 10px 24px rgba(2, 6, 23, 0.45));
+}
+
+.bench-tooltip-title {
+  fill: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bench-tooltip-row {
+  font-size: 12px;
+}
+
+.bench-tooltip-label {
+  fill: #e2e8f0;
+}
+
+.bench-tooltip-value {
+  fill: #f8fafc;
+  font-weight: 700;
+}
 
 .bench-ranking-highlight-phoenix td {
   background: rgba(37, 99, 235, 0.18);
