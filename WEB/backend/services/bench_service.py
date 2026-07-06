@@ -6,6 +6,20 @@ from database import run_query
 
 TABLE = "dbo.tmp_BENCH_CONTROL_DIARIO"
 PHOENIX_NAME = "PHOENIX"
+SEGMENT_PRIORITY = {
+    "C3": 0,
+    "SUSCEPTIBLECV": 1,
+    "SUSCEPTIBLE CV": 1,
+    "FASE5": 2,
+    "FASE 5": 2,
+    "FASE6": 3,
+    "FASE 6": 3,
+    "SUCEPTIBLECASTIGO": 4,
+    "SUCEPTIBLE CASTIGO": 4,
+    "SUSCEPTIBLECASTIGO": 4,
+    "SUSCEPTIBLE CASTIGO": 4,
+    "CASTIGO": 5,
+}
 
 
 def _normalize_text(value: str | None) -> str:
@@ -15,12 +29,17 @@ def _normalize_text(value: str | None) -> str:
 def _segment_sort_key(value: str) -> tuple[int, int, str]:
     text = str(value or "").strip()
     normalized = _normalize_text(text)
+    compact = normalized.replace(" ", "")
+    if normalized in SEGMENT_PRIORITY:
+        return (0, SEGMENT_PRIORITY[normalized], normalized)
+    if compact in SEGMENT_PRIORITY:
+        return (0, SEGMENT_PRIORITY[compact], normalized)
     match = re.search(r"BUCKET\s*(\d+)\s*-\s*(\d+)", normalized)
     if match:
         start = int(match.group(1))
         end = int(match.group(2))
-        return (0, start * 1000 + end, normalized)
-    return (1, 0, normalized)
+        return (1, start * 1000 + end, normalized)
+    return (2, 0, normalized)
 
 
 def _safe_float(value: object) -> float:
@@ -30,6 +49,13 @@ def _safe_float(value: object) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _get_last_db_update() -> str:
+    rows = run_query(f"SELECT MAX(fecha_actualizacion) AS fecha_actualizacion FROM {TABLE}")
+    if not rows:
+        return ""
+    return str(rows[0].get("fecha_actualizacion") or "")
 
 
 def _empty_kpi_response(filters_context: dict) -> dict:
@@ -56,7 +82,7 @@ def _empty_kpi_response(filters_context: dict) -> dict:
         "ranking": [],
         "serie_diaria": [],
         "source_info": {
-            "fecha_actualizacion": "",
+            "fecha_actualizacion": _get_last_db_update(),
         },
     }
 
@@ -228,7 +254,7 @@ def get_kpi_view(filters: dict, user: dict | None = None) -> dict:
         }
         serie_diaria.append({"fecha": fecha_key, "empresas": empresas})
 
-    latest_row = max(rows, key=lambda row: row.get("fecha_actualizacion") or row.get("fecha"))
+    last_db_update = _get_last_db_update()
     return {
         "filters_context": filters_context,
         "summary": {
@@ -248,6 +274,6 @@ def get_kpi_view(filters: dict, user: dict | None = None) -> dict:
         "ranking": ranking,
         "serie_diaria": serie_diaria,
         "source_info": {
-            "fecha_actualizacion": str(latest_row.get("fecha_actualizacion") or ""),
+            "fecha_actualizacion": last_db_update,
         },
     }
