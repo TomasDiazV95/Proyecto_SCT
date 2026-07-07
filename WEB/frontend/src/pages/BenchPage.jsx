@@ -491,7 +491,7 @@ export default function BenchPage() {
           active
         />
         <MetricCard
-          title={`${isPhoenixLeader ? "Competidor mÃ¡s cercano" : "Líder"} · ${leaderItem?.empresa || "N/D"}`}
+          title={`${isPhoenixLeader ? "Competidor más cercano" : "Líder"} · ${leaderItem?.empresa || "N/D"}`}
           value={formatPct(leaderItem?.debug_ultimo_dia || comparison.competitor)}
           subtitle={isPhoenixLeader ? `a ${Math.abs(Number(comparison.value || 0)).toFixed(1)} pp de Phoenix` : "a superar"}
           tone="leader"
