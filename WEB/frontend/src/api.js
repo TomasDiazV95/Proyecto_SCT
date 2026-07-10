@@ -287,7 +287,8 @@ export async function fetchGmDetail(filters) {
   if (!res.ok) {
     throw new Error("No se pudo cargar el detalle de GM");
   }
-  return res.json();
+  const body = await res.json();
+  return body.data || [];
 }
 
 export async function fetchBenchFilters(filters = {}) {
