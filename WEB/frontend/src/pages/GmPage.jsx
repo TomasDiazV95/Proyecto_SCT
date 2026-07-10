@@ -233,7 +233,7 @@ export default function GmPage() {
           <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => setView("detalle")}>
             Detalle
           </button>
-          {canDownload && (
+          {canDownload && view !== "detalle" && (
             <button className="btn btn-success" onClick={onDownload} disabled={!filters.periodo || downloading}>
               {downloading ? "Descargando..." : "Descargar Excel"}
             </button>
