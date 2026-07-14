@@ -420,3 +420,37 @@ export async function updateAdminUserStatus(userId, isActive) {
   }
   return body;
 }
+
+export async function fetchItauAdministrativasPeriodos() {
+  const res = await apiFetch(`${API_BASE}/api/administrativas/itau/periodos`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los periodos de Itaú");
+  }
+  return res.json();
+}
+
+async function downloadAdministrativasExcel(url, fallbackFilename) {
+  const res = await apiFetch(url);
+  const body = res.ok ? null : await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo descargar el archivo");
+  }
+  const disposition = res.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || fallbackFilename;
+  return { blob: await res.blob(), filename };
+}
+
+export async function downloadItauCuotasVencida(periodo) {
+  return downloadAdministrativasExcel(
+    withQuery(`${API_BASE}/api/administrativas/itau/cuotas/export`, { periodo }),
+    `itau_cuotas_vencida_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadItauAsignacionVencida(periodo) {
+  return downloadAdministrativasExcel(
+    withQuery(`${API_BASE}/api/administrativas/itau/asignacion/export`, { periodo }),
+    `itau_asignacion_vencida_${periodo || "periodo"}.xlsx`
+  );
+}

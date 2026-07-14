@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routers.admin_users import router as admin_users_router
+from routers.administrativas import router as administrativas_router
 from routers.bench import router as bench_router
 from routers.auth import router as auth_router
 from routers.bit_castigo import router as bit_castigo_router
@@ -55,3 +56,4 @@ app.include_router(porsche_router, prefix="/api", tags=["porsche"])
 app.include_router(sth_router, prefix="/api/sth", tags=["sth"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users_router, prefix="/api/admin", tags=["admin-users"])
+app.include_router(administrativas_router, prefix="/api/administrativas", tags=["administrativas"])
