@@ -107,11 +107,19 @@ export const modulePanels = [
   },
   {
     code: "administrativas",
-    title: "Panel de Administrativas",
+    title: "Panel Administrativo",
     description: "Formularios y procesos administrativos internos.",
     path: "/administrativas",
     accent: "info",
-    modules: [],
+    modules: [
+      {
+        code: "administrativas",
+        title: "Itaú",
+        description: "Vista administrativa para procesos asociados a Itaú.",
+        path: "/administrativas/itau",
+        buttonLabel: "Abrir Itaú",
+      },
+    ],
   },
   {
     code: "admin",

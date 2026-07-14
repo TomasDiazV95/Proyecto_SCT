@@ -2,6 +2,7 @@ import React from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import AdminUsersPage from "./pages/AdminUsersPage";
+import AdministrativasPage from "./pages/administrativas/AdministrativasPage";
 import BenchPage from "./pages/BenchPage";
 import BitCastigoPage from "./pages/BitCastigoPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
@@ -10,6 +11,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
+import ItauAdministrativasPage from "./pages/administrativas/ItauAdministrativasPage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
 import LoginPage from "./pages/LoginPage";
 import PanelPage from "./pages/PanelPage";
@@ -43,7 +45,8 @@ export default function App() {
       <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} />
       <Route path="/sth" element={<ProtectedRoute moduleCode="sth"><SthPage /></ProtectedRoute>} />
       <Route path="/factura" element={<ProtectedRoute moduleCode="factura"><PanelPage panelCode="factura" emptyTitle="Panel de Factura en preparacion" emptyDescription="Este modulo esta reservado para simular facturas" /></ProtectedRoute>} />
-      <Route path="/administrativas" element={<ProtectedRoute><PanelPage panelCode="administrativas" emptyTitle="Panel de Administrativas en preparacion" emptyDescription="Este panel quedo reservado para el formulario administrativo futuro." /></ProtectedRoute>} />
+      <Route path="/administrativas" element={<ProtectedRoute moduleCode="administrativas"><AdministrativasPage /></ProtectedRoute>} />
+      <Route path="/administrativas/itau" element={<ProtectedRoute moduleCode="administrativas"><ItauAdministrativasPage /></ProtectedRoute>} />
       <Route path="/admin/permisos" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Permisos" description="Administracion avanzada de permisos." /></ProtectedRoute>} />
       <Route path="/admin/configuracion" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Configuracion" description="Configuracion general de la plataforma." /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
