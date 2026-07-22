@@ -233,7 +233,33 @@ def read_excel(path: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"No existe el Excel en: {path}")
 
     raw = path.read_bytes()
-    df = pd.read_excel(BytesIO(raw), sheet_name=SHEET_NAME, dtype=object, engine="openpyxl")
+
+    # Obtener las hojas del archivo
+    excel = pd.ExcelFile(BytesIO(raw), engine="openpyxl")
+
+    # Buscar una hoja llamada "Detalle" sin importar mayúsculas/minúsculas
+    hoja = next(
+        (
+            s for s in excel.sheet_names
+            if "detalle" in s.strip().lower()
+        ),
+        None
+    )
+
+    if hoja is None:
+        raise ValueError(
+            f"No se encontró la hoja 'Detalle'. "
+            f"Hojas disponibles: {excel.sheet_names}"
+        )
+
+    print(f"Hoja utilizada: {hoja}")
+
+    df = pd.read_excel(
+        BytesIO(raw),
+        sheet_name=hoja,
+        dtype=object,
+        engine="openpyxl"
+    )
     df = df.where(pd.notnull(df), None)
 
     if len(df.columns) < len(EXPECTED_COLUMNS):
