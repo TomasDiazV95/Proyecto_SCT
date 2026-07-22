@@ -160,7 +160,10 @@ def get_cycle_view(filters: dict) -> list[dict]:
         SUM(CASE WHEN b.fld_TRAMO_MORA = 'C1' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c1_deuda_asignada,
         SUM(CASE WHEN b.fld_TRAMO_MORA = 'C1' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c1_monto_cont,
         SUM(CASE WHEN b.fld_TRAMO_MORA = 'C2' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c2_deuda_asignada,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C2' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c2_monto_cont
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C2' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c2_monto_cont,
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C3' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c3_deuda_asignada,
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C3' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c3_monto_cont,
+        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C3' THEN 1 ELSE 0 END) AS c3_casos
     FROM dbo.tmp_bench_temp_STC b
     LEFT JOIN mejor_gestion mg
         ON b.fld_RUT = mg.rut
@@ -174,15 +177,25 @@ def get_cycle_view(filters: dict) -> list[dict]:
         'SFUENTES',
         'MCOLMENARES'
     )
-      AND b.fld_TRAMO_MORA IN ('C1', 'C2')
+      AND b.fld_TRAMO_MORA IN ('C1', 'C2', 'C3')
       AND b.fecha_carga = ?
     GROUP BY ISNULL(mg.UsuarioGestion, 'SIN GESTION')
     """
 
     raw_rows = run_query(sql, (periodo, periodo, periodo, periodo))
 
+    sql_c3_base = """
+    SELECT COUNT_BIG(1) AS c3_casos_base
+    FROM dbo.tmp_bench_temp_STC
+    WHERE fecha_carga = ?
+      AND UPPER(LTRIM(RTRIM(fld_TRAMO_MORA))) = 'C3'
+    """
+    c3_base_rows = run_query(sql_c3_base, (periodo,))
+    c3_casos_base = int(c3_base_rows[0].get("c3_casos_base") or 0) if c3_base_rows else 0
+
     c1_total_cont = sum(float(r.get("c1_monto_cont") or 0) for r in raw_rows)
     c2_total_cont = sum(float(r.get("c2_monto_cont") or 0) for r in raw_rows)
+    c3_total_cont = sum(float(r.get("c3_monto_cont") or 0) for r in raw_rows)
 
     rows: list[dict] = []
     for user in USER_ORDER:
@@ -191,6 +204,9 @@ def get_cycle_view(filters: dict) -> list[dict]:
         c1_cont = float(item.get("c1_monto_cont") or 0) if item else 0.0
         c2_deuda = float(item.get("c2_deuda_asignada") or 0) if item else 0.0
         c2_cont = float(item.get("c2_monto_cont") or 0) if item else 0.0
+        c3_deuda = float(item.get("c3_deuda_asignada") or 0) if item else 0.0
+        c3_cont = float(item.get("c3_monto_cont") or 0) if item else 0.0
+        c3_casos = int(item.get("c3_casos") or 0) if item else 0
 
         row = {
             "ejecutivo": USER_TO_NAME[user],
@@ -202,6 +218,11 @@ def get_cycle_view(filters: dict) -> list[dict]:
             "c2_monto_cont": c2_cont,
             "c2_porc_contenido": _safe_div(c2_cont, c2_deuda),
             "c2_porc_aporte": _safe_div(c2_cont, c2_total_cont),
+            "c3_deuda_asignada": c3_deuda,
+            "c3_monto_cont": c3_cont,
+            "c3_porc_contenido": _safe_div(c3_cont, c3_deuda),
+            "c3_porc_aporte": _safe_div(c3_cont, c3_total_cont),
+            "c3_casos": c3_casos,
         }
 
         if ejecutivo_filter and row["ejecutivo"].strip().lower() != ejecutivo_filter:
@@ -212,6 +233,9 @@ def get_cycle_view(filters: dict) -> list[dict]:
     total_c1_cont = sum(r["c1_monto_cont"] for r in rows)
     total_c2_deuda = sum(r["c2_deuda_asignada"] for r in rows)
     total_c2_cont = sum(r["c2_monto_cont"] for r in rows)
+    total_c3_deuda = sum(r["c3_deuda_asignada"] for r in rows)
+    total_c3_cont = sum(r["c3_monto_cont"] for r in rows)
+    total_c3_casos = sum(r["c3_casos"] for r in rows)
 
     rows.append(
         {
@@ -224,6 +248,12 @@ def get_cycle_view(filters: dict) -> list[dict]:
             "c2_monto_cont": total_c2_cont,
             "c2_porc_contenido": _safe_div(total_c2_cont, total_c2_deuda),
             "c2_porc_aporte": 100.0 if total_c2_cont > 0 else 0.0,
+            "c3_deuda_asignada": total_c3_deuda,
+            "c3_monto_cont": total_c3_cont,
+            "c3_porc_contenido": _safe_div(total_c3_cont, total_c3_deuda),
+            "c3_porc_aporte": 100.0 if total_c3_cont > 0 else 0.0,
+            "c3_casos": total_c3_casos,
+            "c3_casos_base": c3_casos_base,
         }
     )
 
