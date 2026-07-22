@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   downloadItauAsignacionVencida,
+  downloadItauCuotasPagadas,
   downloadItauCuotasVencida,
   fetchItauAdministrativasPeriodos,
 } from "../../api";
@@ -52,8 +53,9 @@ function DownloadCard({ title, description, periodos, value, onChange, loading, 
 export default function ItauAdministrativasPage() {
   const [periodos, setPeriodos] = useState({ cuotas: [], asignacion: [] });
   const [selectedCuotas, setSelectedCuotas] = useState("");
+  const [selectedCuotasPagadas, setSelectedCuotasPagadas] = useState("");
   const [selectedAsignacion, setSelectedAsignacion] = useState("");
-  const [loading, setLoading] = useState({ periodos: false, cuotas: false, asignacion: false });
+  const [loading, setLoading] = useState({ periodos: false, cuotas: false, cuotasPagadas: false, asignacion: false });
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -66,6 +68,7 @@ export default function ItauAdministrativasPage() {
         const asignacion = data.asignacion || [];
         setPeriodos({ cuotas, asignacion });
         setSelectedCuotas(cuotas[0] || "");
+        setSelectedCuotasPagadas(cuotas[0] || "");
         setSelectedAsignacion(asignacion[0] || "");
       } catch (err) {
         setError(err.message || "No se pudieron cargar los periodos");
@@ -103,6 +106,19 @@ export default function ItauAdministrativasPage() {
     }
   }
 
+  async function downloadCuotasPagadas() {
+    setLoading((prev) => ({ ...prev, cuotasPagadas: true }));
+    setError("");
+    try {
+      const file = await downloadItauCuotasPagadas(selectedCuotasPagadas);
+      saveDownload(file.blob, file.filename);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar cuotas pagadas Itaú");
+    } finally {
+      setLoading((prev) => ({ ...prev, cuotasPagadas: false }));
+    }
+  }
+
   return (
     <div className="container py-5 app-shell">
       <div className="card shadow-sm module-panel module-panel-info mb-4">
@@ -137,6 +153,17 @@ export default function ItauAdministrativasPage() {
             onChange={setSelectedAsignacion}
             loading={loading.asignacion || loading.periodos}
             onDownload={downloadAsignacion}
+          />
+        </div>
+        <div className="col-12 col-lg-6">
+          <DownloadCard
+            title="Cuotas Pagadas Itaú Vencida"
+            description="Descarga el consolidado mensual de cuotas estimadas como pagadas, comparando cortes consecutivos de cuotas Itaú."
+            periodos={periodos.cuotas}
+            value={selectedCuotasPagadas}
+            onChange={setSelectedCuotasPagadas}
+            loading={loading.cuotasPagadas || loading.periodos}
+            onDownload={downloadCuotasPagadas}
           />
         </div>
       </div>

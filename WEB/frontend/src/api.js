@@ -454,3 +454,10 @@ export async function downloadItauAsignacionVencida(periodo) {
     `itau_asignacion_vencida_${periodo || "periodo"}.xlsx`
   );
 }
+
+export async function downloadItauCuotasPagadas(periodo) {
+  return downloadAdministrativasExcel(
+    withQuery(`${API_BASE}/api/administrativas/itau/cuotas-pagadas/export`, { periodo }),
+    `itau_cuotas_pagadas_${periodo || "periodo"}.xlsx`
+  );
+}
