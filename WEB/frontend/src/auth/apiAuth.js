@@ -9,6 +9,12 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
+function notifySessionExpired() {
+  localStorage.removeItem("auth_access_token");
+  localStorage.removeItem("auth_user");
+  window.dispatchEvent(new Event("auth-session-expired"));
+}
+
 export async function authLogin(email, password) {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
@@ -29,6 +35,7 @@ export async function authRefresh() {
     credentials: "include",
   });
   if (!res.ok) {
+    notifySessionExpired();
     throw new Error("Sesion expirada");
   }
   return res.json();
@@ -39,6 +46,7 @@ export async function authMe(accessToken) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
+    notifySessionExpired();
     throw new Error("No se pudo validar sesion");
   }
   return res.json();

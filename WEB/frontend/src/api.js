@@ -9,6 +9,12 @@ function resolveApiBase() {
 
 const API_BASE = resolveApiBase();
 
+function clearStoredSession() {
+  localStorage.removeItem("auth_access_token");
+  localStorage.removeItem("auth_user");
+  window.dispatchEvent(new Event("auth-session-expired"));
+}
+
 async function apiFetch(url, options = {}, retry = true) {
   const token = localStorage.getItem("auth_access_token") || "";
   const headers = new Headers(options.headers || {});
@@ -22,8 +28,7 @@ async function apiFetch(url, options = {}, retry = true) {
 
   const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, { method: "POST", credentials: "include" });
   if (!refreshRes.ok) {
-    localStorage.removeItem("auth_access_token");
-    localStorage.removeItem("auth_user");
+    clearStoredSession();
     throw new Error("Sesion expirada");
   }
   const refreshBody = await refreshRes.json();

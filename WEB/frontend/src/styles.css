@@ -1484,6 +1484,211 @@ body {
   max-width: 1600px;
 }
 
+.sc-tardia-page {
+  --sc-bg: #f4f7fb;
+  --sc-card-border: #e6ebf2;
+  --sc-muted: #6b7280;
+  --sc-brand: #1f4e78;
+  --sc-brand-soft: #eaf2f8;
+  --sc-success-soft: #e8f5ec;
+  --sc-warning-soft: #fff6dd;
+  --sc-danger-soft: #fdeaea;
+  min-height: 100vh;
+  background: var(--sc-bg);
+  color: #172033;
+}
+
+.sc-tardia-page .sc-page-shell {
+  max-width: 1500px;
+}
+
+.sc-tardia-page .sc-navbar {
+  box-shadow: 0 2px 18px rgba(17, 24, 39, 0.08);
+}
+
+.sc-tardia-page .sc-brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #1f4e78, #2f80ed);
+  color: #fff;
+}
+
+.sc-tardia-page .sc-soft-card {
+  border: 1px solid var(--sc-card-border);
+  border-radius: 18px;
+  box-shadow: 0 8px 28px rgba(30, 41, 59, 0.06);
+}
+
+.sc-tardia-page .sc-filter-card {
+  position: sticky;
+  top: 16px;
+  z-index: 10;
+}
+
+.sc-tardia-page .sc-kpi-card {
+  min-height: 128px;
+  overflow: hidden;
+}
+
+.sc-tardia-page .sc-kpi-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  font-size: 1.25rem;
+}
+
+.sc-tardia-page .sc-kpi-caption {
+  color: var(--sc-muted);
+  font-size: 0.82rem;
+}
+
+.sc-tardia-page .nav-pills .nav-link {
+  color: #526074;
+  border: 0;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+.sc-tardia-page .nav-pills .nav-link.active {
+  background: #fff;
+  color: var(--sc-brand);
+  box-shadow: 0 5px 18px rgba(31, 78, 120, 0.12);
+}
+
+.sc-tardia-page .sc-table-modern {
+  border-collapse: separate;
+  border-spacing: 0 8px;
+}
+
+.sc-tardia-page .sc-table-modern thead th {
+  color: #6b7280;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 0;
+  white-space: nowrap;
+}
+
+.sc-tardia-page .sc-table-modern tbody tr {
+  background: #fff;
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04);
+}
+
+.sc-tardia-page .sc-table-modern tbody td {
+  border-top: 1px solid #eef1f5;
+  border-bottom: 1px solid #eef1f5;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.sc-tardia-page .sc-table-modern tbody td:first-child {
+  border-left: 1px solid #eef1f5;
+  border-radius: 12px 0 0 12px;
+}
+
+.sc-tardia-page .sc-table-modern tbody td:last-child {
+  border-right: 1px solid #eef1f5;
+  border-radius: 0 12px 12px 0;
+}
+
+.sc-tardia-page .sc-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: var(--sc-brand-soft);
+  color: var(--sc-brand);
+  font-weight: 800;
+}
+
+.sc-tardia-page .metric-chip {
+  min-width: 76px;
+  display: inline-block;
+  text-align: center;
+  padding: 0.35rem 0.55rem;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 0.82rem;
+}
+
+.sc-tardia-page .metric-success {
+  background: var(--sc-success-soft);
+  color: #177245;
+}
+
+.sc-tardia-page .metric-warning {
+  background: var(--sc-warning-soft);
+  color: #8a5b00;
+}
+
+.sc-tardia-page .metric-danger {
+  background: var(--sc-danger-soft);
+  color: #b42318;
+}
+
+.sc-tardia-page .metric-neutral {
+  background: #eef2f7;
+  color: #64748b;
+}
+
+.sc-tardia-page .sc-progress-thin {
+  height: 7px;
+  border-radius: 20px;
+  background: #eef2f7;
+}
+
+.sc-tardia-page .sc-cycle-card {
+  height: 100%;
+  border: 1px solid var(--sc-card-border);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.sc-tardia-page .sc-cycle-card:hover,
+.sc-tardia-page .sc-cycle-card.active {
+  border-color: #7aa7d4;
+  box-shadow: 0 8px 24px rgba(31, 78, 120, 0.12);
+  transform: translateY(-2px);
+}
+
+.sc-tardia-page .sc-cycle-label {
+  color: #6b7280;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sc-tardia-page .sc-section-title {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.sc-tardia-page .sc-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+@media (max-width: 991.98px) {
+  .sc-tardia-page .sc-filter-card {
+    position: static;
+  }
+
+  .sc-tardia-page .table-responsive {
+    border-radius: 14px;
+  }
+}
+
 .card {
   border: 0;
   border-radius: 0.9rem;

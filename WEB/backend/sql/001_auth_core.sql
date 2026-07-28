@@ -90,3 +90,21 @@ BEGIN
     );
 END;
 GO
+
+IF OBJECT_ID('dbo.auth_session_control', 'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.auth_session_control (
+        id INT NOT NULL CONSTRAINT PK_auth_session_control PRIMARY KEY,
+        tokens_valid_after DATETIME2 NOT NULL,
+        updated_by_user_id INT NULL,
+        updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT CK_auth_session_control_singleton CHECK (id = 1),
+        CONSTRAINT FK_auth_session_control_updated_by FOREIGN KEY (updated_by_user_id) REFERENCES dbo.users(id)
+    );
+END;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.auth_session_control WHERE id = 1)
+    INSERT INTO dbo.auth_session_control(id, tokens_valid_after, updated_by_user_id)
+    VALUES (1, CONVERT(DATETIME2, '1970-01-01T00:00:00'), NULL);
+GO

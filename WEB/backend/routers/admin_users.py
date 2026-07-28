@@ -12,6 +12,7 @@ from repositories.users_repo import (
     set_user_active,
     set_user_modules,
 )
+from repositories.session_control_repo import invalidate_all_sessions
 from schemas import CreateUserRequest, UpdateUserModulesRequest, UpdateUserStatusRequest
 from services.mail_service import send_welcome_email
 
@@ -119,4 +120,13 @@ def users_delete(user_id: int, user: dict = Depends(current_user)) -> dict:
         raise HTTPException(status_code=400, detail="Solo se permite eliminar usuarios admin por esta ruta")
     set_user_active(user_id, False)
     insert_audit(int(user["id"]), "ADMIN_DISABLE", "user", user_id, None)
+    return {"ok": True}
+
+
+@router.post("/sessions/logout-all")
+def logout_all_sessions(user: dict = Depends(current_user)) -> dict:
+    if user["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Solo super_admin")
+    invalidate_all_sessions(int(user["id"]))
+    insert_audit(int(user["id"]), "LOGOUT_ALL_USERS", "session", None, None)
     return {"ok": True}

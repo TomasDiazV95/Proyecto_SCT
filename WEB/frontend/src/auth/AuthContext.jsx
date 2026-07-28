@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { authLogin, authLogout, authRefresh } from "./apiAuth";
 
 const ACCESS_KEY = "auth_access_token";
@@ -59,6 +59,30 @@ export function AuthProvider({ children }) {
       setSession("", null);
     }
   }
+
+  useEffect(() => {
+    function handleSessionExpired() {
+      setSession("", null);
+    }
+    window.addEventListener("auth-session-expired", handleSessionExpired);
+    return () => window.removeEventListener("auth-session-expired", handleSessionExpired);
+  }, []);
+
+  useEffect(() => {
+    if (!accessToken || !user) {
+      return undefined;
+    }
+    const now = new Date();
+    const logoutAt = new Date(now);
+    logoutAt.setHours(23, 0, 0, 0);
+    if (logoutAt <= now) {
+      logoutAt.setDate(logoutAt.getDate() + 1);
+    }
+    const timerId = window.setTimeout(() => {
+      setSession("", null);
+    }, logoutAt.getTime() - now.getTime());
+    return () => window.clearTimeout(timerId);
+  }, [accessToken, user]);
 
   const value = useMemo(
     () => ({
