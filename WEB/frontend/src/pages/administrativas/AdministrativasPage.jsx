@@ -15,7 +15,7 @@ export default function AdministrativasPage() {
         <div className="col-12 col-md-6 col-xl-4">
           <div className="card shadow-sm h-100 module-card">
             <div className="card-body d-flex flex-column">
-              <h2 className="h5">Itaú</h2>
+              <h2 className="h5">Itaú Vencida</h2>
               <p className="text-muted flex-grow-1">Vista administrativa para procesos asociados a Itaú.</p>
               <Link to="/administrativas/itau" className="btn btn-info">
                 Abrir Itaú
