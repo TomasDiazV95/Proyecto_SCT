@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from auth.dependencies import require_module
 
 from schemas import ApiEnvelope, FiltersResponse
-from service import get_cycle_view, get_filter_values, get_general_view
+from services.sc_tardia_service import get_cycle_view, get_filter_values, get_general_view
 
 
 router = APIRouter(dependencies=[Depends(require_module("sc-tardia"))])

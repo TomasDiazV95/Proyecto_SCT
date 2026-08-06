@@ -133,3 +133,32 @@ Comportamiento del job:
 - Si no hay archivo nuevo en visor, termina sin cargar.
 - Si el archivo ya existe en base (`source_file`), no reprocesa.
 - Si hay archivo nuevo, lo descarga y ejecuta ETL automáticamente.
+
+---
+
+## Cierre automático de sesiones
+
+La intranet invalida sesiones de forma global usando la marca `dbo.auth_session_control.tokens_valid_after`.
+Todo token emitido antes de esa marca queda rechazado por el backend.
+
+### Cerrar todas las sesiones manualmente
+
+```bash
+WEB\backend\scripts\logout_all_users.bat
+```
+
+### Programar cierre diario a las 23:00
+
+```bash
+WEB\backend\scripts\create_logout_all_task.bat
+```
+
+Desde API, el cierre global está disponible en `POST /api/admin/sessions/logout-all` y solo puede ejecutarlo un usuario con rol `super_admin`.
+
+fetch("http://localhost:8000/api/admin/sessions/logout-all", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem("auth_access_token")}`
+  },
+  credentials: "include"
+}).then(r => r.json()).then(console.log)

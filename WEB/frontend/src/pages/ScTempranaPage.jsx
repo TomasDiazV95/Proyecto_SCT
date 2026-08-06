@@ -54,6 +54,7 @@ function dotClassByThresholds(value, thresholds) {
 
 export default function ScTempranaPage() {
   const [view, setView] = useState("ejecutivos");
+  const [executiveSubview, setExecutiveSubview] = useState("c1c2");
   const [filters, setFilters] = useState(initialFilters);
   const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [], usuarios_gestion: [] });
@@ -152,6 +153,14 @@ export default function ScTempranaPage() {
 
   const cycleDataRows = useMemo(() => cycleRows.filter((row) => row.ejecutivo !== "Total"), [cycleRows]);
   const cycleTotalRow = useMemo(() => cycleRows.find((row) => row.ejecutivo === "Total") || null, [cycleRows]);
+  const c3TotalCases = Number(cycleTotalRow?.c3_casos_base || 0);
+  const hasC3 = c3TotalCases > 350;
+
+  useEffect(() => {
+    if (!hasC3 && executiveSubview === "c3") {
+      setExecutiveSubview("c1c2");
+    }
+  }, [hasC3, executiveSubview]);
 
   const c1Thresholds = useMemo(() => {
     const values = cycleDataRows
@@ -167,6 +176,18 @@ export default function ScTempranaPage() {
   const c2Thresholds = useMemo(() => {
     const values = cycleDataRows
       .map((row) => Number(row.c2_porc_aporte || 0))
+      .filter((v) => Number.isFinite(v))
+      .sort((a, b) => a - b);
+    return {
+      p33: percentile(values, 0.33),
+      p66: percentile(values, 0.66),
+    };
+  }, [cycleDataRows]);
+
+  const c3Thresholds = useMemo(() => {
+    const values = cycleDataRows
+      .filter((row) => Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0)
+      .map((row) => Number(row.c3_porc_aporte || 0))
       .filter((v) => Number.isFinite(v))
       .sort((a, b) => a - b);
     return {
@@ -266,6 +287,7 @@ export default function ScTempranaPage() {
                     <option value="">Todos</option>
                     <option value="C1">C1</option>
                     <option value="C2">C2</option>
+                    {hasC3 && <option value="C3">C3</option>}
                   </select>
                 </div>
                 <div className="col-12 col-md-2">
@@ -303,7 +325,55 @@ export default function ScTempranaPage() {
           ) : view === "general" ? (
             <div className="text-center py-4 text-muted">Sin informacion disponible para vista general.</div>
           ) : view === "ejecutivos" ? (
-            <table className="table table-striped table-hover align-middle">
+            <>
+              {hasC3 && (
+                <div className="btn-group mb-3">
+                  <button className={`btn btn-sm btn-${executiveSubview === "c1c2" ? "primary" : "outline-primary"}`} onClick={() => setExecutiveSubview("c1c2")}>
+                    C1/C2
+                  </button>
+                  <button className={`btn btn-sm btn-${executiveSubview === "c3" ? "primary" : "outline-primary"}`} onClick={() => setExecutiveSubview("c3")}>
+                    C3
+                  </button>
+                </div>
+              )}
+              {executiveSubview === "c3" ? (
+                <table className="table table-striped table-hover align-middle">
+                  <thead>
+                    <tr>
+                      <th>Ejecutiva</th>
+                      <th>Deuda Asignada</th>
+                      <th>Monto Cont</th>
+                      <th>% Cont</th>
+                      <th>% cumplimiento</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cycleDataRows
+                      .filter((row) => Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0)
+                      .map((row) => (
+                        <tr key={`${row.ejecutivo}-c3`}>
+                          <td>{row.ejecutivo}</td>
+                          <td>{formatMoney(row.c3_deuda_asignada)}</td>
+                          <td>{formatMoney(row.c3_monto_cont)}</td>
+                          <td>{formatPct(row.c3_porc_contenido)}</td>
+                          <td className="fw-semibold">
+                            <span className={dotClassByThresholds(row.c3_porc_aporte, c3Thresholds)} /> {formatPct(row.c3_porc_aporte)}
+                          </td>
+                        </tr>
+                      ))}
+                    {cycleTotalRow && (
+                      <tr className="table-primary fw-semibold">
+                        <td>{cycleTotalRow.ejecutivo}</td>
+                        <td>{formatMoney(cycleTotalRow.c3_deuda_asignada)}</td>
+                        <td>{formatMoney(cycleTotalRow.c3_monto_cont)}</td>
+                        <td>{formatPct(cycleTotalRow.c3_porc_contenido)}</td>
+                        <td>{formatPct(cycleTotalRow.c3_porc_aporte)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="table table-striped table-hover align-middle">
               <thead>
                 <tr>
                   <th rowSpan={2}>Ejecutiva</th>
@@ -358,6 +428,8 @@ export default function ScTempranaPage() {
                 )}
               </tbody>
             </table>
+              )}
+            </>
           ) : (
             <>
               <table className="table table-striped table-hover align-middle">

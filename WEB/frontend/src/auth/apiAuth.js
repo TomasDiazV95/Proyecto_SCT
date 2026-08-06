@@ -4,19 +4,16 @@ function resolveApiBase() {
     return envBase;
   }
 
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  const devPorts = new Set(["5173", "5174"]);
-  if (devPorts.has(window.location.port)) {
-    return "";
-  }
-
-  return `${window.location.protocol}//${window.location.hostname}:8000`;
+  return "";
 }
 
 const API_BASE = resolveApiBase();
+
+function notifySessionExpired() {
+  localStorage.removeItem("auth_access_token");
+  localStorage.removeItem("auth_user");
+  window.dispatchEvent(new Event("auth-session-expired"));
+}
 
 export async function authLogin(email, password) {
   const res = await fetch(`${API_BASE}/api/auth/login`, {
@@ -38,6 +35,7 @@ export async function authRefresh() {
     credentials: "include",
   });
   if (!res.ok) {
+    notifySessionExpired();
     throw new Error("Sesion expirada");
   }
   return res.json();
@@ -48,6 +46,7 @@ export async function authMe(accessToken) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
+    notifySessionExpired();
     throw new Error("No se pudo validar sesion");
   }
   return res.json();

@@ -4,19 +4,16 @@ function resolveApiBase() {
     return envBase;
   }
 
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  const devPorts = new Set(["5173", "5174"]);
-  if (devPorts.has(window.location.port)) {
-    return "";
-  }
-
-  return `${window.location.protocol}//${window.location.hostname}:8000`;
+  return "";
 }
 
 const API_BASE = resolveApiBase();
+
+function clearStoredSession() {
+  localStorage.removeItem("auth_access_token");
+  localStorage.removeItem("auth_user");
+  window.dispatchEvent(new Event("auth-session-expired"));
+}
 
 async function apiFetch(url, options = {}, retry = true) {
   const token = localStorage.getItem("auth_access_token") || "";
@@ -31,8 +28,7 @@ async function apiFetch(url, options = {}, retry = true) {
 
   const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, { method: "POST", credentials: "include" });
   if (!refreshRes.ok) {
-    localStorage.removeItem("auth_access_token");
-    localStorage.removeItem("auth_user");
+    clearStoredSession();
     throw new Error("Sesion expirada");
   }
   const refreshBody = await refreshRes.json();
@@ -296,7 +292,8 @@ export async function fetchGmDetail(filters) {
   if (!res.ok) {
     throw new Error("No se pudo cargar el detalle de GM");
   }
-  return res.json();
+  const body = await res.json();
+  return body.data || [];
 }
 
 export async function fetchBenchFilters(filters = {}) {
@@ -427,4 +424,45 @@ export async function updateAdminUserStatus(userId, isActive) {
     throw new Error(body?.detail || "No se pudo actualizar el estado");
   }
   return body;
+}
+
+export async function fetchItauAdministrativasPeriodos() {
+  const res = await apiFetch(`${API_BASE}/api/administrativas/itau/periodos`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los periodos de Itaú");
+  }
+  return res.json();
+}
+
+async function downloadAdministrativasExcel(url, fallbackFilename) {
+  const res = await apiFetch(url);
+  const body = res.ok ? null : await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo descargar el archivo");
+  }
+  const disposition = res.headers.get("content-disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || fallbackFilename;
+  return { blob: await res.blob(), filename };
+}
+
+export async function downloadItauCuotasVencida(periodo) {
+  return downloadAdministrativasExcel(
+    withQuery(`${API_BASE}/api/administrativas/itau/cuotas/export`, { periodo }),
+    `itau_cuotas_vencida_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadItauAsignacionVencida(periodo) {
+  return downloadAdministrativasExcel(
+    withQuery(`${API_BASE}/api/administrativas/itau/asignacion/export`, { periodo }),
+    `itau_asignacion_vencida_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadItauCuotasPagadas(periodo) {
+  return downloadAdministrativasExcel(
+    withQuery(`${API_BASE}/api/administrativas/itau/cuotas-pagadas/export`, { periodo }),
+    `itau_cuotas_pagadas_${periodo || "periodo"}.xlsx`
+  );
 }

@@ -90,6 +90,8 @@ def get_cycle_view(filters: dict) -> list[dict]:
         SELECT CAST('2026-05-01' AS DATE), 'Luis Toledo', '6 a 30', CAST(26.39 AS DECIMAL(10, 2))
         UNION ALL
         SELECT CAST('2026-06-01' AS DATE), 'Erika Alderete', '6 a 30', CAST(24.16 AS DECIMAL(10, 2))
+        UNION ALL
+        SELECT CAST('2026-07-01' AS DATE), 'Erika Alderete', '6 a 30', CAST(14.44 AS DECIMAL(10, 2))
     ),
     asig AS (
         SELECT
