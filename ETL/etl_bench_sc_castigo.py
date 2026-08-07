@@ -13,10 +13,22 @@ from dotenv import load_dotenv
 def load_env_files() -> None:
     root_dir = Path(__file__).resolve().parents[1]
     load_dotenv(root_dir / ".env")
-    load_dotenv(root_dir / "ETL" / ".env")
 
 
 load_env_files()
+
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or not str(value).strip():
+        raise RuntimeError(f"Falta definir {name} en .env")
+    return str(value).strip()
+
+
+def parse_sheet_name(raw_value: str) -> int | str:
+    value = raw_value.strip()
+    return int(value) if value.isdigit() else value
+
 
 SERVER = os.getenv("DB_SERVER")
 DATABASE = os.getenv("DB_NAME")
@@ -24,9 +36,9 @@ USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
-BENCH_FOLDER = Path(os.getenv("BENCH_SC_CASTIGO_FOLDER"))
-BENCH_PATTERN = os.getenv("BENCH_SC_CASTIGO_PATTERN")
-SHEET_NAME = 0
+BENCH_FOLDER = Path(require_env("BENCH_SC_CASTIGO_FOLDER"))
+BENCH_PATTERN = require_env("BENCH_SC_CASTIGO_PATTERN")
+SHEET_NAME = parse_sheet_name(os.getenv("BENCH_SC_CASTIGO_SHEET_NAME", "0"))
 
 TABLE = "dbo.tmp_bench_SC_Castigo"
 BATCH_SIZE = 5000
@@ -319,14 +331,37 @@ def ensure_table() -> None:
         cn.commit()
 
 
-def source_file_exists(source_file: str) -> bool:
+def get_last_source_file() -> str | None:
     try:
         with connect() as cn:
             cur = cn.cursor()
-            cur.execute(f"SELECT COUNT(1) FROM {TABLE} WHERE source_file = ?", (source_file,))
-            return (cur.fetchone()[0] or 0) > 0
+            cur.execute(f"SELECT TOP (1) source_file FROM {TABLE} ORDER BY id_bench_sc_castigo DESC")
+            row = cur.fetchone()
+            if not row:
+                return None
+            return row[0]
     except pyodbc.Error:
+        return None
+
+
+def should_skip_load(current_source_file: str) -> bool:
+    last_source_file = get_last_source_file()
+    if last_source_file is None:
+        print("No hay carga previa en la tabla; se cargara el archivo actual.")
         return False
+
+    current_norm = str(current_source_file).strip().upper()
+    last_norm = str(last_source_file).strip().upper()
+
+    print(f"source_file actual: {current_source_file}")
+    print(f"ultimo source_file en BD: {last_source_file}")
+
+    if current_norm == last_norm:
+        print("El ultimo source_file coincide con el archivo actual. Se omite la carga.")
+        return True
+
+    print("El source_file es distinto al ultimo en BD. Se continuara con la carga.")
+    return False
 
 
 def value_for_insert(column: str, value: object):
@@ -392,9 +427,10 @@ def main() -> None:
     source_file = excel_path.name
 
     print(f"Archivo SC Castigo: {excel_path}")
+
     ensure_table()
 
-    if source_file_exists(source_file):
+    if should_skip_load(source_file):
         print(f"Ya cargado, se omite: {source_file}")
         return
 
