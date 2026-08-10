@@ -33,7 +33,6 @@ def cargar_env(path: Path) -> None:
         return
 
     for linea in path.read_text(encoding="utf-8").splitlines():
-
         linea = linea.strip()
 
         if not linea:
@@ -49,7 +48,7 @@ def cargar_env(path: Path) -> None:
 
         os.environ.setdefault(
             clave.strip(),
-            valor.strip(),
+            valor.strip()
         )
 
 
@@ -61,52 +60,20 @@ cargar_env(ENV_PATH)
 # VARIABLES .ENV
 # ============================================================
 
-USUARIO = os.getenv(
-    "USUARIO",
-    "",
-)
+USUARIO = os.getenv("USUARIO", "")
+CLAVE = os.getenv("CLAVE", "")
 
-CLAVE = os.getenv(
-    "CLAVE",
-    "",
-)
+GRAPH_TENANT_ID = os.getenv("GRAPH_TENANT_ID", "")
+GRAPH_CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "")
+GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "")
+VISOR_MAILBOX = os.getenv("VISOR_MAILBOX", "")
 
-GRAPH_TENANT_ID = os.getenv(
-    "GRAPH_TENANT_ID",
-    "",
-)
-
-GRAPH_CLIENT_ID = os.getenv(
-    "GRAPH_CLIENT_ID",
-    "",
-)
-
-GRAPH_CLIENT_SECRET = os.getenv(
-    "GRAPH_CLIENT_SECRET",
-    "",
-)
-
-VISOR_MAILBOX = os.getenv(
-    "VISOR_MAILBOX",
-    "",
-)
-
-
-# Espera fija antes de empezar a consultar Graph
 OTP_WAIT_SECONDS = int(
-    os.getenv(
-        "OTP_WAIT_SECONDS",
-        "60",
-    )
+    os.getenv("OTP_WAIT_SECONDS", "60")
 )
 
-# Después de la espera inicial, cuánto tiempo
-# máximo seguirá consultando Graph
 OTP_TIMEOUT_SECONDS = int(
-    os.getenv(
-        "OTP_TIMEOUT_SECONDS",
-        "180",
-    )
+    os.getenv("OTP_TIMEOUT_SECONDS", "180")
 )
 
 
@@ -118,15 +85,8 @@ CARPETA_BASE = Path(
     r"C:\Users\Analista de Datos\Desktop\SCT BENCH"
 )
 
-CARPETA_ZIP = (
-    CARPETA_BASE
-    / "zip"
-)
-
-CARPETA_EXTRAIDA = (
-    CARPETA_BASE
-    / "extraido"
-)
+CARPETA_ZIP = CARPETA_BASE / "zip"
+CARPETA_EXTRAIDA = CARPETA_BASE / "extraido"
 
 
 # ============================================================
@@ -136,45 +96,29 @@ CARPETA_EXTRAIDA = (
 DESCARGAS = [
     {
         "nombre": "BENCH CASTIGO",
-
-        "carpeta_visor":
-            "📁 BENCH CASTIGO",
-
-        "patron_archivo":
-            "BENCH CASTIGO - PHOENIX",
+        "carpeta_visor": "📁 BENCH CASTIGO",
+        "patron_archivo": "BENCH CASTIGO - PHOENIX",
     },
-
     {
         "nombre": "BENCH MORA TARDIA",
-
-        "carpeta_visor":
-            "📁 BENCH MORA TARDIA",
-
-        "patron_archivo":
-            "BENCH MORA TARDIA - PHOENIX",
+        "carpeta_visor": "📁 BENCH MORA TARDIA",
+        "patron_archivo": "BENCH MORA TARDIA - PHOENIX",
     },
-
     {
         "nombre": "BENCH MORA TEMPRANA - TELEFONIA",
-
-        "carpeta_visor":
-            "📁 BENCH MORA TEMPRANA",
-
-        "patron_archivo":
-            (
-                "BENCH MORA TEMPRANA - "
-                "PHOENIX (TELEFONIA)"
-            ),
+        "carpeta_visor": "📁 BENCH MORA TEMPRANA",
+        "patron_archivo": (
+            "BENCH MORA TEMPRANA - PHOENIX (TELEFONIA)"
+        ),
     },
 ]
 
 
 # ============================================================
-# VALIDAR CONFIGURACION
+# VALIDACIONES
 # ============================================================
 
 def validar_configuracion() -> None:
-
     variables = {
         "USUARIO": USUARIO,
         "CLAVE": CLAVE,
@@ -191,7 +135,6 @@ def validar_configuracion() -> None:
     ]
 
     if faltantes:
-
         raise RuntimeError(
             "Faltan variables en .env: "
             + ", ".join(faltantes)
@@ -203,25 +146,16 @@ def validar_configuracion() -> None:
 # ============================================================
 
 def obtener_token_graph() -> str:
-
     url = (
         "https://login.microsoftonline.com/"
-        f"{GRAPH_TENANT_ID}"
-        "/oauth2/v2.0/token"
+        f"{GRAPH_TENANT_ID}/oauth2/v2.0/token"
     )
 
     data = {
-        "client_id":
-            GRAPH_CLIENT_ID,
-
-        "client_secret":
-            GRAPH_CLIENT_SECRET,
-
-        "scope":
-            "https://graph.microsoft.com/.default",
-
-        "grant_type":
-            "client_credentials",
+        "client_id": GRAPH_CLIENT_ID,
+        "client_secret": GRAPH_CLIENT_SECRET,
+        "scope": "https://graph.microsoft.com/.default",
+        "grant_type": "client_credentials",
     }
 
     response = requests.post(
@@ -231,7 +165,6 @@ def obtener_token_graph() -> str:
     )
 
     if not response.ok:
-
         raise RuntimeError(
             "No fue posible obtener token de Graph. "
             f"HTTP {response.status_code}: "
@@ -241,39 +174,24 @@ def obtener_token_graph() -> str:
     return response.json()["access_token"]
 
 
-# ============================================================
-# HTML -> TEXTO
-# ============================================================
-
-def html_a_text(
-    contenido: str,
-) -> str:
-
+def html_a_text(contenido: str) -> str:
     if not contenido:
         return ""
 
-    contenido = html.unescape(
-        contenido
-    )
+    contenido = html.unescape(contenido)
 
     contenido = re.sub(
         r"<script.*?</script>",
         " ",
         contenido,
-        flags=(
-            re.DOTALL
-            | re.IGNORECASE
-        ),
+        flags=re.DOTALL | re.IGNORECASE,
     )
 
     contenido = re.sub(
         r"<style.*?</style>",
         " ",
         contenido,
-        flags=(
-            re.DOTALL
-            | re.IGNORECASE
-        ),
+        flags=re.DOTALL | re.IGNORECASE,
     )
 
     contenido = re.sub(
@@ -291,23 +209,8 @@ def html_a_text(
     return contenido.strip()
 
 
-# ============================================================
-# EXTRAER OTP
-# ============================================================
-
-def extraer_codigo_visor(
-    contenido: str,
-) -> str | None:
-
-    texto = html_a_text(
-        contenido
-    ).upper()
-
-    # OTP:
-    # - 8 caracteres
-    # - alfanumerico
-    # - al menos una letra
-    # - al menos un numero
+def extraer_codigo_visor(contenido: str) -> str | None:
+    texto = html_a_text(contenido).upper()
 
     patron = (
         r"\b"
@@ -329,14 +232,7 @@ def extraer_codigo_visor(
     return None
 
 
-# ============================================================
-# NORMALIZAR TEXTO
-# ============================================================
-
-def normalizar_texto(
-    texto: str,
-) -> str:
-
+def normalizar_texto(texto: str) -> str:
     return (
         texto
         .casefold()
@@ -347,10 +243,6 @@ def normalizar_texto(
         .replace("ú", "u")
     )
 
-
-# ============================================================
-# OBTENER OTP DESDE GRAPH
-# ============================================================
 
 def obtener_codigo_desde_graph(
     fecha_solicitud: datetime,
@@ -370,16 +262,12 @@ def obtener_codigo_desde_graph(
     )
 
     headers = {
-        "Authorization":
-            f"Bearer {token}",
-
-        "Accept":
-            "application/json",
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
     }
 
     params = {
         "$top": 50,
-
         "$select": (
             "id,"
             "subject,"
@@ -387,12 +275,9 @@ def obtener_codigo_desde_graph(
             "body,"
             "from"
         ),
-
-        "$orderby":
-            "receivedDateTime desc",
+        "$orderby": "receivedDateTime desc",
     }
 
-    # Margen por diferencia de reloj
     fecha_minima = (
         fecha_solicitud
         - timedelta(minutes=2)
@@ -405,14 +290,7 @@ def obtener_codigo_desde_graph(
     print("BUSCANDO CODIGO OTP")
     print("=" * 70)
 
-    intento = 0
-
-    while (
-        time.time() - inicio
-        < timeout
-    ):
-
-        intento += 1
+    while time.time() - inicio < timeout:
 
         response = requests.get(
             url,
@@ -422,7 +300,6 @@ def obtener_codigo_desde_graph(
         )
 
         if not response.ok:
-
             raise RuntimeError(
                 "Error consultando Graph. "
                 f"HTTP {response.status_code}: "
@@ -432,40 +309,26 @@ def obtener_codigo_desde_graph(
         mensajes = (
             response
             .json()
-            .get(
-                "value",
-                [],
-            )
-        )
-
-        print(
-            f"Intento {intento}: "
-            f"{len(mensajes)} correos revisados."
+            .get("value", [])
         )
 
         for mensaje in mensajes:
 
             asunto = (
                 mensaje
-                .get(
-                    "subject",
-                    "",
-                )
+                .get("subject", "")
                 .strip()
             )
 
             received_raw = (
                 mensaje
-                .get(
-                    "receivedDateTime"
-                )
+                .get("receivedDateTime")
             )
 
             if not received_raw:
                 continue
 
             try:
-
                 received = datetime.fromisoformat(
                     received_raw.replace(
                         "Z",
@@ -476,77 +339,55 @@ def obtener_codigo_desde_graph(
             except ValueError:
                 continue
 
-            # Ignorar correos antiguos
             if received < fecha_minima:
                 continue
 
-            asunto_normalizado = (
-                normalizar_texto(
-                    asunto
-                )
+            asunto_normalizado = normalizar_texto(
+                asunto
             )
 
-            # Asunto real:
-            # Código de autenticación
             if (
                 "codigo de autenticacion"
                 not in asunto_normalizado
             ):
                 continue
 
-            print(
-                "Correo de autenticacion encontrado: "
-                f"{received_raw}"
-            )
-
             body = (
                 mensaje
-                .get(
-                    "body",
-                    {},
-                )
-                .get(
-                    "content",
-                    "",
-                )
+                .get("body", {})
+                .get("content", "")
             )
 
-            codigo = (
-                extraer_codigo_visor(
-                    body
-                )
+            codigo = extraer_codigo_visor(
+                body
             )
 
             if codigo:
-
                 print(
                     "OTP encontrado correctamente."
                 )
-
-                # No imprimir el OTP
                 return codigo
 
         transcurrido = int(
-            time.time()
-            - inicio
+            time.time() - inicio
         )
 
         print(
-            "OTP todavía no disponible "
+            f"OTP todavía no disponible "
             f"({transcurrido}/{timeout}s). "
-            "Nuevo intento en 3 segundos..."
+            "Reintentando en 3 segundos..."
         )
 
         time.sleep(3)
 
     raise TimeoutError(
-        "No se encontró el código "
+        "No se encontró el código de Visor "
         f"después de {timeout} segundos."
     )
 
 
 # ============================================================
-# LIMPIAR CARPETAS
+# LIMPIEZA LOCAL
 # ============================================================
 
 def limpiar_carpeta_extraida() -> None:
@@ -556,16 +397,12 @@ def limpiar_carpeta_extraida() -> None:
         exist_ok=True,
     )
 
-    for elemento in (
-        CARPETA_EXTRAIDA.iterdir()
-    ):
+    for elemento in CARPETA_EXTRAIDA.iterdir():
 
         if elemento.is_file():
-
             elemento.unlink()
 
         elif elemento.is_dir():
-
             shutil.rmtree(
                 elemento
             )
@@ -583,19 +420,16 @@ def limpiar_carpeta_zip() -> None:
         exist_ok=True,
     )
 
-    for archivo in (
-        CARPETA_ZIP.glob(
-            "*.zip"
-        )
+    for archivo in CARPETA_ZIP.glob(
+        "*.zip"
     ):
 
         try:
             archivo.unlink()
 
         except Exception as e:
-
             print(
-                "No se pudo eliminar "
+                f"No se pudo eliminar "
                 f"{archivo.name}: {e}"
             )
 
@@ -606,20 +440,12 @@ def limpiar_carpeta_zip() -> None:
 
 
 # ============================================================
-# EXTRAER FECHA DE MODIFICACION
+# FECHAS DE LA TABLA VISOR
 # ============================================================
 
 def extraer_fecha_modificacion(
-    texto: str,
+    texto: str
 ) -> datetime | None:
-
-    """
-    Busca fechas como:
-
-    07-08-2026 08:27
-
-    y devuelve datetime.
-    """
 
     match = re.search(
         r"\b"
@@ -633,25 +459,19 @@ def extraer_fecha_modificacion(
     if not match:
         return None
 
-    fecha_texto = (
-        f"{match.group(1)} "
-        f"{match.group(2)}"
-    )
-
     try:
-
         return datetime.strptime(
-            fecha_texto,
+            f"{match.group(1)} "
+            f"{match.group(2)}",
             "%d-%m-%Y %H:%M",
         )
 
     except ValueError:
-
         return None
 
 
 # ============================================================
-# BUSCAR FILA MAS RECIENTE
+# BUSCAR EL ARCHIVO MAS RECIENTE
 # ============================================================
 
 def buscar_fila_mas_reciente(
@@ -664,8 +484,6 @@ def buscar_fila_mas_reciente(
         f"{patron_archivo}"
     )
 
-    # Todas las filas que contengan
-    # el nombre esperado
     filas = (
         frame
         .locator("tr")
@@ -676,18 +494,18 @@ def buscar_fila_mas_reciente(
 
     cantidad = filas.count()
 
-    if cantidad == 0:
+    print(
+        f"Coincidencias: {cantidad}"
+    )
 
+    if cantidad == 0:
         raise FileNotFoundError(
-            "No se encontró ningún archivo "
-            f"que contenga '{patron_archivo}'."
+            f"No se encontró '{patron_archivo}'."
         )
 
     candidatos = []
 
-    for indice in range(
-        cantidad
-    ):
+    for indice in range(cantidad):
 
         fila = filas.nth(
             indice
@@ -705,19 +523,7 @@ def buscar_fila_mas_reciente(
             )
         )
 
-        print()
-        print(
-            f"Candidato #{indice + 1}:"
-        )
-
-        print(texto)
-
         if fecha:
-
-            print(
-                "Fecha modificación: "
-                f"{fecha.strftime('%d-%m-%Y %H:%M')}"
-            )
 
             candidatos.append(
                 (
@@ -727,153 +533,110 @@ def buscar_fila_mas_reciente(
                 )
             )
 
-        else:
-
             print(
-                "No se pudo detectar "
-                "fecha de modificación."
+                f"{fecha.strftime('%d-%m-%Y %H:%M')} "
+                f"| {texto}"
             )
 
     if not candidatos:
-
         raise RuntimeError(
-            "Se encontraron archivos, "
-            "pero no fue posible detectar "
-            "la FECHA DE MODIFICACIÓN."
+            "Se encontraron filas, "
+            "pero no se pudo detectar "
+            "la fecha de modificación."
         )
 
-    # Mayor datetime = archivo más reciente
     candidatos.sort(
         key=lambda x: x[0],
         reverse=True,
     )
 
-    fecha_mas_reciente, indice, texto = (
+    fecha, indice, texto = (
         candidatos[0]
     )
 
     print()
-    print("=" * 60)
-    print("ARCHIVO MÁS RECIENTE")
-    print("=" * 60)
+    print(
+        "Archivo más reciente:"
+    )
+
     print(texto)
 
     print(
-        "Fecha: "
-        f"{fecha_mas_reciente.strftime('%d-%m-%Y %H:%M')}"
+        f"Fecha: "
+        f"{fecha.strftime('%d-%m-%Y %H:%M')}"
     )
 
-    return (
-        filas.nth(indice),
-        fecha_mas_reciente,
+    return filas.nth(
+        indice
     )
 
 
 # ============================================================
-# ABRIR EXPLORADOR
+# GUARDAR DESCARGA
 # ============================================================
 
-def abrir_explorador_archivos(
-    page,
-):
+def guardar_download(
+    download,
+    nombre_logico: str,
+) -> Path:
 
-    print()
-    print(
-        "Abriendo explorador de archivos..."
+    nombre_zip = (
+        download.suggested_filename
     )
 
-    iframe = page.locator(
-        'iframe[name="myMainFrame"]'
+    if not nombre_zip.lower().endswith(
+        ".zip"
+    ):
+        nombre_zip += ".zip"
+
+    ruta_zip = (
+        CARPETA_ZIP
+        / nombre_zip
     )
 
-    if iframe.count() > 0:
+    if ruta_zip.exists():
+        ruta_zip.unlink()
 
-        frame = (
-            iframe
-            .content_frame
-        )
-
-        if frame is not None:
-
-            page.wait_for_timeout(
-                1000
-            )
-
-            print(
-                "Explorador ya estaba abierto; "
-                "se reutiliza la misma sesion."
-            )
-
-            return frame
-
-    link_explorador = (
-        page.get_by_role(
-            "link",
-            name=re.compile(r"explorador archivos", re.IGNORECASE),
-        )
+    download.save_as(
+        str(ruta_zip)
     )
 
-    link_explorador.wait_for(
-        state="visible",
-        timeout=30000,
-    )
-
-    link_explorador.click()
-
-    iframe.wait_for(
-        state="attached",
-        timeout=30000,
-    )
-
-    frame = (
-        iframe
-        .content_frame
-    )
-
-    if frame is None:
-
+    if not ruta_zip.exists():
         raise RuntimeError(
-            "No fue posible acceder al iframe "
-            "del explorador de archivos."
+            f"No se guardó el ZIP de "
+            f"{nombre_logico}."
         )
 
-    page.wait_for_timeout(
-        1500
-    )
+    if ruta_zip.stat().st_size == 0:
+        raise RuntimeError(
+            f"ZIP vacío para "
+            f"{nombre_logico}."
+        )
 
     print(
-        "Explorador abierto correctamente."
+        f"ZIP guardado: {ruta_zip}"
     )
 
-    return frame
+    return ruta_zip
 
 
 # ============================================================
-# DESCARGAR ARCHIVO DE UNA CARPETA
+# SELECCIONAR + DESCARGAR DESDE CARPETA
 # ============================================================
 
-def descargar_archivo_carpeta(
+def descargar_desde_carpeta(
     page,
+    frame,
     configuracion: dict,
 ) -> Path:
 
-    nombre = (
-        configuracion[
-            "nombre"
-        ]
-    )
-
-    carpeta_visor = (
-        configuracion[
-            "carpeta_visor"
-        ]
-    )
-
-    patron_archivo = (
-        configuracion[
-            "patron_archivo"
-        ]
-    )
+    nombre = configuracion["nombre"]
+    carpeta_visor = configuracion[
+        "carpeta_visor"
+    ]
+    patron_archivo = configuracion[
+        "patron_archivo"
+    ]
 
     print()
     print("=" * 70)
@@ -882,20 +645,13 @@ def descargar_archivo_carpeta(
     )
     print("=" * 70)
 
-    frame = abrir_explorador_archivos(
-        page
-    )
-
     # ========================================================
-    # ENTRAR A LA CARPETA
+    # ENTRAR A CARPETA
     # ========================================================
 
-    carpeta = (
-        frame
-        .get_by_role(
-            "link",
-            name=carpeta_visor,
-        )
+    carpeta = frame.get_by_role(
+        "link",
+        name=carpeta_visor,
     )
 
     carpeta.wait_for(
@@ -905,28 +661,49 @@ def descargar_archivo_carpeta(
 
     carpeta.click()
 
-    # Dar tiempo a cargar la tabla
     page.wait_for_timeout(
         1500
     )
 
-    print(
-        f"Carpeta abierta: {nombre}"
+    # ========================================================
+    # BUSCAR FILA MAS RECIENTE
+    # ========================================================
+
+    fila = buscar_fila_mas_reciente(
+        frame,
+        patron_archivo,
     )
 
     # ========================================================
-    # BUSCAR EL ARCHIVO MAS RECIENTE
+    # DESMARCAR CHECKBOX ANTERIORES
     # ========================================================
 
-    fila, fecha = (
-        buscar_fila_mas_reciente(
-            frame,
-            patron_archivo,
+    checkboxes = frame.locator(
+        'input[type="checkbox"]'
+    )
+
+    for i in range(
+        checkboxes.count()
+    ):
+
+        checkbox_actual = (
+            checkboxes.nth(i)
         )
-    )
+
+        try:
+
+            if (
+                checkbox_actual.is_visible()
+                and checkbox_actual.is_checked()
+            ):
+
+                checkbox_actual.uncheck()
+
+        except Exception:
+            pass
 
     # ========================================================
-    # CHECKBOX DE LA FILA ELEGIDA
+    # MARCAR CHECKBOX DE LA FILA
     # ========================================================
 
     checkbox = (
@@ -938,98 +715,61 @@ def descargar_archivo_carpeta(
     )
 
     if checkbox.count() == 0:
-
         raise RuntimeError(
-            "No se encontró checkbox "
-            "para el archivo seleccionado."
+            f"No se encontró checkbox "
+            f"para {nombre}."
         )
 
-    # Desmarcar otros checkbox visibles
-    checkboxes = (
-        frame
-        .locator(
-            'input[type="checkbox"]'
-        )
-    )
-
-    for i in range(
-        checkboxes.count()
-    ):
-
-        cb = checkboxes.nth(i)
-
-        try:
-
-            if (
-                cb.is_visible()
-                and cb.is_checked()
-            ):
-
-                cb.uncheck()
-
-        except Exception:
-            pass
-
-    # Marcar SOLO el archivo elegido
     checkbox.check()
 
+    if not checkbox.is_checked():
+        raise RuntimeError(
+            f"No se pudo marcar "
+            f"{nombre}."
+        )
+
     print(
-        "Archivo seleccionado para descarga."
+        "Archivo seleccionado."
     )
 
     # ========================================================
-    # DESCARGAR ZIP
+    # DESCARGAR
     # ========================================================
+
+    boton_descarga = frame.get_by_role(
+        "button",
+        name="Descargar Archivos",
+    )
+
+    boton_descarga.wait_for(
+        state="visible",
+        timeout=30000,
+    )
+
+    print(
+        f"Descargando {nombre}..."
+    )
 
     with page.expect_download(
-        timeout=120000,
+        timeout=120000
     ) as download_info:
 
-        frame.get_by_role(
-            "button",
-            name="Descargar Archivos",
-        ).click()
+        boton_descarga.click()
 
-    download = (
-        download_info.value
-    )
-
-    nombre_zip = (
-        download
-        .suggested_filename
-    )
-
-    if not (
-        nombre_zip
-        .lower()
-        .endswith(".zip")
-    ):
-
-        nombre_zip += ".zip"
-
-    ruta_zip = (
-        CARPETA_ZIP
-        / nombre_zip
-    )
-
-    # Evitar colisión con ZIP anterior
-    if ruta_zip.exists():
-        ruta_zip.unlink()
-
-    download.save_as(
-        str(ruta_zip)
-    )
+    download = download_info.value
 
     print(
-        f"ZIP descargado: "
-        f"{ruta_zip}"
+        "Evento download recibido."
     )
 
-    return ruta_zip
+    return guardar_download(
+        download,
+        nombre,
+    )
 
 
 # ============================================================
-# EXTRAER ZIP Y ELIMINARLO
+# EXTRAER ZIP + BORRARLO
 # ============================================================
 
 def extraer_y_eliminar_zip(
@@ -1066,17 +806,10 @@ def extraer_y_eliminar_zip(
             )
 
             if archivo.is_file():
-
                 archivos_extraidos.append(
                     archivo
                 )
 
-        print(
-            f"ZIP extraído correctamente: "
-            f"{ruta_zip.name}"
-        )
-
-        # Eliminar ZIP solo si extractall terminó OK
         ruta_zip.unlink()
 
         print(
@@ -1089,15 +822,8 @@ def extraer_y_eliminar_zip(
     except Exception:
 
         print(
-            "ERROR extrayendo ZIP."
-        )
-
-        print(
-            "Se mantiene para revisión:"
-        )
-
-        print(
-            ruta_zip
+            f"Error extrayendo "
+            f"{ruta_zip}"
         )
 
         raise
@@ -1108,7 +834,7 @@ def extraer_y_eliminar_zip(
 # ============================================================
 
 def autenticar_visor(
-    page,
+    page
 ) -> None:
 
     print()
@@ -1122,12 +848,9 @@ def autenticar_visor(
         timeout=30000,
     )
 
-    # Usuario
-    campo_usuario = (
-        page.get_by_role(
-            "textbox",
-            name="Número de usuario",
-        )
+    campo_usuario = page.get_by_role(
+        "textbox",
+        name="Número de usuario",
     )
 
     campo_usuario.wait_for(
@@ -1139,27 +862,19 @@ def autenticar_visor(
         USUARIO
     )
 
-    # Clave
-    campo_clave = (
-        page.get_by_role(
-            "textbox",
-            name="Clave",
-        )
+    campo_clave = page.get_by_role(
+        "textbox",
+        name="Clave",
     )
 
     campo_clave.fill(
         CLAVE
     )
 
-    # Guardar hora ANTES de solicitar OTP
     fecha_solicitud_otp = (
         datetime.now(
             timezone.utc
         )
-    )
-
-    print(
-        "Solicitando código..."
     )
 
     page.get_by_role(
@@ -1168,13 +883,11 @@ def autenticar_visor(
     ).click()
 
     # ========================================================
-    # AVISO
+    # CERRAR MENSAJE
     # ========================================================
 
-    boton_cerrar = (
-        page.get_by_text(
-            "CERRAR"
-        )
+    boton_cerrar = page.get_by_text(
+        "CERRAR"
     )
 
     boton_cerrar.wait_for(
@@ -1185,14 +898,12 @@ def autenticar_visor(
     boton_cerrar.click()
 
     # ========================================================
-    # CAMPO OTP
+    # ESPERAR CAMPO OTP
     # ========================================================
 
-    campo_codigo = (
-        page.get_by_role(
-            "textbox",
-            name="Código de 8 caracteres",
-        )
+    campo_codigo = page.get_by_role(
+        "textbox",
+        name="Código de 8 caracteres",
     )
 
     campo_codigo.wait_for(
@@ -1201,37 +912,31 @@ def autenticar_visor(
     )
 
     # ========================================================
-    # ESPERAR CORREO
+    # ESPERA INICIAL
     # ========================================================
 
     print(
-        f"Esperando {OTP_WAIT_SECONDS} "
-        "segundos antes de consultar Graph..."
+        f"Esperando "
+        f"{OTP_WAIT_SECONDS} segundos "
+        "para recibir el correo..."
     )
 
     page.wait_for_timeout(
-        OTP_WAIT_SECONDS
-        * 1000
+        OTP_WAIT_SECONDS * 1000
     )
 
     # ========================================================
-    # OBTENER OTP
+    # GRAPH
     # ========================================================
 
-    codigo = (
-        obtener_codigo_desde_graph(
-            fecha_solicitud=(
-                fecha_solicitud_otp
-            ),
-            timeout=(
-                OTP_TIMEOUT_SECONDS
-            ),
-        )
+    codigo = obtener_codigo_desde_graph(
+        fecha_solicitud=(
+            fecha_solicitud_otp
+        ),
+        timeout=(
+            OTP_TIMEOUT_SECONDS
+        ),
     )
-
-    # ========================================================
-    # INGRESAR OTP
-    # ========================================================
 
     campo_codigo.fill(
         codigo
@@ -1242,19 +947,13 @@ def autenticar_visor(
         name="Validar código",
     ).click()
 
-    print(
-        "Código enviado."
-    )
-
     # ========================================================
-    # ESPERAR LOGIN EXITOSO
+    # ESPERAR HOME
     # ========================================================
 
-    link_explorador = (
-        page.get_by_role(
-            "link",
-            name=" explorador archivos",
-        )
+    link_explorador = page.get_by_role(
+        "link",
+        name=" explorador archivos",
     )
 
     link_explorador.wait_for(
@@ -1263,7 +962,7 @@ def autenticar_visor(
     )
 
     print(
-        "Login completado correctamente."
+        "Login completado."
     )
 
 
@@ -1272,12 +971,11 @@ def autenticar_visor(
 # ============================================================
 
 def run(
-    playwright: Playwright,
+    playwright: Playwright
 ) -> None:
 
     validar_configuracion()
 
-    # Crear carpetas
     CARPETA_ZIP.mkdir(
         parents=True,
         exist_ok=True,
@@ -1288,33 +986,18 @@ def run(
         exist_ok=True,
     )
 
-    # Limpiar SOLO una vez
     limpiar_carpeta_extraida()
     limpiar_carpeta_zip()
 
-    # ========================================================
-    # NAVEGADOR
-    # ========================================================
-
-    browser = (
-        playwright
-        .chromium
-        .launch(
-            headless=False
-        )
+    browser = playwright.chromium.launch(
+        headless=False
     )
 
-    context = (
-        browser
-        .new_context(
-            accept_downloads=True
-        )
+    context = browser.new_context(
+        accept_downloads=True
     )
 
-    page = (
-        context
-        .new_page()
-    )
+    page = context.new_page()
 
     try:
 
@@ -1327,26 +1010,13 @@ def run(
         )
 
         # ====================================================
-        # ABRIR EXPLORADOR UNA SOLA VEZ
+        # ABRIR EXPLORADOR UNA VEZ
         # ====================================================
 
-        print()
-        print(
-            "Abriendo explorador de archivos..."
-        )
-
-        link_explorador = (
-            page.get_by_role(
-                "link",
-                name=" explorador archivos",
-            )
-        )
-
-        link_explorador.click()
-
-        # ====================================================
-        # OBTENER IFRAME UNA SOLA VEZ
-        # ====================================================
+        page.get_by_role(
+            "link",
+            name=" explorador archivos",
+        ).click()
 
         iframe = page.locator(
             'iframe[name="myMainFrame"]'
@@ -1357,50 +1027,64 @@ def run(
             timeout=30000,
         )
 
-        frame = (
-            iframe
-            .content_frame
-        )
+        frame = iframe.content_frame
 
-        print(
-            "Explorador abierto correctamente."
+        if frame is None:
+            raise RuntimeError(
+                "No se pudo acceder "
+                "al iframe myMainFrame."
+            )
+
+        page.wait_for_timeout(
+            1500
         )
 
         # ====================================================
-        # DESCARGAR LOS 3 ZIP
+        # DESCARGAS
         # ====================================================
 
         zips_descargados = []
 
-        for configuracion in (
-            DESCARGAS
-        ):
+        # CASTIGO
+        zip_castigo = descargar_desde_carpeta(
+            page,
+            frame,
+            DESCARGAS[0],
+        )
 
-            ruta_zip = (
-                descargar_archivo_carpeta(
-                    page,
-                    configuracion,
-                )
-            )
+        zips_descargados.append(
+            zip_castigo
+        )
 
-            zips_descargados.append(
-                ruta_zip
-            )
+        # MORA TARDIA
+        zip_mora_tardia = descargar_desde_carpeta(
+            page,
+            frame,
+            DESCARGAS[1],
+        )
+
+        zips_descargados.append(
+            zip_mora_tardia
+        )
+
+        # MORA TEMPRANA TELEFONIA
+        zip_mora_temprana = descargar_desde_carpeta(
+            page,
+            frame,
+            DESCARGAS[2],
+        )
+
+        zips_descargados.append(
+            zip_mora_temprana
+        )
 
         # ====================================================
-        # EXTRAER LOS 3 ZIP
+        # EXTRAER TODOS
         # ====================================================
-
-        print()
-        print("=" * 70)
-        print("EXTRAYENDO ARCHIVOS")
-        print("=" * 70)
 
         archivos_finales = []
 
-        for ruta_zip in (
-            zips_descargados
-        ):
+        for ruta_zip in zips_descargados:
 
             extraidos = (
                 extraer_y_eliminar_zip(
@@ -1421,24 +1105,14 @@ def run(
         print("PROCESO COMPLETADO")
         print("=" * 70)
 
-        for archivo in (
-            archivos_finales
-        ):
-
+        for archivo in archivos_finales:
             print(
                 f"OK: {archivo.name}"
             )
 
-        print("-" * 70)
-
         print(
             f"Destino: "
             f"{CARPETA_EXTRAIDA}"
-        )
-
-        print(
-            f"Archivos extraídos: "
-            f"{len(archivos_finales)}"
         )
 
         print("=" * 70)
@@ -1447,11 +1121,13 @@ def run(
 
         try:
             context.close()
+
         except Exception:
             pass
 
         try:
             browser.close()
+
         except Exception:
             pass
 
@@ -1463,5 +1139,4 @@ def run(
 if __name__ == "__main__":
 
     with sync_playwright() as playwright:
-
         run(playwright)
