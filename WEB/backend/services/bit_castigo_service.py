@@ -248,14 +248,6 @@ WITH carterizado_unico AS (
           AND LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(50), {cart_rut}), ''))) <> ''
           {cartera_filter}
     ) src
-), dotacion AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(usuario_ejecutivo))) AS usuario,
-        nombre_ejecutivo,
-        periodo_desde,
-        periodo_hasta
-    FROM dbo.tmp_ejecutivos
-    WHERE cartera = 532
 ), metas_periodo AS (
     {meta_sql}
 ), castigo_rut AS (
@@ -285,7 +277,7 @@ WITH carterizado_unico AS (
         b.periodo,
         b.rut_key AS rut,
         COALESCE(cu.usuario, 'Phoenix') AS carterizado,
-        COALESCE(d.nombre_ejecutivo, cu.usuario, 'Phoenix') AS ejecutivo,
+        COALESCE(cu.usuario, 'Phoenix') AS ejecutivo,
         COALESCE(m.meta, 0) AS meta,
         b.total_rut AS mto_inicial,
         b.mto_recupero_final AS mto_contenido,
@@ -295,16 +287,6 @@ WITH carterizado_unico AS (
         ON cu.periodo = b.periodo
        AND cu.rut_key = b.rut_key
        AND cu.rn = 1
-    LEFT JOIN dotacion d
-        ON d.usuario = UPPER(LTRIM(RTRIM(COALESCE(cu.usuario, 'Phoenix'))))
-       AND (
-            d.periodo_desde IS NULL
-            OR d.periodo_desde <= EOMONTH(DATEFROMPARTS(CAST(LEFT(b.periodo, 4) AS INT), CAST(RIGHT(b.periodo, 2) AS INT), 1))
-       )
-       AND (
-            d.periodo_hasta IS NULL
-            OR d.periodo_hasta >= DATEFROMPARTS(CAST(LEFT(b.periodo, 4) AS INT), CAST(RIGHT(b.periodo, 2) AS INT), 1)
-       )
     LEFT JOIN metas_periodo m
         ON m.periodo = b.periodo
 )

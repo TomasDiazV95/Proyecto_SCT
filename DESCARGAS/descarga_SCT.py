@@ -33,6 +33,7 @@ def cargar_env(path: Path) -> None:
         return
 
     for linea in path.read_text(encoding="utf-8").splitlines():
+
         linea = linea.strip()
 
         if not linea:
@@ -60,22 +61,51 @@ cargar_env(ENV_PATH)
 # VARIABLES .ENV
 # ============================================================
 
-USUARIO = os.getenv("USUARIO", "")
-CLAVE = os.getenv("CLAVE", "")
-
-GRAPH_TENANT_ID = os.getenv("GRAPH_TENANT_ID", "")
-GRAPH_CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "")
-GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "")
-VISOR_MAILBOX = os.getenv("VISOR_MAILBOX", "")
-
-# Espera antes de comenzar a consultar Outlook/Graph.
-OTP_WAIT_SECONDS = int(
-    os.getenv("OTP_WAIT_SECONDS", "60")
+USUARIO = os.getenv(
+    "USUARIO",
+    ""
 )
 
-# Tiempo adicional máximo esperando OTP.
+CLAVE = os.getenv(
+    "CLAVE",
+    ""
+)
+
+GRAPH_TENANT_ID = os.getenv(
+    "GRAPH_TENANT_ID",
+    ""
+)
+
+GRAPH_CLIENT_ID = os.getenv(
+    "GRAPH_CLIENT_ID",
+    ""
+)
+
+GRAPH_CLIENT_SECRET = os.getenv(
+    "GRAPH_CLIENT_SECRET",
+    ""
+)
+
+VISOR_MAILBOX = os.getenv(
+    "VISOR_MAILBOX",
+    ""
+)
+
+
+# Espera inicial antes de revisar Graph
+OTP_WAIT_SECONDS = int(
+    os.getenv(
+        "OTP_WAIT_SECONDS",
+        "60"
+    )
+)
+
+# Tiempo máximo adicional esperando OTP
 OTP_TIMEOUT_SECONDS = int(
-    os.getenv("OTP_TIMEOUT_SECONDS", "180")
+    os.getenv(
+        "OTP_TIMEOUT_SECONDS",
+        "180"
+    )
 )
 
 
@@ -87,47 +117,96 @@ CARPETA_BASE = Path(
     r"C:\Users\Analista de Datos\Desktop\SCT BENCH"
 )
 
-CARPETA_ZIP = CARPETA_BASE / "zip"
-CARPETA_EXTRAIDA = CARPETA_BASE / "extraido"
+CARPETA_ZIP = (
+    CARPETA_BASE
+    / "zip"
+)
+
+CARPETA_EXTRAIDA = (
+    CARPETA_BASE
+    / "extraido"
+)
 
 
 # ============================================================
-# DESCARGAS
+# CONFIGURACION DESCARGAS
 # ============================================================
 
 DESCARGAS = [
     {
-        "nombre": "BENCH CASTIGO",
-        "carpeta_visor": "📁 BENCH CASTIGO",
-        "patron_archivo": "BENCH CASTIGO - PHOENIX",
+        "nombre":
+            "BENCH CASTIGO",
+
+        "carpeta_visor":
+            "📁 BENCH CASTIGO",
+
+        "patron_archivo":
+            "BENCH CASTIGO - PHOENIX",
+
+        # CASTIGO SI requiere ordenar
+        "ordenar":
+            True,
     },
+
     {
-        "nombre": "BENCH MORA TARDIA",
-        "carpeta_visor": "📁 BENCH MORA TARDIA",
-        "patron_archivo": "BENCH MORA TARDIA - PHOENIX",
+        "nombre":
+            "BENCH MORA TARDIA",
+
+        "carpeta_visor":
+            "📁 BENCH MORA TARDIA",
+
+        "patron_archivo":
+            "BENCH MORA TARDIA - PHOENIX",
+
+        # Ya viene ordenado
+        "ordenar":
+            False,
     },
+
     {
-        "nombre": "BENCH MORA TEMPRANA - TELEFONIA",
-        "carpeta_visor": "📁 BENCH MORA TEMPRANA",
-        "patron_archivo": (
-            "BENCH MORA TEMPRANA - PHOENIX (TELEFONIA)"
-        ),
+        "nombre":
+            "BENCH MORA TEMPRANA - TELEFONIA",
+
+        "carpeta_visor":
+            "📁 BENCH MORA TEMPRANA",
+
+        "patron_archivo":
+            (
+                "BENCH MORA TEMPRANA - "
+                "PHOENIX (TELEFONIA)"
+            ),
+
+        # Ya viene ordenado
+        "ordenar":
+            False,
     },
 ]
 
 
 # ============================================================
-# VALIDACION
+# VALIDAR CONFIGURACION
 # ============================================================
 
 def validar_configuracion() -> None:
+
     variables = {
-        "USUARIO": USUARIO,
-        "CLAVE": CLAVE,
-        "GRAPH_TENANT_ID": GRAPH_TENANT_ID,
-        "GRAPH_CLIENT_ID": GRAPH_CLIENT_ID,
-        "GRAPH_CLIENT_SECRET": GRAPH_CLIENT_SECRET,
-        "VISOR_MAILBOX": VISOR_MAILBOX,
+        "USUARIO":
+            USUARIO,
+
+        "CLAVE":
+            CLAVE,
+
+        "GRAPH_TENANT_ID":
+            GRAPH_TENANT_ID,
+
+        "GRAPH_CLIENT_ID":
+            GRAPH_CLIENT_ID,
+
+        "GRAPH_CLIENT_SECRET":
+            GRAPH_CLIENT_SECRET,
+
+        "VISOR_MAILBOX":
+            VISOR_MAILBOX,
     }
 
     faltantes = [
@@ -137,6 +216,7 @@ def validar_configuracion() -> None:
     ]
 
     if faltantes:
+
         raise RuntimeError(
             "Faltan variables en .env: "
             + ", ".join(faltantes)
@@ -148,16 +228,25 @@ def validar_configuracion() -> None:
 # ============================================================
 
 def obtener_token_graph() -> str:
+
     url = (
         "https://login.microsoftonline.com/"
-        f"{GRAPH_TENANT_ID}/oauth2/v2.0/token"
+        f"{GRAPH_TENANT_ID}"
+        "/oauth2/v2.0/token"
     )
 
     data = {
-        "client_id": GRAPH_CLIENT_ID,
-        "client_secret": GRAPH_CLIENT_SECRET,
-        "scope": "https://graph.microsoft.com/.default",
-        "grant_type": "client_credentials",
+        "client_id":
+            GRAPH_CLIENT_ID,
+
+        "client_secret":
+            GRAPH_CLIENT_SECRET,
+
+        "scope":
+            "https://graph.microsoft.com/.default",
+
+        "grant_type":
+            "client_credentials",
     }
 
     response = requests.post(
@@ -167,33 +256,51 @@ def obtener_token_graph() -> str:
     )
 
     if not response.ok:
+
         raise RuntimeError(
             "No fue posible obtener token de Graph. "
             f"HTTP {response.status_code}: "
             f"{response.text}"
         )
 
-    return response.json()["access_token"]
+    return response.json()[
+        "access_token"
+    ]
 
 
-def html_a_text(contenido: str) -> str:
+# ============================================================
+# HTML CORREO -> TEXTO
+# ============================================================
+
+def html_a_text(
+    contenido: str
+) -> str:
+
     if not contenido:
         return ""
 
-    contenido = html.unescape(contenido)
+    contenido = html.unescape(
+        contenido
+    )
 
     contenido = re.sub(
         r"<script.*?</script>",
         " ",
         contenido,
-        flags=re.DOTALL | re.IGNORECASE,
+        flags=(
+            re.DOTALL
+            | re.IGNORECASE
+        ),
     )
 
     contenido = re.sub(
         r"<style.*?</style>",
         " ",
         contenido,
-        flags=re.DOTALL | re.IGNORECASE,
+        flags=(
+            re.DOTALL
+            | re.IGNORECASE
+        ),
     )
 
     contenido = re.sub(
@@ -211,6 +318,10 @@ def html_a_text(contenido: str) -> str:
     return contenido.strip()
 
 
+# ============================================================
+# EXTRAER OTP
+# ============================================================
+
 def extraer_codigo_visor(
     contenido: str
 ) -> str | None:
@@ -219,8 +330,6 @@ def extraer_codigo_visor(
         contenido
     ).upper()
 
-    # 8 caracteres alfanumericos,
-    # con al menos una letra y un numero.
     patron = (
         r"\b"
         r"(?=[A-Z0-9]{8}\b)"
@@ -232,7 +341,7 @@ def extraer_codigo_visor(
 
     match = re.search(
         patron,
-        texto,
+        texto
     )
 
     if match:
@@ -240,6 +349,10 @@ def extraer_codigo_visor(
 
     return None
 
+
+# ============================================================
+# NORMALIZAR TEXTO
+# ============================================================
 
 def normalizar_texto(
     texto: str
@@ -256,6 +369,10 @@ def normalizar_texto(
     )
 
 
+# ============================================================
+# OBTENER OTP DESDE GRAPH
+# ============================================================
+
 def obtener_codigo_desde_graph(
     fecha_solicitud: datetime,
     timeout: int = 180,
@@ -265,7 +382,7 @@ def obtener_codigo_desde_graph(
 
     mailbox = quote(
         VISOR_MAILBOX,
-        safe="@.",
+        safe="@."
     )
 
     url = (
@@ -274,19 +391,25 @@ def obtener_codigo_desde_graph(
     )
 
     headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
+        "Authorization":
+            f"Bearer {token}",
+
+        "Accept":
+            "application/json",
     }
 
     params = {
         "$top": 50,
+
         "$select": (
             "id,"
             "subject,"
             "receivedDateTime,"
             "body"
         ),
-        "$orderby": "receivedDateTime desc",
+
+        "$orderby":
+            "receivedDateTime desc",
     }
 
     fecha_minima = (
@@ -301,7 +424,10 @@ def obtener_codigo_desde_graph(
     print("BUSCANDO CODIGO OTP")
     print("=" * 70)
 
-    while time.time() - inicio < timeout:
+    while (
+        time.time() - inicio
+        < timeout
+    ):
 
         response = requests.get(
             url,
@@ -311,6 +437,7 @@ def obtener_codigo_desde_graph(
         )
 
         if not response.ok:
+
             raise RuntimeError(
                 "Error consultando Graph. "
                 f"HTTP {response.status_code}: "
@@ -320,57 +447,84 @@ def obtener_codigo_desde_graph(
         mensajes = (
             response
             .json()
-            .get("value", [])
+            .get(
+                "value",
+                []
+            )
         )
 
         for mensaje in mensajes:
 
             asunto = (
                 mensaje
-                .get("subject", "")
+                .get(
+                    "subject",
+                    ""
+                )
                 .strip()
             )
 
-            received_raw = mensaje.get(
-                "receivedDateTime"
+            received_raw = (
+                mensaje
+                .get(
+                    "receivedDateTime"
+                )
             )
 
             if not received_raw:
                 continue
 
             try:
+
                 received = datetime.fromisoformat(
                     received_raw.replace(
                         "Z",
-                        "+00:00",
+                        "+00:00"
                     )
                 )
+
             except ValueError:
                 continue
 
             if received < fecha_minima:
                 continue
 
+            asunto_normalizado = (
+                normalizar_texto(
+                    asunto
+                )
+            )
+
             if (
                 "codigo de autenticacion"
-                not in normalizar_texto(asunto)
+                not in asunto_normalizado
             ):
                 continue
 
             body = (
                 mensaje
-                .get("body", {})
-                .get("content", "")
+                .get(
+                    "body",
+                    {}
+                )
+                .get(
+                    "content",
+                    ""
+                )
             )
 
-            codigo = extraer_codigo_visor(
-                body
+            codigo = (
+                extraer_codigo_visor(
+                    body
+                )
             )
 
             if codigo:
+
                 print(
                     "OTP encontrado correctamente."
                 )
+
                 return codigo
 
         transcurrido = int(
@@ -392,7 +546,7 @@ def obtener_codigo_desde_graph(
 
 
 # ============================================================
-# LIMPIEZA LOCAL
+# LIMPIAR EXTRAIDO
 # ============================================================
 
 def limpiar_carpeta_extraida() -> None:
@@ -402,12 +556,16 @@ def limpiar_carpeta_extraida() -> None:
         exist_ok=True,
     )
 
-    for elemento in CARPETA_EXTRAIDA.iterdir():
+    for elemento in (
+        CARPETA_EXTRAIDA.iterdir()
+    ):
 
         if elemento.is_file():
+
             elemento.unlink()
 
         elif elemento.is_dir():
+
             shutil.rmtree(
                 elemento
             )
@@ -418,6 +576,10 @@ def limpiar_carpeta_extraida() -> None:
     )
 
 
+# ============================================================
+# LIMPIAR ZIP
+# ============================================================
+
 def limpiar_carpeta_zip() -> None:
 
     CARPETA_ZIP.mkdir(
@@ -425,14 +587,18 @@ def limpiar_carpeta_zip() -> None:
         exist_ok=True,
     )
 
-    for archivo in CARPETA_ZIP.glob(
-        "*.zip"
+    for archivo in (
+        CARPETA_ZIP.glob(
+            "*.zip"
+        )
     ):
 
         try:
+
             archivo.unlink()
 
         except Exception as e:
+
             print(
                 f"No se pudo eliminar "
                 f"{archivo.name}: {e}"
@@ -445,147 +611,14 @@ def limpiar_carpeta_zip() -> None:
 
 
 # ============================================================
-# FECHAS
+# BUSCAR PRIMERA FILA COINCIDENTE
 # ============================================================
 
-def obtener_fecha_de_fila(
-    fila
-) -> datetime | None:
-
-    texto = fila.inner_text()
-
-    match = re.search(
-        r"(\d{2}-\d{2}-\d{4})"
-        r"\s+"
-        r"(\d{2}:\d{2})",
-        texto,
-    )
-
-    if not match:
-        return None
-
-    try:
-        return datetime.strptime(
-            f"{match.group(1)} "
-            f"{match.group(2)}",
-            "%d-%m-%Y %H:%M",
-        )
-
-    except ValueError:
-        return None
-
-
-# ============================================================
-# ORDENAR TABLA DESCENDENTE
-# ============================================================
-
-def ordenar_fecha_descendente(
-    page,
-    frame,
-) -> None:
-
-    print(
-        "Ordenando por fecha de modificación..."
-    )
-
-    boton_fecha = frame.get_by_role(
-        "button",
-        name="FECHA DE MODIFICACIÓN ↓↑",
-    )
-
-    boton_fecha.wait_for(
-        state="visible",
-        timeout=10000,
-    )
-
-    # Primer clic para ordenar.
-    boton_fecha.click()
-
-    # Espera corta para actualización del DOM.
-    page.wait_for_timeout(
-        400
-    )
-
-    filas = frame.locator("tr")
-
-    # Buscamos las dos primeras filas
-    # que realmente tengan fecha.
-    fechas = []
-
-    limite = min(
-        filas.count(),
-        8,
-    )
-
-    for i in range(limite):
-
-        fila = filas.nth(i)
-
-        fecha = obtener_fecha_de_fila(
-            fila
-        )
-
-        if fecha:
-            fechas.append(fecha)
-
-        if len(fechas) == 2:
-            break
-
-    # Si no conseguimos dos fechas,
-    # no podemos verificar la dirección.
-    if len(fechas) < 2:
-        print(
-            "No fue posible validar la dirección "
-            "del orden; se continúa."
-        )
-        return
-
-    fecha_1 = fechas[0]
-    fecha_2 = fechas[1]
-
-    # Si la primera es menor que la segunda,
-    # estamos en ascendente.
-    if fecha_1 < fecha_2:
-
-        print(
-            "Orden ascendente detectado. "
-            "Cambiando a descendente..."
-        )
-
-        boton_fecha.click()
-
-        page.wait_for_timeout(
-            400
-        )
-
-    else:
-        print(
-            "Orden descendente confirmado."
-        )
-
-
-# ============================================================
-# BUSCAR ULTIMO ARCHIVO
-# ============================================================
-
-def buscar_fila_mas_reciente(
-    page,
+def buscar_primera_fila(
     frame,
     patron_archivo: str,
 ):
 
-    # Ordenamos la tabla primero.
-    ordenar_fecha_descendente(
-        page,
-        frame,
-    )
-
-    print(
-        f"Buscando: {patron_archivo}"
-    )
-
-    # Como ya está ordenada de nuevo a viejo,
-    # solo necesitamos la primera coincidencia.
     filas = (
         frame
         .locator("tr")
@@ -594,46 +627,29 @@ def buscar_fila_mas_reciente(
         )
     )
 
-    # Esperamos una coincidencia real.
+    fila = (
+        filas.first
+    )
+
     try:
-        filas.first.wait_for(
+
+        fila.wait_for(
             state="visible",
             timeout=10000,
         )
-    except Exception:
+
+    except Exception as e:
+
         raise FileNotFoundError(
-            f"No se encontró '{patron_archivo}'."
-        )
-
-    fila = filas.first
-
-    texto = (
-        fila
-        .inner_text()
-        .strip()
-    )
-
-    fecha = obtener_fecha_de_fila(
-        fila
-    )
-
-    print(
-        "Archivo seleccionado:"
-    )
-
-    print(texto)
-
-    if fecha:
-        print(
-            f"Fecha modificación: "
-            f"{fecha.strftime('%d-%m-%Y %H:%M')}"
-        )
+            f"No se encontró "
+            f"'{patron_archivo}'."
+        ) from e
 
     return fila
 
 
 # ============================================================
-# GUARDAR DOWNLOAD
+# GUARDAR DESCARGA
 # ============================================================
 
 def guardar_download(
@@ -646,9 +662,12 @@ def guardar_download(
         .suggested_filename
     )
 
-    if not nombre_zip.lower().endswith(
-        ".zip"
+    if not (
+        nombre_zip
+        .lower()
+        .endswith(".zip")
     ):
+
         nombre_zip += ".zip"
 
     ruta_zip = (
@@ -657,6 +676,7 @@ def guardar_download(
     )
 
     if ruta_zip.exists():
+
         ruta_zip.unlink()
 
     download.save_as(
@@ -664,19 +684,25 @@ def guardar_download(
     )
 
     if not ruta_zip.exists():
+
         raise RuntimeError(
             f"No se guardó el ZIP de "
             f"{nombre_logico}."
         )
 
-    if ruta_zip.stat().st_size == 0:
+    if (
+        ruta_zip.stat().st_size
+        == 0
+    ):
+
         raise RuntimeError(
             f"ZIP vacío para "
             f"{nombre_logico}."
         )
 
     print(
-        f"ZIP guardado: {ruta_zip}"
+        f"ZIP guardado: "
+        f"{ruta_zip}"
     )
 
     print(
@@ -697,13 +723,31 @@ def descargar_desde_carpeta(
     configuracion: dict,
 ) -> Path:
 
-    nombre = configuracion["nombre"]
-    carpeta_visor = configuracion[
-        "carpeta_visor"
-    ]
-    patron_archivo = configuracion[
-        "patron_archivo"
-    ]
+    nombre = (
+        configuracion[
+            "nombre"
+        ]
+    )
+
+    carpeta_visor = (
+        configuracion[
+            "carpeta_visor"
+        ]
+    )
+
+    patron_archivo = (
+        configuracion[
+            "patron_archivo"
+        ]
+    )
+
+    ordenar = (
+        configuracion
+        .get(
+            "ordenar",
+            False
+        )
+    )
 
     print()
     print("=" * 70)
@@ -716,9 +760,12 @@ def descargar_desde_carpeta(
     # ABRIR CARPETA
     # ========================================================
 
-    carpeta = frame.get_by_role(
-        "link",
-        name=carpeta_visor,
+    carpeta = (
+        frame
+        .get_by_role(
+            "link",
+            name=carpeta_visor,
+        )
     )
 
     carpeta.wait_for(
@@ -728,48 +775,117 @@ def descargar_desde_carpeta(
 
     carpeta.click()
 
-    # En vez de sleep(1500), esperamos
-    # directamente a que aparezca una fila.
-    frame.locator("tr").first.wait_for(
+    # ========================================================
+    # ESPERAR TABLA
+    # ========================================================
+
+    frame.locator(
+        "tr"
+    ).first.wait_for(
         state="visible",
         timeout=10000,
     )
 
-    # ========================================================
-    # ENCONTRAR ULTIMO ARCHIVO
-    # ========================================================
-
-    fila = buscar_fila_mas_reciente(
-        page,
-        frame,
-        patron_archivo,
+    print(
+        f"Carpeta abierta: "
+        f"{nombre}"
     )
 
     # ========================================================
-    # DESMARCAR CHECKBOX ANTERIORES
+    # ORDENAR SOLO SI CORRESPONDE
     # ========================================================
 
-    checkboxes_marcados = frame.locator(
-        'input[type="checkbox"]:checked'
+    if ordenar:
+
+        print(
+            "Ordenando por "
+            "FECHA DE MODIFICACIÓN..."
+        )
+
+        boton_fecha = (
+            frame
+            .get_by_role(
+                "button",
+                name="FECHA DE MODIFICACIÓN ↓↑",
+            )
+        )
+
+        boton_fecha.wait_for(
+            state="visible",
+            timeout=10000,
+        )
+
+        boton_fecha.click()
+
+        # Pequeña espera para que
+        # la tabla cambie de orden
+        page.wait_for_timeout(
+            500
+        )
+
+        print(
+            "Tabla ordenada."
+        )
+
+    else:
+
+        print(
+            "No se modifica el orden "
+            "de esta carpeta."
+        )
+
+    # ========================================================
+    # TOMAR PRIMER ARCHIVO COINCIDENTE
+    # ========================================================
+
+    fila = (
+        buscar_primera_fila(
+            frame,
+            patron_archivo,
+        )
     )
 
-    cantidad_marcados = (
-        checkboxes_marcados.count()
+    texto_archivo = (
+        fila
+        .inner_text()
+        .strip()
     )
 
-    for i in range(
-        cantidad_marcados
+    print()
+    print(
+        "SE DESCARGARA:"
+    )
+
+    print(
+        texto_archivo
+    )
+
+    # ========================================================
+    # DESMARCAR CUALQUIER CHECKBOX ANTERIOR
+    # ========================================================
+
+    marcados = (
+        frame
+        .locator(
+            'input[type="checkbox"]:checked'
+        )
+    )
+
+    while (
+        marcados.count()
+        > 0
     ):
 
         try:
-            checkboxes_marcados.nth(
-                0
-            ).uncheck()
+
+            marcados.first.uncheck()
+
         except Exception:
+
             break
 
     # ========================================================
-    # MARCAR CHECKBOX CORRECTO
+    # MARCAR CHECKBOX DE LA FILA
     # ========================================================
 
     checkbox = (
@@ -788,22 +904,36 @@ def descargar_desde_carpeta(
     checkbox.check()
 
     if not checkbox.is_checked():
+
         raise RuntimeError(
             f"No fue posible seleccionar "
             f"{nombre}."
         )
 
     print(
-        "Archivo seleccionado."
+        "Checkbox seleccionado."
+    )
+
+    print(
+        "Fila seleccionada:"
+    )
+
+    print(
+        fila
+        .inner_text()
+        .strip()
     )
 
     # ========================================================
-    # DESCARGAR
+    # BOTON DESCARGA
     # ========================================================
 
-    boton_descarga = frame.get_by_role(
-        "button",
-        name="Descargar Archivos",
+    boton_descarga = (
+        frame
+        .get_by_role(
+            "button",
+            name="Descargar Archivos",
+        )
     )
 
     boton_descarga.wait_for(
@@ -812,8 +942,13 @@ def descargar_desde_carpeta(
     )
 
     print(
-        f"Descargando {nombre}..."
+        f"Descargando "
+        f"{nombre}..."
     )
+
+    # ========================================================
+    # DESCARGAR
+    # ========================================================
 
     with page.expect_download(
         timeout=120000
@@ -836,15 +971,17 @@ def descargar_desde_carpeta(
 
 
 # ============================================================
-# EXTRAER ZIP
+# EXTRAER Y BORRAR ZIP
 # ============================================================
 
 def extraer_y_eliminar_zip(
     ruta_zip: Path,
 ) -> list[Path]:
 
+    print()
     print(
-        f"Extrayendo: {ruta_zip.name}"
+        f"Extrayendo: "
+        f"{ruta_zip.name}"
     )
 
     try:
@@ -854,7 +991,9 @@ def extraer_y_eliminar_zip(
             "r",
         ) as zip_ref:
 
-            nombres = zip_ref.namelist()
+            nombres = (
+                zip_ref.namelist()
+            )
 
             zip_ref.extractall(
                 CARPETA_EXTRAIDA
@@ -875,6 +1014,8 @@ def extraer_y_eliminar_zip(
                     archivo
                 )
 
+        # Borrar ZIP solo después
+        # de extracción exitosa
         ruta_zip.unlink()
 
         print(
@@ -889,6 +1030,11 @@ def extraer_y_eliminar_zip(
         print(
             f"Error extrayendo "
             f"{ruta_zip}"
+        )
+
+        print(
+            "El ZIP se conserva "
+            "para revisión."
         )
 
         raise
@@ -917,9 +1063,12 @@ def autenticar_visor(
     # USUARIO
     # ========================================================
 
-    campo_usuario = page.get_by_role(
-        "textbox",
-        name="Número de usuario",
+    campo_usuario = (
+        page
+        .get_by_role(
+            "textbox",
+            name="Número de usuario",
+        )
     )
 
     campo_usuario.wait_for(
@@ -935,9 +1084,12 @@ def autenticar_visor(
     # CLAVE
     # ========================================================
 
-    campo_clave = page.get_by_role(
-        "textbox",
-        name="Clave",
+    campo_clave = (
+        page
+        .get_by_role(
+            "textbox",
+            name="Clave",
+        )
     )
 
     campo_clave.fill(
@@ -963,8 +1115,11 @@ def autenticar_visor(
     # CERRAR AVISO
     # ========================================================
 
-    boton_cerrar = page.get_by_text(
-        "CERRAR"
+    boton_cerrar = (
+        page
+        .get_by_text(
+            "CERRAR"
+        )
     )
 
     boton_cerrar.wait_for(
@@ -978,9 +1133,12 @@ def autenticar_visor(
     # CAMPO OTP
     # ========================================================
 
-    campo_codigo = page.get_by_role(
-        "textbox",
-        name="Código de 8 caracteres",
+    campo_codigo = (
+        page
+        .get_by_role(
+            "textbox",
+            name="Código de 8 caracteres",
+        )
     )
 
     campo_codigo.wait_for(
@@ -989,33 +1147,37 @@ def autenticar_visor(
     )
 
     # ========================================================
-    # ESPERA INICIAL OTP
+    # ESPERA INICIAL
     # ========================================================
 
     print(
-        f"Esperando {OTP_WAIT_SECONDS} "
-        "segundos para recibir el correo..."
+        f"Esperando "
+        f"{OTP_WAIT_SECONDS} segundos "
+        "para recibir el correo..."
     )
 
     page.wait_for_timeout(
-        OTP_WAIT_SECONDS * 1000
+        OTP_WAIT_SECONDS
+        * 1000
     )
 
     # ========================================================
     # GRAPH
     # ========================================================
 
-    codigo = obtener_codigo_desde_graph(
-        fecha_solicitud=(
-            fecha_solicitud_otp
-        ),
-        timeout=(
-            OTP_TIMEOUT_SECONDS
-        ),
+    codigo = (
+        obtener_codigo_desde_graph(
+            fecha_solicitud=(
+                fecha_solicitud_otp
+            ),
+            timeout=(
+                OTP_TIMEOUT_SECONDS
+            ),
+        )
     )
 
     # ========================================================
-    # VALIDAR CODIGO
+    # VALIDAR OTP
     # ========================================================
 
     campo_codigo.fill(
@@ -1031,9 +1193,12 @@ def autenticar_visor(
     # ESPERAR HOME
     # ========================================================
 
-    link_explorador = page.get_by_role(
-        "link",
-        name=" explorador archivos",
+    link_explorador = (
+        page
+        .get_by_role(
+            "link",
+            name=" explorador archivos",
+        )
     )
 
     link_explorador.wait_for(
@@ -1056,6 +1221,10 @@ def run(
 
     validar_configuracion()
 
+    # ========================================================
+    # CARPETAS
+    # ========================================================
+
     CARPETA_ZIP.mkdir(
         parents=True,
         exist_ok=True,
@@ -1066,19 +1235,33 @@ def run(
         exist_ok=True,
     )
 
-    # Limpiar una sola vez.
+    # Limpiar una sola vez al inicio
     limpiar_carpeta_extraida()
     limpiar_carpeta_zip()
 
-    browser = playwright.chromium.launch(
-        headless=False
+    # ========================================================
+    # NAVEGADOR
+    # ========================================================
+
+    browser = (
+        playwright
+        .chromium
+        .launch(
+            headless=False
+        )
     )
 
-    context = browser.new_context(
-        accept_downloads=True
+    context = (
+        browser
+        .new_context(
+            accept_downloads=True
+        )
     )
 
-    page = context.new_page()
+    page = (
+        context
+        .new_page()
+    )
 
     try:
 
@@ -1091,22 +1274,33 @@ def run(
         )
 
         # ====================================================
-        # ABRIR EXPLORADOR UNA SOLA VEZ
+        # ABRIR EXPLORADOR UNA VEZ
         # ====================================================
 
+        print()
         print(
             "Abriendo explorador..."
         )
 
-        link_explorador = page.get_by_role(
-            "link",
-            name=" explorador archivos",
+        link_explorador = (
+            page
+            .get_by_role(
+                "link",
+                name=" explorador archivos",
+            )
         )
 
         link_explorador.click()
 
-        iframe = page.locator(
-            'iframe[name="myMainFrame"]'
+        # ====================================================
+        # IFRAME
+        # ====================================================
+
+        iframe = (
+            page
+            .locator(
+                'iframe[name="myMainFrame"]'
+            )
         )
 
         iframe.wait_for(
@@ -1114,16 +1308,21 @@ def run(
             timeout=30000,
         )
 
-        frame = iframe.content_frame
+        frame = (
+            iframe
+            .content_frame
+        )
 
         if frame is None:
+
             raise RuntimeError(
                 "No fue posible acceder "
                 "al iframe myMainFrame."
             )
 
-        # Esperar contenido real.
-        frame.locator("body").wait_for(
+        frame.locator(
+            "body"
+        ).wait_for(
             state="visible",
             timeout=10000,
         )
@@ -1133,17 +1332,32 @@ def run(
         )
 
         # ====================================================
-        # DESCARGAR
+        # DESCARGAS
         # ====================================================
 
         zips_descargados = []
 
-        for configuracion in DESCARGAS:
+        for (
+            indice,
+            configuracion
+        ) in enumerate(
+            DESCARGAS,
+            start=1,
+        ):
 
-            ruta_zip = descargar_desde_carpeta(
-                page,
-                frame,
-                configuracion,
+            print()
+            print(
+                f"DESCARGA "
+                f"{indice}/"
+                f"{len(DESCARGAS)}"
+            )
+
+            ruta_zip = (
+                descargar_desde_carpeta(
+                    page,
+                    frame,
+                    configuracion,
+                )
             )
 
             zips_descargados.append(
@@ -1161,7 +1375,9 @@ def run(
 
         archivos_finales = []
 
-        for ruta_zip in zips_descargados:
+        for ruta_zip in (
+            zips_descargados
+        ):
 
             extraidos = (
                 extraer_y_eliminar_zip(
@@ -1182,10 +1398,13 @@ def run(
         print("PROCESO COMPLETADO")
         print("=" * 70)
 
-        for archivo in archivos_finales:
+        for archivo in (
+            archivos_finales
+        ):
 
             print(
-                f"OK: {archivo.name}"
+                f"OK: "
+                f"{archivo.name}"
             )
 
         print("-" * 70)
@@ -1205,13 +1424,19 @@ def run(
     finally:
 
         try:
+
             context.close()
+
         except Exception:
+
             pass
 
         try:
+
             browser.close()
+
         except Exception:
+
             pass
 
 
@@ -1222,4 +1447,5 @@ def run(
 if __name__ == "__main__":
 
     with sync_playwright() as playwright:
+
         run(playwright)
