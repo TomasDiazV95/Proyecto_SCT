@@ -9,6 +9,8 @@ class FiltersResponse(BaseModel):
     aperturas: list[str]
     ejecutivos: list[str]
     zonas: list[str]
+    negocios: list[str] = []
+    segmentos: list[str] = []
 
 
 class GeneralRow(BaseModel):
