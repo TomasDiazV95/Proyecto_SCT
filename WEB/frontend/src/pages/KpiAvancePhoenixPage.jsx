@@ -33,6 +33,8 @@ const SERIES_COLORS = [
   "#c084fc",
 ];
 
+const MAX_COMPARE_MONTHS = 2;
+
 function sortPeriods(periodos) {
   return Array.from(new Set(periodos || [])).sort((a, b) =>
     String(b).localeCompare(String(a)),
@@ -41,6 +43,14 @@ function sortPeriods(periodos) {
 
 function formatPct(value) {
   return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function formatDifference(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return "N/D";
+  }
+  return `${number >= 0 ? "+" : ""}${number.toFixed(1)} pp`;
 }
 
 function formatMonthLabel(periodo) {
@@ -99,7 +109,7 @@ function MonthPicker({ options, value, onChange, disabled }) {
     const next = new Set(selected);
     if (next.has(periodo)) {
       next.delete(periodo);
-    } else {
+    } else if (selected.size < MAX_COMPARE_MONTHS) {
       next.add(periodo);
     }
     onChange(options.filter((item) => next.has(item)));
@@ -107,9 +117,6 @@ function MonthPicker({ options, value, onChange, disabled }) {
 
   return (
     <div className="phoenix-month-picker">
-      <div className="phoenix-month-actions">
-
-      </div>
       <div className="phoenix-month-options" aria-label="Meses a comparar">
         {options.map((periodo) => (
           <label key={periodo} className="phoenix-month-option">
@@ -117,7 +124,10 @@ function MonthPicker({ options, value, onChange, disabled }) {
               type="checkbox"
               checked={selected.has(periodo)}
               onChange={() => toggle(periodo)}
-              disabled={disabled}
+              disabled={
+                disabled ||
+                (!selected.has(periodo) && selected.size >= MAX_COMPARE_MONTHS)
+              }
             />
             <span>{formatMonthLabel(periodo)}</span>
           </label>
@@ -199,8 +209,21 @@ function PhoenixComparisonChart({ series }) {
             return point ? { ...item, point } : null;
           })
           .filter(Boolean);
+  const comparison = (() => {
+    if (hoveredRows.length !== MAX_COMPARE_MONTHS) {
+      return null;
+    }
+    const orderedRows = [...hoveredRows].sort((a, b) =>
+      String(a.periodo).localeCompare(String(b.periodo)),
+    );
+    const previousValue = Number(orderedRows[0].point.cumplimiento);
+    const currentValue = Number(orderedRows[1].point.cumplimiento);
+    const difference = currentValue - previousValue;
+    return Number.isFinite(difference) ? { difference } : null;
+  })();
   const tooltipWidth = 280;
-  const tooltipHeight = 60 + hoveredRows.length * 36;
+  const tooltipHeight =
+    60 + hoveredRows.length * 36 + (comparison ? 28 : 0);
   const tooltipX =
     hoveredX === null
       ? 0
@@ -253,6 +276,7 @@ function PhoenixComparisonChart({ series }) {
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
         className="phoenix-chart-svg"
         role="img"
         aria-label="Comparación de cumplimiento de Phoenix por día hábil"
@@ -405,6 +429,29 @@ function PhoenixComparisonChart({ series }) {
                   </g>
                 );
               })}
+              {comparison && (
+                <g>
+                  <text
+                    x="14"
+                    y={58 + hoveredRows.length * 36}
+                    className="phoenix-tooltip-difference-label"
+                  >
+                    Diferencia vs mes anterior
+                  </text>
+                  <text
+                    x={tooltipWidth - 14}
+                    y={58 + hoveredRows.length * 36}
+                    textAnchor="end"
+                    className={`phoenix-tooltip-difference-value ${
+                      comparison.difference >= 0
+                        ? "phoenix-tooltip-difference-positive"
+                        : "phoenix-tooltip-difference-negative"
+                    }`}
+                  >
+                    {formatDifference(comparison.difference)}
+                  </text>
+                </g>
+              )}
             </g>
           </g>
         )}
@@ -469,8 +516,8 @@ export default function KpiAvancePhoenixPage() {
             availablePeriodos.includes(periodo),
           );
           const nextPeriodos = validPeriodos.length
-            ? validPeriodos
-            : availablePeriodos.slice(0, 2);
+            ? validPeriodos.slice(0, MAX_COMPARE_MONTHS)
+            : availablePeriodos.slice(0, MAX_COMPARE_MONTHS);
           const negocioChanged = nextNegocio !== previous.negocio;
           const nextSegmento = negocioChanged
             ? ""

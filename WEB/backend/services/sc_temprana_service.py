@@ -15,7 +15,7 @@ USER_TO_NAME = {
     "SFUENTES": "Sandra Fuentes",
     "MCOLMENARES": "Marlexis Colmenares",
     "PALTAMIRANO": "Paula Altamirano",
-    "RCARRASCO": "Rocio Calderon",
+    "RCALDERON": "Rocio Calderon",
 }
 
 USER_ORDER = [
@@ -28,7 +28,7 @@ USER_ORDER = [
     "SFUENTES",
     "MCOLMENARES",
     "PALTAMIRANO",
-    "RCARRASCO",
+    "RCALDERON",
 ]
 
 
@@ -181,7 +181,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
         'SFUENTES',
         'MCOLMENARES',
         'PALTAMIRANO',
-        'RCARRASCO'
+        'RCALDERON'
     )
       AND b.fld_TRAMO_MORA IN ('C1', 'C2', 'C3')
       AND b.fld_fecha = ?

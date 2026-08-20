@@ -346,7 +346,14 @@ def refresh_workbook_cache(path: Path) -> None:
 def clean_string(value: object) -> str | None:
     if value is None:
         return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     text = str(value).strip()
+    if text.lower() in {"nan", "nat", "none"}:
+        return None
     return text or None
 
 
@@ -362,6 +369,11 @@ def parse_date(value: object) -> date | None:
 def parse_percentage(value: object, number_format: str | None = None) -> float | None:
     if value is None:
         return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     if isinstance(value, bool):
         return None
 
@@ -402,7 +414,7 @@ def parse_business_day(value: object) -> int | None:
         return None
     try:
         return int(float(str(cleaned).replace(",", ".")))
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
 
 
@@ -416,6 +428,15 @@ def nullable_float(value: object) -> float | None:
     if value is None or pd.isna(value):
         return None
     return float(value)
+
+
+def nullable_int(value: object) -> int | None:
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def spanish_month_name(month: int) -> str:
@@ -730,7 +751,7 @@ def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int, int]:
             row["fecha"],
             int(row["anio"]),
             row["mes"],
-            int(row["dia_habil"]) if row.get("dia_habil") is not None else None,
+            nullable_int(row.get("dia_habil")),
             row["negocio"],
             row["segmento"],
             row["empresa"],
@@ -1014,7 +1035,7 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
         emit_payload(payload)
         return 0
     except Exception as exc:
-        logging.error("Fallo ETL BENCH: %s", exc)
+        logging.exception("Fallo ETL BENCH: %s", exc)
         payload = build_summary_payload(
             success=False,
             status="error",
