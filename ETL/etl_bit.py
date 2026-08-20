@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
 CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
 CARTERIZADO_TABLE = "dbo.tmp_BIT_carterizado"
+DEFAULT_BIT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\AUTOMATIZACION\BIT")
+DEFAULT_CARTERIZADO_FILENAME = "CARTERIZADO.xlsx"
 CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6}|\d{8})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
 CONTENCION_PATTERN = re.compile(r"^Seguimiento_Metas_PHOENIX_(\d{8})\.xlsx$", re.IGNORECASE)
 CASTIGO_NUMERIC_COLUMNS = {"MTO_RECUPERO_FINAL", "GC_CASTIGO"}
@@ -85,7 +87,7 @@ def connect() -> pyodbc.Connection:
         f"Uid={user};"
         f"Pwd={password};"
         "TrustServerCertificate=yes;"
-        "Encrypt=yes;"
+        "Encrypt=no;"
     )
     return pyodbc.connect(conn_str)
 
@@ -433,6 +435,20 @@ def get_table_columns(cur: pyodbc.Cursor, table_name: str) -> set[str]:
     return {str(row[0]).upper() for row in cur.fetchall()}
 
 
+def is_table_column_nullable(cur: pyodbc.Cursor, table_name: str, column_name: str) -> bool:
+    schema, table = split_table_name(table_name)
+    cur.execute(
+        """
+        SELECT IS_NULLABLE
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND UPPER(COLUMN_NAME) = UPPER(?)
+        """,
+        (schema, table, column_name),
+    )
+    row = cur.fetchone()
+    return bool(row and str(row[0]).strip().upper() == "YES")
+
+
 def sanitize_excel_columns(excel_columns: list[str]) -> list[str]:
     clean_columns = []
     for col in excel_columns:
@@ -591,30 +607,15 @@ def resolve_castigo_source(folder: Path) -> tuple[Path, str, str]:
 
 
 def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
-    if file_path:
-        xlsx = Path(file_path)
-        if not xlsx.exists():
-            raise FileNotFoundError(f"No existe archivo: {xlsx}")
-        cont = load_sheet(xlsx, "CONTENCION")
-        cart = load_sheet(xlsx, "CARTERIZADO")
-        cont_period = extract_contencion_period(xlsx.name) if CONTENCION_PATTERN.match(xlsx.name) else None
-        return BitSources(
-            cont=cont,
-            cart=cart,
-            cont_source_file=xlsx.name,
-            cart_source_file=xlsx.name,
-            cont_period=cont_period,
-        )
-
     if folder_path:
         folder = Path(folder_path)
         if not folder.exists():
             raise FileNotFoundError(f"No existe carpeta: {folder}")
         cont_path = find_unique_file(folder, "Seguimiento_Metas_PHOENIX_*.xlsx", "contencion", required=True)
-        cart_path = folder / "CARTERIZADO.xlsx"
+        cart_path = folder / DEFAULT_CARTERIZADO_FILENAME
         if not cont_path.exists() or not cart_path.exists():
             raise FileNotFoundError(
-                "En la carpeta deben existir un archivo Seguimiento_Metas_PHOENIX_*.xlsx y CARTERIZADO.xlsx"
+                f"En la carpeta deben existir un archivo Seguimiento_Metas_PHOENIX_*.xlsx y {DEFAULT_CARTERIZADO_FILENAME}"
             )
 
         cont_source_name = cont_path.name
@@ -649,6 +650,21 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
             castigo=castigo_df,
             castigo_source_file=castigo_source_file,
             castigo_period=castigo_period,
+        )
+
+    if file_path:
+        xlsx = Path(file_path)
+        if not xlsx.exists():
+            raise FileNotFoundError(f"No existe archivo: {xlsx}")
+        cont = load_sheet(xlsx, "CONTENCION")
+        cart = load_sheet(xlsx, "CARTERIZADO")
+        cont_period = extract_contencion_period(xlsx.name) if CONTENCION_PATTERN.match(xlsx.name) else None
+        return BitSources(
+            cont=cont,
+            cart=cart,
+            cont_source_file=xlsx.name,
+            cart_source_file=xlsx.name,
+            cont_period=cont_period,
         )
 
     raise RuntimeError("Debes indicar --file o --folder")
@@ -739,18 +755,26 @@ def insert_dynamic_sheet(
     skipped_rows = 0
     for _, row in df.iterrows():
         if skip_null_column and clean_cell(row.get(skip_null_column)) is None:
-            skipped_rows += 1
-            continue
+            if table_name == CARTERIZADO_TABLE and skip_null_column == "NRO_OPERACION":
+                pass
+            else:
+                skipped_rows += 1
+                continue
 
         out = [periodo]
         if include_source_file:
             out.append(source_file)
         for col in excel_columns:
             value = row.get(col)
-            if col.upper() in numeric_columns:
-                out.append(soft_decimal(value))
+            if table_name == CARTERIZADO_TABLE and col.upper() == "NRO_OPERACION":
+                cleaned_value = clean_cell(value)
+                out.append("" if cleaned_value is None else cleaned_value)
+                continue
             else:
-                out.append(clean_cell(value))
+                if col.upper() in numeric_columns:
+                    out.append(soft_decimal(value))
+                else:
+                    out.append(clean_cell(value))
         rows.append(tuple(out))
 
     if rows:
@@ -813,14 +837,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Carga ETL BIT")
     parser.add_argument("--file", required=False, help="Ruta del Excel SEGUIMIENTO BIT")
     parser.add_argument(
-        "--folder",
-        required=False,
-        help="Carpeta con Seguimiento_Metas_PHOENIX_*.xlsx, CARTERIZADO.xlsx y Detalle_Recuperos_Castigo_*.xlsx",
-    )
-    parser.add_argument(
         "--periodo",
         required=False,
         help="Periodo YYYY-MM solo para contencion/carterizado. Si se omite, se infiere del nombre del archivo.",
     )
     args = parser.parse_args()
-    run(args.periodo, args.file, args.folder)
+    run(args.periodo, args.file, str(DEFAULT_BIT_FOLDER))
