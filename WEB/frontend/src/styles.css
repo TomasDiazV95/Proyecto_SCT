@@ -1042,16 +1042,24 @@ body {
 }
 
 .phoenix-kpi-page {
-  width: 100vw;
-  min-width: 100vw;
-  min-height: 100vh;
+  width: 100%;
+  min-width: 0;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  max-height: 100dvh;
   max-width: none;
   margin-right: 0;
   margin-left: 0;
+  padding: clamp(8px, 1.6vh, 20px) clamp(8px, 1.2vw, 20px) !important;
+  display: flex;
+  flex-direction: column;
   position: relative;
   overflow: hidden;
   color: #e2e8f0;
   background: #0b1524;
+  border-right: 2px solid rgba(148, 163, 184, 0.4);
+  box-sizing: border-box;
 }
 
 .phoenix-kpi-page::before {
@@ -1063,8 +1071,20 @@ html.phoenix-page-active {
 }
 
 .phoenix-kpi-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   position: relative;
   z-index: 1;
+}
+
+.phoenix-kpi-context {
+  flex: 0 0 auto;
+}
+
+.phoenix-kpi-context .bench-updated-line {
+  margin-bottom: clamp(5px, 0.8vh, 10px);
 }
 
 .phoenix-kpi-hero {
@@ -1140,13 +1160,15 @@ html.phoenix-page-active {
 .phoenix-kpi-toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr) minmax(300px, 1.25fr);
-  gap: 12px;
-  margin-bottom: 14px;
+  flex: 0 0 auto;
+  gap: clamp(7px, 1vw, 12px);
+  margin-bottom: clamp(7px, 1.4vh, 14px);
 }
 
 .phoenix-kpi-filter {
-  padding: 12px 12px 10px;
+  padding: clamp(8px, 1.2vh, 12px) clamp(9px, 1vw, 12px) clamp(7px, 1vh, 10px);
   border: 1px solid rgba(148, 163, 184, 0.16);
+  border-right-color: rgba(148, 163, 184, 0.42);
   background: rgba(15, 23, 42, 0.84);
   border-radius: 14px;
 }
@@ -1212,10 +1234,11 @@ html.phoenix-page-active {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 6px;
-  max-height: 148px;
-  overflow-y: auto;
+  max-height: none;
+  overflow: hidden;
   padding: 8px;
   border: 1px solid rgba(71, 85, 105, 0.8);
+  border-right-color: rgba(148, 163, 184, 0.58);
   border-radius: 10px;
   background: #0b1220;
 }
@@ -1257,14 +1280,23 @@ html.phoenix-page-active {
 }
 
 .phoenix-kpi-card {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
   padding: 14px;
   border: 1px solid rgba(148, 163, 184, 0.16);
+  border-right-color: rgba(148, 163, 184, 0.42);
   background: rgba(15, 23, 42, 0.88);
   border-radius: 16px;
   box-shadow: 0 12px 36px rgba(2, 6, 23, 0.22);
 }
 
 .phoenix-chart-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   position: relative;
   width: 100%;
   overflow: hidden;
@@ -1272,6 +1304,7 @@ html.phoenix-page-active {
 }
 
 .phoenix-chart-head {
+  flex: 0 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -1317,9 +1350,11 @@ html.phoenix-page-active {
 }
 
 .phoenix-chart-svg {
+  flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-  height: auto;
+  min-height: 0;
+  height: 100%;
   display: block;
   overflow: visible;
 }
@@ -1386,8 +1421,28 @@ html.phoenix-page-active {
   font-weight: 700;
 }
 
+.phoenix-tooltip-difference-label {
+  fill: #cbd5e1;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.phoenix-tooltip-difference-value {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.phoenix-tooltip-difference-positive {
+  fill: #34d399;
+}
+
+.phoenix-tooltip-difference-negative {
+  fill: #fb7185;
+}
+
 .phoenix-empty-state {
-  min-height: 340px;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1432,6 +1487,17 @@ html.phoenix-page-active {
     padding: 10px;
   }
 
+  .phoenix-month-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding: 5px;
+  }
+
+  .phoenix-month-option {
+    padding: 4px 5px;
+    font-size: 11px;
+  }
+
   .phoenix-chart-head {
     flex-direction: column;
   }
@@ -1442,6 +1508,58 @@ html.phoenix-page-active {
 
   .phoenix-chart-svg {
     min-width: 0;
+  }
+}
+
+@media (max-height: 720px) {
+  .phoenix-kpi-page {
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+  }
+
+  .phoenix-kpi-filter {
+    padding-top: 7px;
+    padding-bottom: 6px;
+  }
+
+  .phoenix-kpi-filter label {
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+
+  .phoenix-kpi-filter select {
+    min-height: 30px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    font-size: 12px;
+  }
+
+  .phoenix-month-option {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    font-size: 11px;
+  }
+
+  .phoenix-kpi-card {
+    padding: 8px;
+  }
+
+  .phoenix-chart-head {
+    gap: 5px;
+    margin-bottom: 4px;
+  }
+
+  .phoenix-chart-title {
+    font-size: 13px;
+  }
+
+  .phoenix-chart-note,
+  .phoenix-chart-legend {
+    font-size: 10px;
+  }
+
+  .phoenix-axis-label {
+    font-size: 10px;
   }
 }
 
