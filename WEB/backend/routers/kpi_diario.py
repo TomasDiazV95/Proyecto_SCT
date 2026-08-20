@@ -15,9 +15,9 @@ def health() -> dict:
 
 
 @router.get("/filtros", response_model=FiltersResponse)
-def filtros() -> FiltersResponse:
+def filtros(negocio: str | None = Query(default=None)) -> FiltersResponse:
     try:
-        return FiltersResponse(**get_filter_values())
+        return FiltersResponse(**get_filter_values({"negocio": negocio}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -27,9 +27,11 @@ def productividad_general(
     periodo: str | None = Query(default=None),
     zona: str | None = Query(default=None),
     ejecutivo: str | None = Query(default=None),
+    negocio: str | None = Query(default=None),
+    segmento: str | None = Query(default=None),
 ) -> ApiEnvelope:
     try:
-        return ApiEnvelope(data=get_general_view({"periodo": periodo, "zona": zona, "ejecutivo": ejecutivo}))
+        return ApiEnvelope(data=get_general_view({"periodo": periodo, "zona": zona, "ejecutivo": ejecutivo, "negocio": negocio, "segmento": segmento}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -40,8 +42,10 @@ def productividad_ciclo(
     zona: str | None = Query(default=None),
     ejecutivo: str | None = Query(default=None),
     ciclo: str | None = Query(default=None),
+    negocio: str | None = Query(default=None),
+    segmento: str | None = Query(default=None),
 ) -> ApiEnvelope:
     try:
-        return ApiEnvelope(data=get_cycle_view({"periodo": periodo, "zona": zona, "ejecutivo": ejecutivo, "ciclo": ciclo}))
+        return ApiEnvelope(data=get_cycle_view({"periodo": periodo, "zona": zona, "ejecutivo": ejecutivo, "ciclo": ciclo, "negocio": negocio, "segmento": segmento}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

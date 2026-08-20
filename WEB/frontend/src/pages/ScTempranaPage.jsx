@@ -52,6 +52,31 @@ function dotClassByThresholds(value, thresholds) {
   return "gm-dot gm-dot-bad";
 }
 
+function formatPeriodLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+
+  if (/^\d{8}$/.test(text)) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`;
+  }
+
+  if (/^\d{6}$/.test(text)) {
+    return `${text.slice(0, 4)}-${text.slice(4, 6)}`;
+  }
+
+  if (text.includes("-")) {
+    const parts = text.split("-");
+    if (parts.length >= 3) {
+      const [year, month, day] = parts;
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  return text;
+}
+
 export default function ScTempranaPage() {
   const [view, setView] = useState("ejecutivos");
   const [executiveSubview, setExecutiveSubview] = useState("c1c2");
@@ -230,7 +255,7 @@ export default function ScTempranaPage() {
               <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
                 {options.periodos.map((v) => (
                   <option key={v} value={v}>
-                    {v}
+                    {formatPeriodLabel(v)}
                   </option>
                 ))}
               </select>

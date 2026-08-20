@@ -87,6 +87,13 @@ export const modulePanels = [
         path: "/bench",
         buttonLabel: "Abrir BENCH KPI",
       },
+      {
+        code: "kpi-diario",
+        title: "KPI Avance Phoenix",
+        description: "Comparacion mensual de Phoenix contra si mismo por dia habil.",
+        path: "/kpi-avance-phoenix",
+        buttonLabel: "Abrir KPI Phoenix",
+      },
     ],
   },
   {

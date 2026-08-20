@@ -40,6 +40,14 @@ async function apiFetch(url, options = {}, retry = true) {
 function withQuery(url, params = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (item !== undefined && item !== null && item !== "") {
+          query.append(key, String(item));
+        }
+      });
+      return;
+    }
     if (value !== undefined && value !== null && value !== "") {
       query.set(key, value);
     }
@@ -169,6 +177,32 @@ export async function fetchScTempranaDetail(filters) {
     throw new Error("No se pudo cargar el detalle de SC Temprana");
   }
   return res.json();
+}
+
+export async function fetchKpiDiarioFilters(filters = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/filtros`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de KPI diario");
+  }
+  return res.json();
+}
+
+export async function fetchKpiDiarioGeneral(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de KPI diario");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchKpiDiarioCycle(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/ciclo`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista por ciclo de KPI diario");
+  }
+  const body = await res.json();
+  return body.data || [];
 }
 
 export async function fetchGmFilters() {
@@ -308,6 +342,22 @@ export async function fetchBenchKpi(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/bench/kpi`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar el panel BENCH");
+  }
+  return res.json();
+}
+
+export async function fetchKpiAvancePhoenixFilters(filters = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-avance-phoenix/filtros`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de KPI Phoenix");
+  }
+  return res.json();
+}
+
+export async function fetchKpiAvancePhoenixComparison(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-avance-phoenix/comparacion`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la comparacion de KPI Phoenix");
   }
   return res.json();
 }

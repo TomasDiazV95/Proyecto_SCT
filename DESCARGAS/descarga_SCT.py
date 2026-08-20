@@ -3,6 +3,7 @@ import re
 import time
 import shutil
 import zipfile
+from datetime import datetime
 
 from pathlib import Path
 
@@ -70,22 +71,55 @@ CLAVE = os.getenv(
 
 
 # ============================================================
-# CARPETAS LOCALES
+# CARPETAS LOCALES DESDE .ENV
 # ============================================================
 
-CARPETA_BASE = Path(
-    r"C:\Users\Analista de Datos\Desktop\SCT BENCH"
-)
+BENCH_TEMP_FOLDER = os.getenv("BENCH_TEMP_FOLDER", "").strip()
+BENCH_STC_FOLDER = os.getenv("BENCH_STC_FOLDER", "").strip()
+BENCH_SC_CASTIGO_FOLDER = os.getenv("BENCH_SC_CASTIGO_FOLDER", "").strip()
 
-CARPETA_ZIP = (
-    CARPETA_BASE
-    / "zip"
-)
 
-CARPETA_EXTRAIDA = (
-    CARPETA_BASE
-    / "extraido"
-)
+def resolver_carpeta_extraida() -> Path:
+    rutas = {
+        "BENCH_TEMP_FOLDER": BENCH_TEMP_FOLDER,
+        "BENCH_STC_FOLDER": BENCH_STC_FOLDER,
+        "BENCH_SC_CASTIGO_FOLDER": BENCH_SC_CASTIGO_FOLDER,
+    }
+
+    faltantes = [nombre for nombre, valor in rutas.items() if not valor]
+    if faltantes:
+        raise RuntimeError(
+            "Faltan rutas BENCH en el .env: " + ", ".join(faltantes)
+        )
+
+    carpetas = {nombre: Path(valor) for nombre, valor in rutas.items()}
+    referencia = carpetas["BENCH_TEMP_FOLDER"]
+
+    if any(carpeta != referencia for carpeta in carpetas.values()):
+        detalle = "\n".join(
+            f"{nombre}={carpeta}" for nombre, carpeta in carpetas.items()
+        )
+        raise RuntimeError(
+            "Las carpetas BENCH del .env no coinciden:\n" + detalle
+        )
+
+    return referencia
+
+
+CARPETA_EXTRAIDA = resolver_carpeta_extraida()
+CARPETA_BASE = CARPETA_EXTRAIDA.parent
+CARPETA_ZIP = CARPETA_BASE / "zip"
+ARCHIVO_LOG = CARPETA_BASE / "descargas.log"
+
+
+def registrar_descarga(nombre_logico: str, nombre_archivo: str) -> None:
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    CARPETA_BASE.mkdir(parents=True, exist_ok=True)
+
+    with ARCHIVO_LOG.open("a", encoding="utf-8") as log:
+        log.write(f"{fecha} | {nombre_logico} | {nombre_archivo}\n")
+
+    print(f"LOG: {nombre_logico} | {nombre_archivo}")
 
 
 # ============================================================
@@ -598,6 +632,7 @@ def descargar_desde_carpeta(
 
 def extraer_y_eliminar_zip(
     ruta_zip: Path,
+    nombre_logico: str,
 ) -> list[Path]:
 
     print()
@@ -634,6 +669,11 @@ def extraer_y_eliminar_zip(
 
                 archivos_extraidos.append(
                     archivo
+                )
+
+                registrar_descarga(
+                    nombre_logico,
+                    archivo.name,
                 )
 
         # Borrar ZIP solo después
@@ -899,7 +939,7 @@ def run(
             )
 
             zips_descargados.append(
-                ruta_zip
+                (ruta_zip, configuracion["nombre"])
             )
 
         # ====================================================
@@ -913,13 +953,14 @@ def run(
 
         archivos_finales = []
 
-        for ruta_zip in (
+        for ruta_zip, nombre_logico in (
             zips_descargados
         ):
 
             extraidos = (
                 extraer_y_eliminar_zip(
-                    ruta_zip
+                    ruta_zip,
+                    nombre_logico,
                 )
             )
 
