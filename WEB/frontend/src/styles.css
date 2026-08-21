@@ -1062,12 +1062,32 @@ body {
   box-sizing: border-box;
 }
 
+.phoenix-kpi-page.app-shell {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+}
+
 .phoenix-kpi-page::before {
   display: none;
 }
 
 html.phoenix-page-active {
+  width: 100%;
+  height: 100%;
   overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+html.phoenix-page-active body,
+html.phoenix-page-active #root {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .phoenix-kpi-shell {

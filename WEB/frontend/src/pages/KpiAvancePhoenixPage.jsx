@@ -276,7 +276,7 @@ function PhoenixComparisonChart({ series }) {
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
-        preserveAspectRatio="none"
+        preserveAspectRatio="xMidYMid meet"
         className="phoenix-chart-svg"
         role="img"
         aria-label="Comparación de cumplimiento de Phoenix por día hábil"
