@@ -1348,6 +1348,15 @@ html.phoenix-page-active #root {
   font-size: 12px;
 }
 
+.phoenix-chart-note {
+  font-size: 0;
+}
+
+.phoenix-chart-note::after {
+  content: "Cada linea se alinea por la misma distancia al cierre del mes.";
+  font-size: 12px;
+}
+
 .phoenix-chart-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1394,6 +1403,14 @@ html.phoenix-page-active #root {
   text-anchor: end;
 }
 
+.phoenix-axis-label-legacy {
+  display: none;
+}
+
+.phoenix-axis-label-closing {
+  display: none;
+}
+
 .phoenix-hover-zone {
   cursor: crosshair;
 }
@@ -1419,9 +1436,17 @@ html.phoenix-page-active #root {
 }
 
 .phoenix-tooltip-title {
+  display: none;
+}
+
+.phoenix-tooltip-closing-title {
   fill: #f8fafc;
   font-size: 13px;
   font-weight: 700;
+}
+
+.phoenix-tooltip-day-legacy {
+  display: none;
 }
 
 .phoenix-tooltip-row {
@@ -1573,7 +1598,11 @@ html.phoenix-page-active #root {
     font-size: 13px;
   }
 
-  .phoenix-chart-note,
+  .phoenix-chart-note {
+    font-size: 0;
+  }
+
+  .phoenix-chart-note::after,
   .phoenix-chart-legend {
     font-size: 10px;
   }
