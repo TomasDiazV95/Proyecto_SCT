@@ -141,7 +141,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
             END AS peso_gestion
         FROM dbo.tmp_GEST_CRM g
         WHERE g.cartera = 526
-          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND EOMONTH(?)
+          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND CAST(? AS date)
           AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
     ),
     ranking AS (
@@ -359,7 +359,7 @@ def get_detail_view(filters: dict) -> dict:
             END AS peso_gestion
         FROM dbo.tmp_GEST_CRM g
         WHERE g.cartera = 526
-          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND EOMONTH(?)
+          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND CAST(? AS date)
           AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
     ),
     ranking AS (
