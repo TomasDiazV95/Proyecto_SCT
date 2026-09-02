@@ -47,7 +47,7 @@ SPANISH_MONTHS = {
     "DICIEMBRE",
 }
 
-# Keep this catalog explicit so changes to Chilean holidays are reviewable.
+# FERIADOS CHILE 2026: https://www.feriadoschilenos.cl/feriados-2026/
 CHILE_HOLIDAYS_BY_YEAR: dict[int, frozenset[date]] = {
     2026: frozenset(
         {
