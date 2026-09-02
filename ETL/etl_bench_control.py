@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unicodedata
 from contextlib import suppress
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ from openpyxl import load_workbook
 TABLE = "dbo.tmp_BENCH_CONTROL_DIARIO"
 DEFAULT_LOG_DIR = Path(__file__).resolve().parents[1] / "Logs"
 STATE_FILE = DEFAULT_LOG_DIR / "etl_bench_control_state.json"
-SCHEMA_VERSION = "2026-07-23-graph-source-signature"
+SCHEMA_VERSION = "2026-08-31-business-days-remaining"
 BENCH_FILENAME = "Control semanal puesto BENCH.xlsx"
 DEFAULT_GRAPH_SHARE_URL = (
     "https://phoenixservice1.sharepoint.com/:x:/r/sites/Cobranzas/_layouts/15/Doc.aspx?"
@@ -45,6 +45,30 @@ SPANISH_MONTHS = {
     "OCTUBRE",
     "NOVIEMBRE",
     "DICIEMBRE",
+}
+
+# Keep this catalog explicit so changes to Chilean holidays are reviewable.
+CHILE_HOLIDAYS_BY_YEAR: dict[int, frozenset[date]] = {
+    2026: frozenset(
+        {
+            date(2026, 1, 1),
+            date(2026, 4, 3),
+            date(2026, 4, 4),
+            date(2026, 5, 1),
+            date(2026, 5, 21),
+            date(2026, 6, 21),
+            date(2026, 6, 29),
+            date(2026, 7, 16),
+            date(2026, 8, 15),
+            date(2026, 9, 18),
+            date(2026, 9, 19),
+            date(2026, 10, 12),
+            date(2026, 10, 31),
+            date(2026, 11, 1),
+            date(2026, 12, 8),
+            date(2026, 12, 25),
+        }
+    ),
 }
 
 
@@ -418,6 +442,38 @@ def parse_business_day(value: object) -> int | None:
         return None
 
 
+def chile_holidays_for_year(year: int) -> frozenset[date]:
+    try:
+        return CHILE_HOLIDAYS_BY_YEAR[year]
+    except KeyError as exc:
+        available_years = ", ".join(str(item) for item in sorted(CHILE_HOLIDAYS_BY_YEAR))
+        raise RuntimeError(
+            f"No hay catalogo de feriados de Chile para el anio {year}. "
+            f"Anos disponibles: {available_years}"
+        ) from exc
+
+
+def business_days_remaining(fecha: date) -> int:
+    """Count business days strictly after fecha until the end of its month."""
+    holidays = chile_holidays_for_year(fecha.year)
+    next_day = fecha + timedelta(days=1)
+    if next_day.month != fecha.month:
+        return 0
+
+    month_end = (
+        date(fecha.year, fecha.month + 1, 1) - timedelta(days=1)
+        if fecha.month < 12
+        else date(fecha.year, 12, 31)
+    )
+    business_days = 0
+    current = next_day
+    while current <= month_end:
+        if current.weekday() < 5 and current not in holidays:
+            business_days += 1
+        current += timedelta(days=1)
+    return business_days
+
+
 def safe_period_values(df: pd.DataFrame) -> list[str]:
     if df.empty or "fecha" not in df.columns:
         return []
@@ -498,7 +554,7 @@ def is_month_banner_row(values: list[Any]) -> bool:
 def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
     merged_values = build_merged_value_map(worksheet)
     records: list[dict[str, Any]] = []
-    current_dates: list[tuple[int, date, int | None]] = []
+    current_dates: list[tuple[int, date]] = []
 
     for row_idx in range(1, worksheet.max_row + 1):
         row_values = [
@@ -514,10 +570,7 @@ def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
             for col_idx in range(3, worksheet.max_column + 1):
                 fecha = parse_date(worksheet_cell_value(worksheet, merged_values, row_idx, col_idx))
                 if fecha:
-                    dia_habil = parse_business_day(
-                        worksheet_cell_value(worksheet, merged_values, row_idx - 1, col_idx) if row_idx > 1 else None
-                    )
-                    current_dates.append((col_idx, fecha, dia_habil))
+                    current_dates.append((col_idx, fecha))
             continue
 
         if not current_dates:
@@ -530,7 +583,7 @@ def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
         if normalize_text(segmento) in SPANISH_MONTHS:
             continue
 
-        for col_idx, fecha, dia_habil in current_dates:
+        for col_idx, fecha in current_dates:
             cell = worksheet.cell(row=row_idx, column=col_idx)
             cumplimiento = parse_percentage(
                 worksheet_cell_value(worksheet, merged_values, row_idx, col_idx),
@@ -542,7 +595,6 @@ def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
                     "empresa": empresa,
                     "segmento": segmento,
                     "fecha": fecha,
-                    "dia_habil": dia_habil,
                     "cumplimiento": cumplimiento,
                 }
             )
@@ -613,7 +665,7 @@ def transform_dataframe(extracted_rows: list[dict[str, Any]]) -> tuple[pd.DataFr
                 "fecha": fecha,
                 "anio": fecha.year,
                 "mes": spanish_month_name(fecha.month),
-                "dia_habil": row.get("dia_habil"),
+                "dia_habil": business_days_remaining(fecha),
                 "negocio": negocio,
                 "segmento": segmento,
                 "empresa": empresa,
@@ -626,13 +678,11 @@ def transform_dataframe(extracted_rows: list[dict[str, Any]]) -> tuple[pd.DataFr
     if not records:
         raise RuntimeError("No se encontraron filas validas en el archivo BENCH")
     df = pd.DataFrame.from_records(records)
-    df["_dia_habil_sort"] = df["dia_habil"].fillna(-1)
     df = df.sort_values(
-        by=["fecha", "negocio", "segmento", "empresa", "_dia_habil_sort"],
-        ascending=[True, True, True, True, False],
+        by=["fecha", "negocio", "segmento", "empresa"],
+        ascending=[True, True, True, True],
     )
     df = df.drop_duplicates(subset=["fecha", "negocio", "segmento", "empresa"], keep="first")
-    df = df.drop(columns=["_dia_habil_sort"])
     stats["rows_valid"] = len(df.index)
     return df, stats
 
@@ -727,6 +777,17 @@ def load_already_processed(graph_item_id: str, graph_etag: str) -> bool:
         and str(state.get("graph_item_id") or "") == graph_item_id
         and str(state.get("graph_etag") or "") == graph_etag
     )
+
+
+def bench_table_has_rows() -> bool:
+    """Do not skip a source reload when the destination table is empty."""
+    with connect() as cn:
+        cur = cn.cursor()
+        cur.execute(f"SELECT OBJECT_ID('{TABLE}', 'U')")
+        if cur.fetchone()[0] is None:
+            return False
+        cur.execute(f"SELECT TOP 1 1 FROM {TABLE}")
+        return cur.fetchone() is not None
 
 
 def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int, int]:
@@ -947,7 +1008,12 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
         source_file = str(graph_metadata.get("file_name") or BENCH_FILENAME).strip() or BENCH_FILENAME
         source_mtime = graph_last_modified
 
-        if graph_item_id and graph_etag and load_already_processed(graph_item_id, graph_etag):
+        if (
+            graph_item_id
+            and graph_etag
+            and load_already_processed(graph_item_id, graph_etag)
+            and bench_table_has_rows()
+        ):
             logging.info(
                 "Sin cambios Graph: archivo %s con item_id=%s y eTag=%s ya fue cargado.",
                 source_file,

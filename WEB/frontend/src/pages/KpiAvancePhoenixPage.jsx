@@ -166,7 +166,7 @@ function PhoenixComparisonChart({ series }) {
             .filter(Number.isFinite),
         ),
       ),
-    ).sort((a, b) => a - b);
+    ).sort((a, b) => b - a);
     const allValues = preparedSeries
       .flatMap((item) => item.puntos.map((point) => Number(point.cumplimiento)))
       .filter(Number.isFinite);
@@ -258,7 +258,7 @@ function PhoenixComparisonChart({ series }) {
             Cumplimiento Phoenix
           </div>
           <div className="phoenix-chart-note">
-            Cada línea representa un mes seleccionado y se alinea por día hábil.
+            Cada línea representa un mes seleccionado y se alinea por días hábiles al cierre.
           </div>
         </div>
         <div className="phoenix-chart-legend" aria-label="Meses seleccionados">
@@ -279,7 +279,7 @@ function PhoenixComparisonChart({ series }) {
         preserveAspectRatio="xMidYMid meet"
         className="phoenix-chart-svg"
         role="img"
-        aria-label="Comparación de cumplimiento de Phoenix por día hábil"
+        aria-label="Comparación de cumplimiento de Phoenix por días hábiles al cierre"
       >
         {Array.from({ length: 5 }, (_, index) => (valueCeil / 4) * index).map(
           (tick) => (
@@ -319,7 +319,7 @@ function PhoenixComparisonChart({ series }) {
           textAnchor="middle"
           className="phoenix-axis-label"
         >
-          Día hábil
+          Días hábiles al cierre
         </text>
 
         {preparedSeries.map((item) => {
@@ -405,7 +405,7 @@ function PhoenixComparisonChart({ series }) {
                 className="phoenix-tooltip-box"
               />
               <text x="14" y="21" className="phoenix-tooltip-title">
-                Día hábil {hoveredDay}
+                Días hábiles al cierre: {hoveredDay}
               </text>
               {hoveredRows.map((row, rowIndex) => {
                 const y = 49 + rowIndex * 36;
