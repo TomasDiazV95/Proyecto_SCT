@@ -99,10 +99,18 @@ export const modulePanels = [
   {
     code: "contactabilidad",
     title: "Panel de Contactabilidad",
-    description: "Panel reservado para futuros indicadores y procesos de contactabilidad.",
+    description: "Indicadores de contactabilidad, recurrencia, contacto titular y gestión.",
     path: "/contactabilidad",
     accent: "success",
-    modules: [],
+    modules: [
+      {
+        code: "contactabilidad",
+        title: "Itaú Vencida",
+        description: "Indicadores de contactabilidad, recurrencia, contacto titular y gestión.",
+        path: "/contactabilidad/itau-vencida",
+        buttonLabel: "Ver detalle",
+      },
+    ],
   },
   {
     code: "factura",

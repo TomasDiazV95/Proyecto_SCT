@@ -516,3 +516,22 @@ export async function downloadItauCuotasPagadas(periodo) {
     `itau_cuotas_pagadas_${periodo || "periodo"}.xlsx`
   );
 }
+
+export async function fetchContactabilidadItauFilters(fechaProceso = "", options = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/contactabilidad/itau-vencida/filtros`, { fecha_proceso: fechaProceso }), options);
+  if (!res.ok) throw new Error("No se pudieron cargar los filtros de contactabilidad");
+  return res.json();
+}
+
+async function fetchContactabilidad(path, filters, options = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/contactabilidad/itau-vencida/${path}`, filters), options);
+  if (!res.ok) throw new Error("No fue posible cargar la información de contactabilidad");
+  return res.json();
+}
+
+export const fetchContactabilidadItauDashboard = (filters, options) => fetchContactabilidad("dashboard", filters, options);
+export const fetchContactabilidadItauResumen = (filters) => fetchContactabilidad("resumen", filters);
+export const fetchContactabilidadItauEstado = (filters) => fetchContactabilidad("estado-contacto", filters);
+export const fetchContactabilidadItauTubo = (filters) => fetchContactabilidad("tubo", filters);
+export const fetchContactabilidadItauEvolucion = (filters) => fetchContactabilidad("evolucion", filters);
+export const fetchContactabilidadItauDetalle = (filters) => fetchContactabilidad("detalle", filters);

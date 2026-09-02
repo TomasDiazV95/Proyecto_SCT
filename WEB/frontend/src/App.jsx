@@ -6,6 +6,7 @@ import AdministrativasPage from "./pages/administrativas/AdministrativasPage";
 import BenchPage from "./pages/BenchPage";
 import BitCastigoPage from "./pages/BitCastigoPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
+import ContactabilidadItauVencidaPage from "./pages/ContactabilidadItauVencidaPage";
 import BitPage from "./pages/BitPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GmPage from "./pages/GmPage";
@@ -34,7 +35,8 @@ export default function App() {
       <Route path="/productividad" element={<ProtectedRoute><PanelPage panelCode="productividad" /></ProtectedRoute>} />
       <Route path="/kpi" element={<ProtectedRoute><PanelPage panelCode="kpi" /></ProtectedRoute>} />
       <Route path="/kpi-avance-phoenix" element={<ProtectedRoute moduleCode="kpi-diario"><KpiAvancePhoenixPage /></ProtectedRoute>} />
-      <Route path="/contactabilidad" element={<ProtectedRoute><PanelPage panelCode="contactabilidad" emptyTitle="Panel de Contactabilidad en preparacion" emptyDescription="Este panel quedo reservado para nuevos indicadores de contactabilidad." /></ProtectedRoute>} />
+      <Route path="/contactabilidad" element={<ProtectedRoute moduleCode="contactabilidad"><PanelPage panelCode="contactabilidad" /></ProtectedRoute>} />
+      <Route path="/contactabilidad/itau-vencida" element={<ProtectedRoute moduleCode="contactabilidad"><ContactabilidadItauVencidaPage /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute moduleCode="admin"><PanelPage panelCode="admin" /></ProtectedRoute>} />
       <Route path="/sc-tardia" element={<ProtectedRoute moduleCode="sc-tardia"><ScTardiaPage /></ProtectedRoute>} />
       <Route path="/sc-temprana" element={<ProtectedRoute moduleCode="sc-temprana"><ScTempranaPage /></ProtectedRoute>} />
