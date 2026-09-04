@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  downloadContactabilidadItauDetalle,
   fetchContactabilidadItauDashboard,
   fetchContactabilidadItauFilters,
 } from "../api";
+import { saveDownload } from "../utils/download";
+
+const PAGE_SIZE = 10;
 
 const EMPTY_FILTERS = {
-  fecha_proceso: "",
+  periodo: "",
   segmento: [],
   canal: [],
   fase_cliente: [],
+  glosa_tipo_cartera: [],
   producto: [],
   tipo_campana: [],
   detalle_marca: [],
@@ -34,7 +39,21 @@ function dateLabel(value) {
     : "N/D";
 }
 
-function MultiSelect({ label, value, options, onChange }) {
+// El backend clasifica cada cliente con la prioridad Titular > Tercero > Sin Contacto.
+// Aquí sólo se acorta la etiqueta para la tabla.
+function contactoLabel(value) {
+  if (!value) return "-";
+  return value.replace(/^Contacto\s+/i, "");
+}
+
+function periodLabel(value) {
+  if (!value) return "N/D";
+  const label = new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" })
+    .format(new Date(`${value}-01T00:00:00`));
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function MultiSelect({ label, value, options = [], onChange }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef(null);
   const summary = value.length === 0
@@ -165,44 +184,178 @@ function LoadingDashboard() {
   );
 }
 
-function DailyChart({ rows }) {
+function ComparativeChart({ data }) {
+  const [activo, setActivo] = useState(null);
+  const rows = data?.rows || [];
+  const actual = data?.periodo_actual;
+  const anterior = data?.periodo_anterior;
+
   if (!rows.length) return <Empty />;
-  const max = Math.max(...rows.map((row) => Number(row.total_gestiones || 0)), 1);
+
   const width = 900;
-  const height = 230;
-  const step = width / rows.length;
+  const height = 300;
+  const chartLeft = 56;
+  const chartRight = 878;
+  const chartTop = 20;
+  const chartBottom = 238;
+  const colorActual = "#f28c28";
+  const colorAnterior = "#3678c8";
+
+  const valores = rows.flatMap((row) => [row.actual?.porcentaje_titular, row.anterior?.porcentaje_titular])
+    .filter((value) => value !== null && value !== undefined);
+  // Escala ajustada al dato: con maximos cercanos al 12% una escala fija 0-100% dejaria
+  // las dos lineas pegadas al eje y el grafico no serviria para comparar.
+  const maxValor = Math.max(...valores, 0.01);
+  const tope = Math.min(1, Math.ceil(maxValor * 100 / 5) * 5 / 100 + 0.01);
+  const paso = rows.length > 1 ? (chartRight - chartLeft) / (rows.length - 1) : 0;
+  const xForIndex = (index) => (rows.length > 1 ? chartLeft + index * paso : (chartLeft + chartRight) / 2);
+  const yForValue = (value) => chartBottom - (Number(value) / tope) * (chartBottom - chartTop);
+
+  function linePath(key) {
+    let path = "";
+    let conectado = false;
+    rows.forEach((row, index) => {
+      const punto = row[key];
+      if (!punto) {
+        conectado = false;
+        return;
+      }
+      path += `${conectado ? "L" : "M"}${xForIndex(index)},${yForValue(punto.porcentaje_titular)} `;
+      conectado = true;
+    });
+    return path.trim();
+  }
+
+  const gridValues = [0, 0.25, 0.5, 0.75, 1].map((f) => Number((f * tope).toFixed(4)));
+  const etiquetasX = rows.filter((_, index) => index === 0 || index === rows.length - 1 || index % 3 === 0);
+  const filaActiva = activo === null ? null : rows[activo];
+
   return (
     <div className="contact-chart-wrap">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Evolución diaria de gestiones" className="contact-chart">
-        <line x1="30" y1="190" x2="880" y2="190" stroke="#d8e1ec" />
-        {rows.map((row, index) => {
-          const barHeight = (Number(row.total_gestiones || 0) / max) * 150;
-          const x = 40 + index * step;
-          const barWidth = Math.max(4, step - 8);
-          return (
-            <g key={row.fecha}>
-              <rect x={x} y={190 - barHeight} width={barWidth} height={barHeight} rx="3" fill="#f28c28" />
-              <text x={x + barWidth / 2} y="210" textAnchor="middle" className="contact-chart-label">{row.fecha?.slice(8)}</text>
+      <div className="contact-chart-legend" aria-label="Períodos comparados">
+        {actual && (
+          <span className="contact-chart-legend-item">
+            <span className="contact-chart-legend-dot" style={{ backgroundColor: colorActual }} />
+            {actual.etiqueta}
+          </span>
+        )}
+        {anterior && (
+          <span className="contact-chart-legend-item">
+            <span className="contact-chart-legend-dot" style={{ backgroundColor: colorAnterior }} />
+            {anterior.etiqueta}
+          </span>
+        )}
+      </div>
+
+      <div className="contact-chart-canvas">
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Evolución diaria del porcentaje de contacto titular comparada con el mes anterior" className="contact-chart">
+          {gridValues.map((value) => {
+            const y = yForValue(value);
+            return (
+              <g key={value}>
+                <line x1={chartLeft} y1={y} x2={chartRight} y2={y} className="contact-chart-grid-line" />
+                <text x={chartLeft - 8} y={y + 4} textAnchor="end" className="contact-chart-axis-label">{pct(value)}</text>
+              </g>
+            );
+          })}
+
+          {etiquetasX.map((row) => (
+            <text key={row.dias_habiles_cierre} x={xForIndex(rows.indexOf(row))} y={chartBottom + 24} textAnchor="middle" className="contact-chart-label">
+              {row.dias_habiles_cierre}
+            </text>
+          ))}
+
+          {filaActiva && (
+            <line x1={xForIndex(activo)} y1={chartTop} x2={xForIndex(activo)} y2={chartBottom} className="contact-chart-cursor" />
+          )}
+
+          {[["anterior", colorAnterior], ["actual", colorActual]].map(([key, color]) => (
+            <g key={key}>
+              <path d={linePath(key)} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              {rows.map((row, index) => row[key] && (
+                <circle
+                  key={`${key}-${row.dias_habiles_cierre}`}
+                  cx={xForIndex(index)}
+                  cy={yForValue(row[key].porcentaje_titular)}
+                  r={activo === index ? 5 : 3}
+                  fill={color}
+                />
+              ))}
             </g>
-          );
-        })}
-      </svg>
+          ))}
+
+          {rows.map((row, index) => (
+            <rect
+              key={`hit-${row.dias_habiles_cierre}`}
+              x={xForIndex(index) - paso / 2}
+              y={chartTop}
+              width={Math.max(paso, 6)}
+              height={chartBottom - chartTop}
+              fill="transparent"
+              onMouseEnter={() => setActivo(index)}
+              onMouseLeave={() => setActivo(null)}
+            />
+          ))}
+        </svg>
+
+        {filaActiva && (
+          <div
+            className={`contact-chart-tooltip ${activo > rows.length / 2 ? "is-left" : ""}`}
+            style={{ left: `${(xForIndex(activo) / width) * 100}%` }}
+          >
+            <div className="contact-tooltip-head">
+              {filaActiva.dias_habiles_cierre === 0
+                ? "Cierre · último día hábil"
+                : `${Math.abs(filaActiva.dias_habiles_cierre)} días hábiles al cierre`}
+            </div>
+            {actual && (
+              <div className="contact-tooltip-row">
+                <span>
+                  <span className="contact-chart-legend-dot" style={{ backgroundColor: colorActual }} />
+                  {filaActiva.actual ? dateLabel(filaActiva.actual.fecha) : actual.etiqueta}
+                </span>
+                <strong>{filaActiva.actual ? pct(filaActiva.actual.porcentaje_titular) : "sin dato"}</strong>
+              </div>
+            )}
+            {anterior && (
+              <div className="contact-tooltip-row">
+                <span>
+                  <span className="contact-chart-legend-dot" style={{ backgroundColor: colorAnterior }} />
+                  {filaActiva.anterior ? dateLabel(filaActiva.anterior.fecha) : anterior.etiqueta}
+                </span>
+                <strong>{filaActiva.anterior ? pct(filaActiva.anterior.porcentaje_titular) : "sin dato"}</strong>
+              </div>
+            )}
+            {filaActiva.diferencia_pp !== null && filaActiva.diferencia_pp !== undefined && (
+              <div className="contact-tooltip-diff">
+                <span>Diferencia</span>
+                <strong className={filaActiva.diferencia_pp >= 0 ? "is-up" : "is-down"}>
+                  {filaActiva.diferencia_pp >= 0 ? "+" : ""}{number(filaActiva.diferencia_pp, 1)} pp
+                </strong>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="contact-chart-axis-caption">Días hábiles al cierre</div>
     </div>
   );
 }
 
 export default function ContactabilidadItauVencidaPage() {
   const [options, setOptions] = useState({
-    fechas_proceso: [], segmentos: [], canales: [], gestores: ["PHOENIX"],
-    fases_cliente: [], productos: [], tipos_campana: [], detalles_marca: [],
+    periodos: [], segmentos: [], canales: [],
+    fases_cliente: [], glosas_tipo_cartera: [], sub_productos: [],
+    tipos_campana: [], detalles_marca: [],
     estados_contencion: [], estados_contacto: [],
   });
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [data, setData] = useState({ resumen: null, estado: null, tubo: null, evolucion: null, detalle: null });
+  const [data, setData] = useState({ periodo: "", fecha_contencion: "", resumen: null, estado: null, tubo: null, evolucion: null, detalle: null });
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [filtersLoading, setFiltersLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -210,8 +363,20 @@ export default function ContactabilidadItauVencidaPage() {
     setFiltersLoading(true);
     fetchContactabilidadItauFilters("", { signal: controller.signal }).then((body) => {
       if (controller.signal.aborted) return;
-      setOptions(body);
-      setFilters((prev) => ({ ...prev, fecha_proceso: body.fecha_proceso || body.fechas_proceso?.[0] || "" }));
+      setOptions({
+        ...body,
+        periodos: body.periodos || [],
+        segmentos: body.segmentos || [],
+        canales: body.canales || [],
+        fases_cliente: body.fases_cliente || [],
+        glosas_tipo_cartera: body.glosas_tipo_cartera || [],
+        sub_productos: body.sub_productos || body.productos || [],
+        tipos_campana: body.tipos_campana || [],
+        detalles_marca: body.detalles_marca || [],
+        estados_contencion: body.estados_contencion || [],
+        estados_contacto: body.estados_contacto || [],
+      });
+      setFilters((prev) => ({ ...prev, periodo: body.periodo || body.periodos?.[0] || "" }));
     }).catch((err) => {
       if (!controller.signal.aborted) setError(err.message || "No se pudieron cargar los filtros");
     }).finally(() => {
@@ -221,18 +386,20 @@ export default function ContactabilidadItauVencidaPage() {
   }, []);
 
   const requestFilters = useMemo(
-    () => ({ ...filters, search, page, page_size: 50, sort_by: "rut", sort_direction: "asc", gestor: "PHOENIX" }),
+    () => ({ ...filters, search, page, page_size: PAGE_SIZE, sort_by: "rut", sort_direction: "asc" }),
     [filters, search, page]
   );
 
   useEffect(() => {
-    if (!filters.fecha_proceso) return undefined;
+    if (!filters.periodo) return undefined;
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
         const body = await fetchContactabilidadItauDashboard(requestFilters, { signal: controller.signal });
         if (controller.signal.aborted) return;
         setData({
+          periodo: body.periodo,
+          fecha_contencion: body.fecha_contencion,
           resumen: body.resumen,
           estado: body.estado || body.estado_contacto,
           tubo: body.tubo,
@@ -251,24 +418,38 @@ export default function ContactabilidadItauVencidaPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [requestFilters, filters.fecha_proceso]);
+  }, [requestFilters, filters.periodo]);
 
   function updateFilter(name, value) {
     setPage(1);
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
 
+  async function exportDetalle() {
+    setExporting(true);
+    try {
+      const file = await downloadContactabilidadItauDetalle(requestFilters);
+      saveDownload(file.blob, file.filename);
+    } catch (err) {
+      setError(err.message || "No fue posible exportar el detalle");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function clearFilters() {
     setPage(1);
     setSearch("");
-    setFilters({ ...EMPTY_FILTERS, fecha_proceso: options.fecha_proceso || options.fechas_proceso?.[0] || "" });
+    setFilters({ ...EMPTY_FILTERS, periodo: options.periodo || options.periodos?.[0] || "" });
   }
 
   const summary = data.resumen || {};
+  // El backend resuelve qué carga de contención corresponde al período; el frontend sólo la muestra.
+  const contencionDate = data.fecha_contencion || summary.fecha_contencion || "";
+  const activePeriod = data.periodo || summary.periodo || filters.periodo;
   const detail = data.detalle || { rows: [], total: 0 };
-  const stateRows = data.estado?.rows || [];
   const tubeRows = data.tubo?.rows || [];
-  const evolutionRows = data.evolucion?.rows || [];
+  const evolucion = data.evolucion || null;
 
   return (
     <main className="container-fluid contact-page">
@@ -278,9 +459,8 @@ export default function ContactabilidadItauVencidaPage() {
           <div className="contact-title-row">
             <div>
               <h1>Contactabilidad Itaú Vencida</h1>
-              <p>Resultado al día <strong>{dateLabel(filters.fecha_proceso)}</strong> <span>· Cartera CRM 523 · Gestor PHOENIX</span></p>
+              {contencionDate && <p className="contact-subtitle">Resultado período <strong>{periodLabel(activePeriod)}</strong> · Contención al <strong>{dateLabel(contencionDate)}</strong></p>}
             </div>
-            <span className="badge contact-badge">Itaú Vencida</span>
           </div>
         </div>
       </div>
@@ -291,12 +471,12 @@ export default function ContactabilidadItauVencidaPage() {
           <button type="button" className="contact-clear-button" onClick={clearFilters}>↻ Limpiar filtros</button>
         </div>
         {filtersLoading ? <div className="contact-filter-loading">Cargando filtros...</div> : <div className="contact-filter-grid">
-          <div className="contact-filter-field"><label className="contact-filter-label">Fecha de Proceso</label><select className="contact-date-select" value={filters.fecha_proceso} onChange={(event) => updateFilter("fecha_proceso", event.target.value)}>{options.fechas_proceso.map((value) => <option key={value} value={value}>{dateLabel(value)}</option>)}</select></div>
-          <div className="contact-filter-field"><label className="contact-filter-label">Gestor</label><div className="contact-readonly-field"><span className="contact-status-dot" />PHOENIX<span className="contact-readonly-label">Fijo</span></div></div>
+          <div className="contact-filter-field"><label className="contact-filter-label">Período</label><select className="contact-date-select" value={filters.periodo} onChange={(event) => updateFilter("periodo", event.target.value)}>{options.periodos.map((value) => <option key={value} value={value}>{periodLabel(value)}</option>)}</select></div>
           <MultiSelect label="Segmento" value={filters.segmento} options={options.segmentos} onChange={(value) => updateFilter("segmento", value)} />
           <MultiSelect label="Canal" value={filters.canal} options={options.canales} onChange={(value) => updateFilter("canal", value)} />
           <MultiSelect label="Fase Cliente" value={filters.fase_cliente} options={options.fases_cliente} onChange={(value) => updateFilter("fase_cliente", value)} />
-          <MultiSelect label="Producto" value={filters.producto} options={options.productos} onChange={(value) => updateFilter("producto", value)} />
+          <MultiSelect label="Producto" value={filters.glosa_tipo_cartera} options={options.glosas_tipo_cartera} onChange={(value) => updateFilter("glosa_tipo_cartera", value)} />
+          <MultiSelect label="Sub Producto" value={filters.producto} options={options.sub_productos} onChange={(value) => updateFilter("producto", value)} />
           <MultiSelect label="Tipo Campaña" value={filters.tipo_campana} options={options.tipos_campana} onChange={(value) => updateFilter("tipo_campana", value)} />
           <MultiSelect label="Detalle Marca" value={filters.detalle_marca} options={options.detalles_marca} onChange={(value) => updateFilter("detalle_marca", value)} />
           <MultiSelect label="Estado Contención" value={filters.estado_contencion} options={options.estados_contencion} onChange={(value) => updateFilter("estado_contencion", value)} />
@@ -311,18 +491,17 @@ export default function ContactabilidadItauVencidaPage() {
       {!loading && <>
         <div className="row g-3 contact-kpi-grid">
           <Kpi label="Total Gestiones" value={number(summary.total_gestiones)} subtitle="Call + Terreno" accent="is-primary" />
-          <Kpi label="Total Clientes" value={number(summary.total_clientes)} subtitle="RUT asignados" />
-          <Kpi label="Recurrencia Promedio" value={number(summary.recurrencia, 1)} subtitle="Gestiones por cliente" />
+          <Kpi label="Total Casos" value={number(summary.total_clientes)} subtitle="RUT de contención" />
+          <Kpi label="Intensidad Promedio" value={number(summary.recurrencia, 1)} subtitle={`gestiones por RUT`} />
           <Kpi label="% Gestionado" value={pct(summary.porcentaje_gestionado)} subtitle={`${number(summary.clientes_gestionados)} clientes`} />
           <Kpi label="% Contacto Titular" value={pct(summary.porcentaje_contacto_titular)} subtitle={`${number(summary.contacto_titular)} clientes`} />
-          <Kpi label="% Contacto Tercero" value={pct(summary.contacto_tercero / (summary.total_clientes || 1))} subtitle={`${number(summary.contacto_tercero)} clientes`} />
-          <Kpi label="% Otras Gestiones" value={pct(summary.otras_gestiones / (summary.total_clientes || 1))} subtitle={`${number(summary.otras_gestiones)} clientes`} />
-          <Kpi label="Sin Gestión" value={number(summary.sin_gestion)} subtitle="Clientes únicos" />
+          <Kpi label="% Contacto Tercero" value={pct(summary.porcentaje_contacto_tercero)} subtitle={`${number(summary.contacto_tercero)} clientes`} />
+          <Kpi label="% Sin Contacto" value={pct(summary.porcentaje_sin_contacto)} subtitle={`${number(summary.sin_contacto)} clientes`} />
+          <Kpi label="Sin Gestión" value={number(summary.sin_gestion)} subtitle={`${pct(summary.porcentaje_sin_gestion)} del total`} />
         </div>
-        <Section title="Estado Contacto Cliente por Gestor"><div className="table-responsive"><table className="table contact-table align-middle mb-0"><thead><tr><th>Gestor</th><th className="text-end">Total general</th><th className="text-end">%</th><th className="text-end">Contacto Titular</th><th className="text-end">%</th><th className="text-end">Contacto Tercero</th><th className="text-end">%</th><th className="text-end">Gestión Call-Terreno</th><th className="text-end">%</th><th className="text-end">Otra Gestión</th><th className="text-end">%</th></tr></thead><tbody>{stateRows.length ? <tr><td><span className="contact-table-gestor">PHOENIX</span></td><td className="text-end">{number(summary.total_clientes)}</td><td className="text-end">100%</td><td className="text-end">{number(summary.contacto_titular)}</td><td className="text-end">{pct(summary.contacto_titular / (summary.total_clientes || 1))}</td><td className="text-end">{number(summary.contacto_tercero)}</td><td className="text-end">{pct(summary.contacto_tercero / (summary.total_clientes || 1))}</td><td className="text-end">{number(summary.clientes_call_terreno)}</td><td className="text-end">{pct(summary.clientes_call_terreno / (summary.total_clientes || 1))}</td><td className="text-end">{number(summary.otras_gestiones)}</td><td className="text-end">{pct(summary.otras_gestiones / (summary.total_clientes || 1))}</td></tr> : <tr><td colSpan="11"><Empty /></td></tr>}</tbody></table></div></Section>
-        <Section title="Tubo de Contactabilidad por Gestor"><div className="table-responsive"><table className="table contact-table align-middle mb-0"><thead><tr><th>Gestor</th><th>Recurrencia</th><th>Casos Asignados</th><th>Casos con Gestión</th><th>% Gestionado</th><th>Contacto Titular</th><th>% Titular</th></tr></thead><tbody>{tubeRows.length ? tubeRows.map((row) => <tr key={row.gestor}><td><span className="contact-table-gestor">{row.gestor}</span></td><td>{number(row.recurrencia, 1)}</td><td>{number(row.casos_asignados)}</td><td>{number(row.casos_con_gestion)}</td><td>{pct(row.porcentaje_gestionado)}</td><td>{number(row.casos_contacto_titular)}</td><td>{pct(row.porcentaje_contacto_titular)}</td></tr>) : <tr><td colSpan="7"><Empty /></td></tr>}</tbody></table></div></Section>
-        <Section title="Evolución diaria"><DailyChart rows={evolutionRows} /></Section>
-        <Section title="Detalle de clientes y gestiones"><div className="contact-detail-toolbar"><input className="form-control contact-search" placeholder="Buscar por RUT u operación" value={search} onChange={(event) => { setPage(1); setSearch(event.target.value); }} /><button className="contact-secondary-button" onClick={() => { setSearch(""); setPage(1); }}>Limpiar búsqueda</button></div><div className="table-responsive"><table className="table contact-table align-middle mb-2"><thead><tr><th>RUT</th><th>Operación</th><th>Gestor</th><th>Gestiones Call-Terreno</th><th>Última Gestión</th><th>Estado Contacto</th></tr></thead><tbody>{detail.rows.length ? detail.rows.map((row) => <tr key={`${row.rut}-${row.operacion}`}><td>{row.rut}</td><td>{row.operacion || "-"}</td><td>{row.gestor}</td><td>{number(row.cantidad_gestiones)}</td><td>{row.ultima_gestion ? new Date(row.ultima_gestion).toLocaleString("es-CL") : "-"}</td><td>{row.estado_contacto}</td></tr>) : <tr><td colSpan="6"><Empty /></td></tr>}</tbody></table></div><div className="contact-pagination"><span>{number(detail.total)} registros</span><div><button className="contact-secondary-button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button><span>Página {page}</span><button className="contact-secondary-button" disabled={page * 50 >= detail.total} onClick={() => setPage((value) => value + 1)}>Siguiente</button></div></div></Section>
+        <Section title="Tubo de Contactabilidad"><div className="table-responsive"><table className="table contact-table align-middle mb-0"><thead><tr><th>Gestor</th><th>Total Casos</th><th>Contacto Titular</th><th>% Titular</th><th>Casos con Promesa</th><th>% Promesa</th><th>Promesas Cumplidas</th><th>% Promesa Cumplida</th></tr></thead><tbody>{tubeRows.length ? tubeRows.map((row) => <tr key={row.gestor}><td><span className="contact-table-gestor">{row.gestor}</span></td><td>{number(row.casos_asignados)}</td><td>{number(row.casos_contacto_titular)}</td><td>{pct(row.porcentaje_contacto_titular)}</td><td>{number(row.casos_promesa)}</td><td>{pct(row.porcentaje_promesa)}</td><td>{number(row.promesas_cumplidas)}</td><td>{pct(row.porcentaje_promesa_cumplida)}</td></tr>) : <tr><td colSpan="8"><Empty /></td></tr>}</tbody></table></div></Section>
+        <Section title="Evolución diaria · % Contacto Titular vs mes anterior"><ComparativeChart data={evolucion} /></Section>
+        <Section title="Detalle de clientes y gestiones"><div className="contact-detail-toolbar"><input className="form-control contact-search" placeholder="Buscar por RUT u operación" value={search} onChange={(event) => { setPage(1); setSearch(event.target.value); }} /><button className="contact-secondary-button" onClick={() => { setSearch(""); setPage(1); }}>Limpiar búsqueda</button><button className="contact-secondary-button contact-export-button" type="button" onClick={exportDetalle} disabled={exporting || !detail.total}>{exporting ? "Descargando..." : "⭳ Descargar Excel"}</button></div><div className="table-responsive"><table className="table contact-table align-middle mb-2"><thead><tr><th>RUT</th><th>Operación</th><th>Última Gestión</th><th>Tipo Gestión</th><th>Gestión</th><th>Contuvo</th><th>Fecha Promesa</th></tr></thead><tbody>{detail.rows.length ? detail.rows.map((row) => <tr key={`${row.rut}-${row.operacion}`}><td>{row.rut}</td><td>{row.operacion || "-"}</td><td>{dateLabel(row.ultima_gestion)}</td><td>{row.tipo_gestion || "-"}</td><td>{contactoLabel(row.estado_contacto)}</td><td><span className={`contact-flag ${row.contuvo === "SI" ? "is-yes" : "is-no"}`}>{row.contuvo || "NO"}</span></td><td>{dateLabel(row.fecha_promesa)}</td></tr>) : <tr><td colSpan="7"><Empty /></td></tr>}</tbody></table></div><div className="contact-pagination"><span>{number(detail.total)} registros · mostrando {detail.rows.length}</span><div><button className="contact-secondary-button" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Anterior</button><span>Página {page}</span><button className="contact-secondary-button" disabled={page * PAGE_SIZE >= detail.total} onClick={() => setPage((value) => value + 1)}>Siguiente</button></div></div></Section>
       </>}
     </main>
   );

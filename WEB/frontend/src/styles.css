@@ -1109,9 +1109,40 @@ body {
 .contact-metric-row .progress { height: 9px; overflow: hidden; border-radius: 999px; background: #edf2f7; }
 .contact-metric-row .progress-bar { border-radius: inherit; background: linear-gradient(90deg, #f28c28, #f5b35f); }
 .contact-chart-wrap { overflow-x: auto; }
-.contact-chart { min-width: 680px; width: 100%; height: 230px; }
+.contact-chart-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 4px; color: #53677e; font-size: 12px; }
+.contact-chart-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.contact-chart-legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+.contact-chart { min-width: 680px; width: 100%; height: 300px; }
+.contact-chart-grid-line { stroke: #e7edf4; stroke-width: 1; }
+.contact-chart-axis-label { fill: #8494a6; font-size: 11px; }
 .contact-chart-label { fill: #64748b; font-size: 12px; }
+.contact-chart-axis-caption { margin-top: -2px; color: #8494a6; font-size: 11px; text-align: center; }
 .contact-detail-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.contact-chart-canvas { position: relative; }
+.contact-chart-cursor { stroke: #c3d1e0; stroke-width: 1; stroke-dasharray: 3 3; }
+.contact-chart-tooltip {
+  position: absolute; top: 8px; transform: translateX(12px);
+  min-width: 210px; padding: 10px 12px; z-index: 5;
+  background: #fff; border: 1px solid #dbe4ee; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(33, 61, 92, .12);
+  font-size: 12px; pointer-events: none;
+}
+.contact-chart-tooltip.is-left { transform: translateX(calc(-100% - 12px)); }
+.contact-tooltip-head { font-weight: 600; color: #46586d; margin-bottom: 7px; padding-bottom: 6px; border-bottom: 1px solid #eef3f8; }
+.contact-tooltip-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 3px 0; color: #64748b; }
+.contact-tooltip-row strong { color: #213d5c; font-variant-numeric: tabular-nums; }
+.contact-tooltip-diff { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 6px; padding-top: 6px; border-top: 1px solid #eef3f8; color: #64748b; }
+.contact-tooltip-diff strong { font-variant-numeric: tabular-nums; }
+.contact-tooltip-diff .is-up { color: #1f7a52; }
+.contact-tooltip-diff .is-down { color: #b4453a; }
+.contact-flag { display: inline-block; min-width: 34px; text-align: center; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.contact-flag.is-yes { background: #e6f3ed; color: #1f7a52; }
+.contact-flag.is-no { background: #f1f4f8; color: #7b8a9c; }
+.contact-subtitle { margin: 4px 0 0; color: #8b99a9; font-size: 12px; }
+.contact-subtitle strong { color: #46586d; font-weight: 600; }
+.contact-title-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.contact-contencion-badge { background: #fdf1e6; color: #b45309; border: 1px solid #f2d3ae; font-weight: 600; }
+.contact-export-button { margin-left: auto; }
 .contact-search { max-width: 360px; border-color: #dbe4ee; font-size: 12px; }
 .contact-search:focus { border-color: #f2a159; box-shadow: 0 0 0 3px rgba(242, 140, 40, .1); }
 .contact-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #8b99a9; font-size: 11px; }

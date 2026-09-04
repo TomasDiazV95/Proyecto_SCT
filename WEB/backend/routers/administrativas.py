@@ -1,10 +1,8 @@
-from io import BytesIO
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from openpyxl import Workbook
 
 from auth.dependencies import require_module
+from excel_export import excel_response as _excel_response
 from services.administrativas_itau_service import (
     get_asignacion_export_rows,
     get_cuotas_pagadas_export_rows,
@@ -14,24 +12,6 @@ from services.administrativas_itau_service import (
 
 
 router = APIRouter(dependencies=[Depends(require_module("administrativas"))])
-
-
-def _excel_response(headers: list[str], rows: list[dict], sheet_title: str, filename: str) -> StreamingResponse:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = sheet_title
-    ws.append(headers)
-    for row in rows:
-        ws.append([row.get(header) for header in headers])
-
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 
 @router.get("/itau/periodos")
