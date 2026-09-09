@@ -43,13 +43,13 @@ export const modulePanels = [
         path: "/sth",
         buttonLabel: "Ir a STH",
       },
-      {
+      /*{
         code: "porsche",
         title: "Porsche",
         description: "Seguimiento y cumplimiento Porsche.",
         path: "/porsche",
         buttonLabel: "Ir a Porsche",
-      },
+      },*/
       {
         code: "bit",
         title: "Banco Internacional Vigente",

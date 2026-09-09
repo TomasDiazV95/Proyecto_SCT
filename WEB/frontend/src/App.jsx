@@ -46,7 +46,7 @@ export default function App() {
       <Route path="/bit-castigo" element={<ProtectedRoute moduleCode="bit-castigo"><BitCastigoPage /></ProtectedRoute>} />
       <Route path="/bit" element={<ProtectedRoute moduleCode="bit"><BitPage /></ProtectedRoute>} />
       <Route path="/la-araucana" element={<ProtectedRoute moduleCode="la-araucana"><LaAraucanaPage /></ProtectedRoute>} />
-      <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} />
+      {/* <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} /> */}
       <Route path="/sth" element={<ProtectedRoute moduleCode="sth"><SthPage /></ProtectedRoute>} />
       <Route path="/factura" element={<ProtectedRoute moduleCode="factura"><PanelPage panelCode="factura" emptyTitle="Panel de Factura en preparacion" emptyDescription="Este modulo esta reservado para simular facturas" /></ProtectedRoute>} />
       <Route path="/administrativas" element={<ProtectedRoute moduleCode="administrativas"><AdministrativasPage /></ProtectedRoute>} />
