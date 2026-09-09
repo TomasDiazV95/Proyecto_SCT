@@ -6,6 +6,7 @@ import {
   downloadItauCuotasVencida,
   fetchItauAdministrativasPeriodos,
 } from "../../api";
+import { saveDownload } from "../../utils/download";
 
 function formatPeriodo(periodo) {
   if (!periodo) {
@@ -14,17 +15,6 @@ function formatPeriodo(periodo) {
   const [year, month] = String(periodo).split("-");
   const date = new Date(Number(year), Number(month) - 1, 1);
   return new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" }).format(date);
-}
-
-function saveDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 }
 
 function DownloadCard({ title, description, periodos, value, onChange, loading, onDownload }) {
