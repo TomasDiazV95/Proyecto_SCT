@@ -171,6 +171,30 @@ export async function fetchScTempranaDetail(filters) {
   return res.json();
 }
 
+export async function fetchGestionesDiariasSctFilters(filters = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gestiones-diarias-sct/filtros`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de Gestiones Diarias SCT");
+  }
+  return res.json();
+}
+
+export async function fetchGestionesDiariasSctDetail(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gestiones-diarias-sct/detalle`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar Gestiones Diarias SCT");
+  }
+  return res.json();
+}
+
+export async function fetchGestionesDiariasSctSummary(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gestiones-diarias-sct/resumen`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el resumen de Gestiones Diarias SCT");
+  }
+  return res.json();
+}
+
 export async function fetchGmFilters() {
   const res = await apiFetch(`${API_BASE}/api/gm/filtros`);
   if (!res.ok) {
