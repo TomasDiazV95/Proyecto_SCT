@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchGestionesDiariasSctDetail, fetchGestionesDiariasSctFilters, fetchGestionesDiariasSctSummary } from "../api";
@@ -71,6 +71,31 @@ export default function GestionesDiariasSctPage() {
   const [error, setError] = useState("");
   const [executiveDropdownOpen, setExecutiveDropdownOpen] = useState(false);
   const [executiveSearch, setExecutiveSearch] = useState("");
+  const executiveDropdownRef = useRef(null);
+
+  useEffect(() => {
+    if (!executiveDropdownOpen) {
+      return undefined;
+    }
+    function handlePointerDown(event) {
+      if (executiveDropdownRef.current && !executiveDropdownRef.current.contains(event.target)) {
+        setExecutiveDropdownOpen(false);
+      }
+    }
+    function handleKeyDown(event) {
+      if (event.key === "Escape") {
+        setExecutiveDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [executiveDropdownOpen]);
 
   useEffect(() => {
     async function loadFilters() {
@@ -254,7 +279,7 @@ export default function GestionesDiariasSctPage() {
             {view === "resumen" ? (
               <div className="col-12 col-md-3">
                 <label className="form-label">Ejecutivos</label>
-                <div className="position-relative">
+                <div className="position-relative" ref={executiveDropdownRef}>
                   <button className="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" onClick={() => setExecutiveDropdownOpen((prev) => !prev)}>
                     <span className="text-truncate">{executiveButtonText}</span>
                     <span className="ms-2">▾</span>

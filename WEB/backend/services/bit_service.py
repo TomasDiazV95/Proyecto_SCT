@@ -25,14 +25,6 @@ WITH carterizado_unico AS (
         FROM dbo.tmp_BIT_carterizado
         WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) = 'VIGENTE'
     ) src
-), dotacion AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(usuario_ejecutivo))) AS usuario,
-        nombre_ejecutivo,
-        periodo_desde,
-        periodo_hasta
-    FROM dbo.tmp_ejecutivos
-    WHERE cartera = 532
 ), metas AS (
     SELECT periodo, tramo, meta
     FROM (
@@ -57,7 +49,7 @@ WITH carterizado_unico AS (
         c.dv,
         c.con_no,
         COALESCE(cu.usuario, 'Phoenix') AS carterizado,
-        COALESCE(d.nombre_ejecutivo, 'Phoenix') AS ejecutivo,
+        COALESCE(cu.usuario, 'Phoenix') AS ejecutivo,
         CASE
             WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
             WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
@@ -79,16 +71,6 @@ WITH carterizado_unico AS (
             ELSE UPPER(LTRIM(RTRIM(COALESCE(c.con_no, ''))))
         END
        AND cu.rn = 1
-    LEFT JOIN dotacion d
-        ON d.usuario = UPPER(LTRIM(RTRIM(COALESCE(cu.usuario, 'Phoenix'))))
-       AND (
-            d.periodo_desde IS NULL
-            OR d.periodo_desde <= EOMONTH(DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1))
-       )
-       AND (
-            d.periodo_hasta IS NULL
-            OR d.periodo_hasta >= DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1)
-       )
     LEFT JOIN metas m
         ON m.periodo = c.periodo
        AND m.tramo = CASE
@@ -124,14 +106,6 @@ WITH carterizado_unico AS (
         FROM dbo.tmp_BIT_carterizado
         WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) = 'VIGENTE'
     ) src
-), dotacion AS (
-    SELECT
-        UPPER(LTRIM(RTRIM(usuario_ejecutivo))) AS usuario,
-        nombre_ejecutivo,
-        periodo_desde,
-        periodo_hasta
-    FROM dbo.tmp_ejecutivos
-    WHERE cartera = 532
 ), metas AS (
     SELECT periodo, tramo, meta
     FROM (
@@ -156,7 +130,7 @@ WITH carterizado_unico AS (
         c.dv,
         c.con_no,
         COALESCE(cu.usuario, 'Phoenix') AS carterizado,
-        COALESCE(d.nombre_ejecutivo, 'Phoenix') AS ejecutivo,
+        COALESCE(cu.usuario, 'Phoenix') AS ejecutivo,
         CASE
             WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
             WHEN LEFT(COALESCE(c.tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN '90+'
@@ -178,16 +152,6 @@ WITH carterizado_unico AS (
             ELSE UPPER(LTRIM(RTRIM(COALESCE(c.con_no, ''))))
         END
        AND cu.rn = 1
-    LEFT JOIN dotacion d
-        ON d.usuario = UPPER(LTRIM(RTRIM(COALESCE(cu.usuario, 'Phoenix'))))
-       AND (
-            d.periodo_desde IS NULL
-            OR d.periodo_desde <= EOMONTH(DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1))
-       )
-       AND (
-            d.periodo_hasta IS NULL
-            OR d.periodo_hasta >= DATEFROMPARTS(CAST(LEFT(c.periodo, 4) AS INT), CAST(RIGHT(c.periodo, 2) AS INT), 1)
-       )
     LEFT JOIN metas m
         ON m.periodo = c.periodo
        AND m.tramo = CASE

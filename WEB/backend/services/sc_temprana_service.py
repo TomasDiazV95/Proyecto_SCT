@@ -14,6 +14,8 @@ USER_TO_NAME = {
     "BMONCADA": "Barbara Canales",
     "SFUENTES": "Sandra Fuentes",
     "MCOLMENARES": "Marlexis Colmenares",
+    "PALTAMIRANO": "Paula Altamirano",
+    "RCALDERON": "Rocio Calderon",
 }
 
 USER_ORDER = [
@@ -25,6 +27,8 @@ USER_ORDER = [
     "BMONCADA",
     "SFUENTES",
     "MCOLMENARES",
+    "PALTAMIRANO",
+    "RCALDERON",
 ]
 
 
@@ -36,7 +40,7 @@ def _normalize_period(periodo: str | None) -> str:
         return value
 
     sql = """
-    SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS periodo
+    SELECT CONVERT(char(10), MAX(fld_fecha), 126) AS periodo
     FROM dbo.tmp_bench_temp_STC
     """
     rows = run_query(sql)
@@ -51,9 +55,9 @@ def _safe_div(num: float, den: float) -> float:
 
 def get_filter_values() -> dict:
     sql_periodos = """
-    SELECT DISTINCT CONVERT(char(10), fecha_carga, 126) AS periodo
+    SELECT DISTINCT CONVERT(char(10), fld_fecha, 126) AS periodo
     FROM dbo.tmp_bench_temp_STC
-    WHERE fecha_carga IS NOT NULL
+    WHERE fld_fecha IS NOT NULL
     ORDER BY periodo DESC
     """
     periodos = [r["periodo"] for r in run_query(sql_periodos) if r.get("periodo")]
@@ -137,7 +141,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
             END AS peso_gestion
         FROM dbo.tmp_GEST_CRM g
         WHERE g.cartera = 526
-          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND EOMONTH(?)
+          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND CAST(? AS date)
           AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
     ),
     ranking AS (
@@ -175,10 +179,12 @@ def get_cycle_view(filters: dict) -> list[dict]:
         'SDUARTE',
         'BMONCADA',
         'SFUENTES',
-        'MCOLMENARES'
+        'MCOLMENARES',
+        'PALTAMIRANO',
+        'RCALDERON'
     )
       AND b.fld_TRAMO_MORA IN ('C1', 'C2', 'C3')
-      AND b.fecha_carga = ?
+      AND b.fld_fecha = ?
     GROUP BY ISNULL(mg.UsuarioGestion, 'SIN GESTION')
     """
 
@@ -187,7 +193,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
     sql_c3_base = """
     SELECT COUNT_BIG(1) AS c3_casos_base
     FROM dbo.tmp_bench_temp_STC
-    WHERE fecha_carga = ?
+    WHERE fld_fecha = ?
       AND UPPER(LTRIM(RTRIM(fld_TRAMO_MORA))) = 'C3'
     """
     c3_base_rows = run_query(sql_c3_base, (periodo,))
@@ -353,7 +359,7 @@ def get_detail_view(filters: dict) -> dict:
             END AS peso_gestion
         FROM dbo.tmp_GEST_CRM g
         WHERE g.cartera = 526
-          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND EOMONTH(?)
+          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND CAST(? AS date)
           AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
     ),
     ranking AS (
@@ -390,7 +396,7 @@ def get_detail_view(filters: dict) -> dict:
         FROM dbo.tmp_bench_temp_STC b
         LEFT JOIN mejor_gestion mg
             ON b.fld_RUT = mg.rut
-        WHERE b.fecha_carga = ?
+        WHERE b.fld_fecha = ?
     )
     SELECT
         base.operacion,

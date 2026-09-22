@@ -4,6 +4,8 @@ import { fetchKpiDiarioCycle, fetchKpiDiarioFilters, fetchKpiDiarioGeneral } fro
 
 const initialFilters = {
   periodo: "",
+  negocio: "",
+  segmento: "",
   zona: "",
   ejecutivo: "",
   ciclo: "",
@@ -46,7 +48,13 @@ function dotClassByThresholds(value, thresholds) {
 export default function KpiCumplimientoDiarioPage() {
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
-  const [options, setOptions] = useState({ periodos: [], zonas: [], ejecutivos: [] });
+  const [options, setOptions] = useState({
+    periodos: [],
+    negocios: [],
+    segmentos: [],
+    zonas: [],
+    ejecutivos: [],
+  });
   const [generalRows, setGeneralRows] = useState([]);
   const [cycleRows, setCycleRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -55,18 +63,30 @@ export default function KpiCumplimientoDiarioPage() {
   useEffect(() => {
     async function loadFilters() {
       try {
-        const data = await fetchKpiDiarioFilters();
+        const data = await fetchKpiDiarioFilters({ negocio: filters.negocio });
         setOptions(data);
-        setFilters((prev) => ({
-          ...prev,
-          periodo: data.periodos?.[0] || "",
-        }));
+        setFilters((prev) => {
+          const negocio = data.negocios?.includes(prev.negocio)
+            ? prev.negocio
+            : data.negocios?.[0] || "";
+          const negocioChanged = negocio !== prev.negocio;
+          return {
+            ...prev,
+            negocio,
+            segmento: negocioChanged
+              ? ""
+              : data.segmentos?.includes(prev.segmento)
+                ? prev.segmento
+                : data.segmentos?.[0] || "",
+            periodo: data.periodos?.[0] || "",
+          };
+        });
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [filters.negocio]);
 
   useEffect(() => {
     async function loadData() {
@@ -138,6 +158,10 @@ export default function KpiCumplimientoDiarioPage() {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
 
+  function onNegocioChange(value) {
+    setFilters((prev) => ({ ...prev, negocio: value, segmento: "" }));
+  }
+
   return (
     <div className="container-fluid py-4 app-shell gm-page">
       <div className="d-flex justify-content-between align-items-center mb-3">
@@ -190,6 +214,28 @@ export default function KpiCumplimientoDiarioPage() {
       <div className="card shadow-sm mb-3">
         <div className="card-body">
           <div className="row g-2">
+            <div className="col-12 col-md-2">
+              <label className="form-label">Negocio</label>
+              <select className="form-select" value={filters.negocio} onChange={(e) => onNegocioChange(e.target.value)}>
+                <option value="">Todos</option>
+                {options.negocios.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="col-12 col-md-2">
+              <label className="form-label">Segmento</label>
+              <select className="form-select" value={filters.segmento} onChange={(e) => onChange("segmento", e.target.value)}>
+                <option value="">Todos</option>
+                {options.segmentos.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="col-12 col-md-2">
               <label className="form-label">Periodo</label>
               <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>

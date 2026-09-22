@@ -43,13 +43,13 @@ export const modulePanels = [
         path: "/sth",
         buttonLabel: "Ir a STH",
       },
-      {
+      /*{
         code: "porsche",
         title: "Porsche",
         description: "Seguimiento y cumplimiento Porsche.",
         path: "/porsche",
         buttonLabel: "Ir a Porsche",
-      },
+      },*/
       {
         code: "bit",
         title: "Banco Internacional Vigente",
@@ -87,15 +87,30 @@ export const modulePanels = [
         path: "/bench",
         buttonLabel: "Abrir BENCH KPI",
       },
+      {
+        code: "kpi-diario",
+        title: "KPI Avance Phoenix",
+        description: "Comparacion mensual de Phoenix contra si mismo por dia habil.",
+        path: "/kpi-avance-phoenix",
+        buttonLabel: "Abrir KPI Phoenix",
+      },
     ],
   },
   {
     code: "contactabilidad",
     title: "Panel de Contactabilidad",
-    description: "Panel reservado para futuros indicadores y procesos de contactabilidad.",
+    description: "Indicadores de contactabilidad, recurrencia, contacto titular y gestión.",
     path: "/contactabilidad",
     accent: "success",
-    modules: [],
+    modules: [
+      {
+        code: "contactabilidad",
+        title: "Itaú Vencida",
+        description: "Indicadores de contactabilidad, recurrencia, contacto titular y gestión.",
+        path: "/contactabilidad/itau-vencida",
+        buttonLabel: "Ver detalle",
+      },
+    ],
   },
   {
     code: "factura",

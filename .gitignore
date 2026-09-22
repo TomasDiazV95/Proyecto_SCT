@@ -19,6 +19,7 @@ data/prueba.xlsx
 # Logs ETL
 ETL/logs/
 
+Logs/
 # Temporales
 tmp/
 temp/

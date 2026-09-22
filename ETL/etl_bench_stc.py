@@ -14,10 +14,17 @@ from dotenv import load_dotenv
 def load_env_files() -> None:
     root_dir = Path(__file__).resolve().parents[1]
     load_dotenv(root_dir / ".env")
-    load_dotenv(root_dir / "ETL" / ".env")
 
 
 load_env_files()
+
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or not str(value).strip():
+        raise RuntimeError(f"Falta definir {name} en .env")
+    return str(value).strip()
+
 
 # ========= DB desde .env =========
 SERVER = os.getenv("DB_SERVER")
@@ -27,9 +34,9 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")  # opcional
 
 # ========= BENCH =========
-BENCH_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\SCT BENCH\extraido")
-BENCH_PATTERN = "*BENCH MORA TARDIA - PHOENIX*.xlsx"
-SHEET_NAME = "PHOENIX"
+BENCH_FOLDER = Path(require_env("BENCH_STC_FOLDER"))
+BENCH_PATTERN = require_env("BENCH_STC_PATTERN")
+SHEET_NAME = require_env("BENCH_STC_SHEET_NAME")
 
 
 def get_latest_bench_file(folder: Path, pattern: str) -> str:
@@ -415,9 +422,6 @@ def should_skip_load(current_source_file: str) -> bool:
 
 
 def main():
-    if not EXCEL_PATH:
-        raise RuntimeError("No se definio BENCH_EXCEL_PATH y no hay ruta por defecto")
-
     df = read_excel(EXCEL_PATH, SHEET_NAME)
 
     print(f"Archivo: {Path(EXCEL_PATH).name}")

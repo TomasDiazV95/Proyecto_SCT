@@ -5,6 +5,9 @@ from datetime import date, datetime
 from database import run_query
 
 
+DEFAULT_EXECUTIVE = "PHOENIX"
+
+
 def _clean_text(value) -> str:
     if value is None:
         return ""
@@ -85,12 +88,12 @@ def get_filter_values() -> dict:
         r["ejecutivo"]
         for r in run_query(
             """
-            SELECT DISTINCT LTRIM(RTRIM(ISNULL(c.ejecutivo, 'Jorge Lopez'))) AS ejecutivo
+            SELECT DISTINCT LTRIM(RTRIM(ISNULL(c.ejecutivo, 'PHOENIX'))) AS ejecutivo
             FROM dbo.recup_itau_castigo base
             LEFT JOIN dbo.tmp_carterizado_ITAU_CASTIGO c
                 ON base.RUT = c.rut
                AND c.mes_carterizado = DATEFROMPARTS(YEAR(base.fecha_carga), MONTH(base.fecha_carga), 1)
-            WHERE LTRIM(RTRIM(ISNULL(c.ejecutivo, 'Jorge Lopez'))) <> ''
+            WHERE LTRIM(RTRIM(ISNULL(c.ejecutivo, 'PHOENIX'))) <> ''
             ORDER BY ejecutivo
             """
         )
@@ -112,7 +115,7 @@ def get_general(filters: dict) -> dict:
     sql = f"""
     WITH agg AS (
         SELECT
-            ISNULL(c.ejecutivo, 'Jorge Lopez') AS Ejecutivo,
+            ISNULL(c.ejecutivo, '{DEFAULT_EXECUTIVE}') AS Ejecutivo,
             base.COBRADOR_DES,
             COUNT(*) AS cantidad,
             SUM(COALESCE(CAST(base.MONTO_CASTIGADO AS float), 0)) AS Deuda_Cobrador,
@@ -123,7 +126,7 @@ def get_general(filters: dict) -> dict:
            AND c.mes_carterizado = ?
         WHERE base.fecha_carga = ?
         GROUP BY
-            ISNULL(c.ejecutivo, 'Jorge Lopez'),
+            ISNULL(c.ejecutivo, '{DEFAULT_EXECUTIVE}'),
             base.COBRADOR_DES
     ), ranked AS (
         SELECT
@@ -183,7 +186,7 @@ def get_general(filters: dict) -> dict:
         meta = float(row.get("Meta_Recupero") or 0)
         rows.append(
             {
-                "ejecutivo": row.get("Ejecutivo") or "Jorge Lopez",
+                "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
                 "cobrador_vista": row.get("Cobrador_Vista") or "",
                 "deuda_total": deuda,
                 "recupero_total": recupero,
@@ -220,12 +223,12 @@ def get_producto(filters: dict) -> dict:
     filter_sql = ""
     params: list = [periodo, fecha_carga]
     if ejecutivo:
-        filter_sql = "HAVING UPPER(LTRIM(RTRIM(ISNULL(c.ejecutivo, 'Jorge Lopez')))) = UPPER(LTRIM(RTRIM(?)))"
+        filter_sql = f"HAVING UPPER(LTRIM(RTRIM(ISNULL(c.ejecutivo, '{DEFAULT_EXECUTIVE}')))) = UPPER(LTRIM(RTRIM(?)))"
         params.append(ejecutivo)
 
     sql = f"""
     SELECT
-        ISNULL(c.ejecutivo, 'Jorge Lopez') AS Ejecutivo,
+        ISNULL(c.ejecutivo, '{DEFAULT_EXECUTIVE}') AS Ejecutivo,
         SUM(CASE WHEN base.COBRADOR_DES = 'Phoenix' THEN COALESCE(CAST(base.MONTO_CASTIGADO AS float), 0) ELSE 0 END) AS Deuda_Phoenix,
         SUM(CASE WHEN base.COBRADOR_DES = 'Phoenix' THEN COALESCE(CAST(base.RECUPERO AS float), 0) ELSE 0 END) AS Recupero_Phoenix,
         SUM(CASE WHEN base.COBRADOR_DES = 'Phoenix MCV' THEN COALESCE(CAST(base.MONTO_CASTIGADO AS float), 0) ELSE 0 END) AS Deuda_Phoenix_MCV,
@@ -235,7 +238,7 @@ def get_producto(filters: dict) -> dict:
         ON base.RUT = c.rut
        AND c.mes_carterizado = ?
     WHERE base.fecha_carga = ?
-    GROUP BY ISNULL(c.ejecutivo, 'Jorge Lopez')
+    GROUP BY ISNULL(c.ejecutivo, '{DEFAULT_EXECUTIVE}')
     {filter_sql}
     ORDER BY Ejecutivo
     """
@@ -255,7 +258,7 @@ def get_producto(filters: dict) -> dict:
         recupero_phoenix_mcv = float(row.get("Recupero_Phoenix_MCV") or 0)
         rows.append(
             {
-                "ejecutivo": row.get("Ejecutivo") or "Jorge Lopez",
+                "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
                 "deuda_phoenix": deuda_phoenix,
                 "recupero_phoenix": recupero_phoenix,
                 "pct_recupero_phoenix": _safe_div(recupero_phoenix, deuda_phoenix),

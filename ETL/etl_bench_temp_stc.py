@@ -9,7 +9,20 @@ import pandas as pd
 import pyodbc
 from dotenv import load_dotenv
 
-load_dotenv()
+def load_env_files() -> None:
+    root_dir = Path(__file__).resolve().parents[1]
+    load_dotenv(root_dir / ".env")
+
+
+load_env_files()
+
+
+def require_env(name: str) -> str:
+    value = os.getenv(name)
+    if value is None or not str(value).strip():
+        raise RuntimeError(f"Falta definir {name} en .env")
+    return str(value).strip()
+
 
 # ========= DB desde .env =========
 SERVER = os.getenv("DB_SERVER")
@@ -19,10 +32,10 @@ PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
 # ========= BENCH MORA TEMPRANA =========
-DEFAULT_EXCEL_PATH = "C:\\Users\\PC del Marrón\\Desktop\\Paso\\20260528 - BENCH MORA TEMPRANA - PHOENIX (TELEFONIA).xlsx"
-EXCEL_PATH = os.getenv("BENCH_TEMP_EXCEL_PATH", "").strip()
-SHEET_NAME = "PHOENIX"
-FILE_NAME_CONTAINS = os.getenv("BENCH_TEMP_NAME_CONTAINS", "BENCH MORA TEMPRANA")
+
+BENCH_FOLDER = Path(require_env("BENCH_TEMP_FOLDER"))
+BENCH_PATTERN = require_env("BENCH_TEMP_PATTERN")
+SHEET_NAME = require_env("BENCH_TEMP_SHEET_NAME")
 
 TABLE = "dbo.tmp_bench_temp_STC"
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
@@ -245,26 +258,41 @@ def insert_append(df: pd.DataFrame, source_file: str):
     print(f"OK: insertadas {inserted} filas")
 
 
-def source_file_exists(source_file: str) -> bool:
+def get_last_source_file() -> str | None:
     try:
         with connect() as cn:
             cur = cn.cursor()
-            cur.execute(f"SELECT COUNT(1) FROM {TABLE} WHERE source_file = ?", (source_file,))
-            return (cur.fetchone()[0] or 0) > 0
+            cur.execute(f"SELECT TOP (1) source_file FROM {TABLE} ORDER BY id_bench_temp_stc DESC")
+            row = cur.fetchone()
+            if not row:
+                return None
+            return row[0]
     except pyodbc.Error:
+        return None
+
+
+def should_skip_load(current_source_file: str) -> bool:
+    last_source_file = get_last_source_file()
+    if last_source_file is None:
+        print("No hay carga previa en la tabla; se cargara el archivo actual.")
         return False
+
+    current_norm = str(current_source_file).strip().upper()
+    last_norm = str(last_source_file).strip().upper()
+
+    print(f"source_file actual: {current_source_file}")
+    print(f"ultimo source_file en BD: {last_source_file}")
+
+    if current_norm == last_norm:
+        print("El ultimo source_file coincide con el archivo actual. Se omite la carga.")
+        return True
+
+    print("El source_file es distinto al ultimo en BD. Se continuara con la carga.")
+    return False
 
 
 def pick_files_to_process() -> list[Path]:
-    if EXCEL_PATH:
-        return [Path(EXCEL_PATH)]
-
-    paso_dir = Path(DEFAULT_EXCEL_PATH).parent
-    files = [
-        p
-        for p in paso_dir.glob("*.xlsx")
-        if FILE_NAME_CONTAINS.upper() in p.name.upper() and not p.name.startswith("~$")
-    ]
+    files = [p for p in BENCH_FOLDER.glob(BENCH_PATTERN) if not p.name.startswith("~$")]
     files.sort(key=lambda p: p.name)
     return files
 
@@ -272,7 +300,13 @@ def pick_files_to_process() -> list[Path]:
 def main():
     files = pick_files_to_process()
     if not files:
-        raise FileNotFoundError("No se encontraron archivos de BENCH MORA TEMPRANA para procesar")
+        available = []
+        if BENCH_FOLDER.exists():
+            available = [p.name for p in BENCH_FOLDER.glob("*.xlsx") if not p.name.startswith("~$")]
+        raise FileNotFoundError(
+            f"No se encontraron archivos de BENCH MORA TEMPRANA para procesar en {BENCH_FOLDER} "
+            f"con el patrón {BENCH_PATTERN}. Archivos vistos: {available}"
+        )
 
     for excel_file in files:
         if not excel_file.exists():
@@ -280,7 +314,7 @@ def main():
             continue
 
         source_file = excel_file.name
-        if source_file_exists(source_file):
+        if should_skip_load(source_file):
             print(f"Ya cargado, se omite: {source_file}")
             continue
 

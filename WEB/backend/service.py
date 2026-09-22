@@ -19,6 +19,8 @@ class ColumnMap:
     normalizado_col: str
     meta_cont_col: str
     meta_norm_col: str
+    negocio_col: str | None = None
+    segmento_col: str | None = None
 
 
 def _is_safe_table_name(name: str) -> bool:
@@ -95,7 +97,7 @@ def resolve_columns() -> ColumnMap:
     table_name = _table_name()
     available = _runtime_columns(table_name)
 
-    return ColumnMap(
+    columns = ColumnMap(
         table_name=table_name,
         date_col=_pick_first(available, ["fecha_carga", "ts_carga"], "fecha"),
         fecha_col=_pick_optional(available, ["fld_FECHA"]),
@@ -122,6 +124,11 @@ def resolve_columns() -> ColumnMap:
             available, ["meta_normalizacion_pct"], "meta normalización"
         ),
     )
+    columns.negocio_col = _pick_optional(
+        available, ["fld_NEGOCIO", "fld_NEGOCIO_NOMBRE", "fld_BUSINESS", "negocio"]
+    )
+    columns.segmento_col = _pick_optional(available, ["fld_SEGMENTO", "segmento"])
+    return columns
 
 
 def _clean_text(value) -> str:
@@ -174,6 +181,14 @@ def _build_filters(filters: dict, cols: ColumnMap) -> tuple[str, list]:
     if filters.get("zona") and cols.zona_col:
         clauses.append(f"UPPER(LTRIM(RTRIM({cols.zona_col}))) = ?")
         params.append(_clean_text(filters["zona"]))
+
+    if filters.get("negocio") and cols.negocio_col:
+        clauses.append(f"UPPER(LTRIM(RTRIM({cols.negocio_col}))) = ?")
+        params.append(_clean_text(filters["negocio"]))
+
+    if filters.get("segmento") and cols.segmento_col:
+        clauses.append(f"UPPER(LTRIM(RTRIM({cols.segmento_col}))) = ?")
+        params.append(_clean_text(filters["segmento"]))
 
     where_sql = ""
     if clauses:
@@ -464,7 +479,8 @@ def get_general_view(filters: dict) -> list[dict]:
     return response
 
 
-def get_filter_values() -> dict:
+def get_filter_values(filters: dict | None = None) -> dict:
+    filters = filters or {}
     cols = resolve_columns()
     period_expr = _period_expr(cols)
     base_where = f"WHERE {_exclude_f_tramos_clause(cols)} AND {_latest_source_files_clause(cols)}"
@@ -483,11 +499,45 @@ def get_filter_values() -> dict:
             f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.ejecutivo_col}))) AS valor FROM {cols.table_name} {base_where} ORDER BY valor"
         ),
         "zonas": [],
+        "negocios": [],
+        "segmentos": [],
     }
 
     if cols.zona_col:
         data["zonas"] = run_query(
             f"SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.zona_col}))) AS valor FROM {cols.table_name} {base_where} ORDER BY valor"
+        )
+
+    if cols.negocio_col:
+        data["negocios"] = run_query(
+            f"""
+            SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.negocio_col}))) AS valor
+            FROM {cols.table_name}
+            {base_where}
+              AND {cols.negocio_col} IS NOT NULL
+              AND LTRIM(RTRIM({cols.negocio_col})) <> ''
+            ORDER BY valor
+            """
+        )
+
+    if cols.segmento_col:
+        segmento_params = []
+        negocio_clause = ""
+        if filters.get("negocio") and cols.negocio_col:
+            negocio_clause = f"AND UPPER(LTRIM(RTRIM({cols.negocio_col}))) = ?"
+            segmento_params.append(_clean_text(filters["negocio"]))
+
+        data["segmentos"] = run_query(
+            f"""
+            SELECT DISTINCT UPPER(LTRIM(RTRIM({cols.segmento_col}))) AS valor
+            FROM {cols.table_name}
+            {base_where}
+              AND {cols.segmento_col} IS NOT NULL
+              AND LTRIM(RTRIM({cols.segmento_col})) <> ''
+              {negocio_clause}
+            ORDER BY valor
+            """,
+            tuple(segmento_params),
         )
 
     return {
@@ -496,4 +546,6 @@ def get_filter_values() -> dict:
         "aperturas": [r["valor"] for r in data["aperturas"] if r["valor"]],
         "ejecutivos": [r["valor"] for r in data["ejecutivos"] if r["valor"]],
         "zonas": [r["valor"] for r in data["zonas"] if r["valor"]],
+        "negocios": [r["valor"] for r in data["negocios"] if r["valor"]],
+        "segmentos": [r["valor"] for r in data["segmentos"] if r["valor"]],
     }

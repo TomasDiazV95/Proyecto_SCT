@@ -99,3 +99,25 @@ def run_query(sql: str, params: tuple = ()) -> list[dict]:
         rows = cur.fetchall()
 
     return [dict(zip(columns, row)) for row in rows]
+
+
+def run_query_sets(sql: str, params: tuple = ()) -> list[list[dict]]:
+    """Execute one SQL batch and return every tabular result set.
+
+    This keeps temporary tables alive on the same SQL Server connection, which
+    is useful for dashboard queries that need several projections of one
+    filtered universe. Non-tabular statements (for example SET NOCOUNT ON or
+    CREATE INDEX) are skipped safely.
+    """
+    result_sets: list[list[dict]] = []
+    with get_connection() as cn:
+        cur = cn.cursor()
+        cur.execute(sql, params)
+        while True:
+            if cur.description:
+                columns = [col[0] for col in cur.description]
+                rows = cur.fetchall()
+                result_sets.append([dict(zip(columns, row)) for row in rows])
+            if not cur.nextset():
+                break
+    return result_sets

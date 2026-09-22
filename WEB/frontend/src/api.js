@@ -40,6 +40,14 @@ async function apiFetch(url, options = {}, retry = true) {
 function withQuery(url, params = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (item !== undefined && item !== null && item !== "") {
+          query.append(key, String(item));
+        }
+      });
+      return;
+    }
     if (value !== undefined && value !== null && value !== "") {
       query.set(key, value);
     }
@@ -179,6 +187,14 @@ export async function fetchGestionesDiariasSctFilters(filters = {}) {
   return res.json();
 }
 
+export async function fetchKpiDiarioFilters(filters = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/filtros`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de KPI diario");
+  }
+  return res.json();
+}
+
 export async function fetchGestionesDiariasSctDetail(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gestiones-diarias-sct/detalle`, filters));
   if (!res.ok) {
@@ -193,6 +209,24 @@ export async function fetchGestionesDiariasSctSummary(filters) {
     throw new Error("No se pudo cargar el resumen de Gestiones Diarias SCT");
   }
   return res.json();
+}
+
+export async function fetchKpiDiarioGeneral(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de KPI diario");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchKpiDiarioCycle(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/ciclo`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista por ciclo de KPI diario");
+  }
+  const body = await res.json();
+  return body.data || [];
 }
 
 export async function fetchGmFilters() {
@@ -336,6 +370,22 @@ export async function fetchBenchKpi(filters) {
   return res.json();
 }
 
+export async function fetchKpiAvancePhoenixFilters(filters = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-avance-phoenix/filtros`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de KPI Phoenix");
+  }
+  return res.json();
+}
+
+export async function fetchKpiAvancePhoenixComparison(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-avance-phoenix/comparacion`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la comparacion de KPI Phoenix");
+  }
+  return res.json();
+}
+
 export async function downloadGmMonthlyExcel(periodo) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/export`, { periodo }));
   if (!res.ok) {
@@ -458,7 +508,7 @@ export async function fetchItauAdministrativasPeriodos() {
   return res.json();
 }
 
-async function downloadAdministrativasExcel(url, fallbackFilename) {
+async function downloadExcelFile(url, fallbackFilename) {
   const res = await apiFetch(url);
   const body = res.ok ? null : await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -471,22 +521,50 @@ async function downloadAdministrativasExcel(url, fallbackFilename) {
 }
 
 export async function downloadItauCuotasVencida(periodo) {
-  return downloadAdministrativasExcel(
+  return downloadExcelFile(
     withQuery(`${API_BASE}/api/administrativas/itau/cuotas/export`, { periodo }),
     `itau_cuotas_vencida_${periodo || "periodo"}.xlsx`
   );
 }
 
 export async function downloadItauAsignacionVencida(periodo) {
-  return downloadAdministrativasExcel(
+  return downloadExcelFile(
     withQuery(`${API_BASE}/api/administrativas/itau/asignacion/export`, { periodo }),
     `itau_asignacion_vencida_${periodo || "periodo"}.xlsx`
   );
 }
 
 export async function downloadItauCuotasPagadas(periodo) {
-  return downloadAdministrativasExcel(
+  return downloadExcelFile(
     withQuery(`${API_BASE}/api/administrativas/itau/cuotas-pagadas/export`, { periodo }),
     `itau_cuotas_pagadas_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function fetchContactabilidadItauFilters(periodo = "", options = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/contactabilidad/itau-vencida/filtros`, { periodo }), options);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || "No se pudieron cargar los filtros de contactabilidad");
+  return body;
+}
+
+async function fetchContactabilidad(path, filters, options = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/contactabilidad/itau-vencida/${path}`, filters), options);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || "No fue posible cargar la información de contactabilidad");
+  return body;
+}
+
+export const fetchContactabilidadItauDashboard = (filters, options) => fetchContactabilidad("dashboard", filters, options);
+export const fetchContactabilidadItauResumen = (filters) => fetchContactabilidad("resumen", filters);
+export const fetchContactabilidadItauEstado = (filters) => fetchContactabilidad("estado-contacto", filters);
+export const fetchContactabilidadItauTubo = (filters) => fetchContactabilidad("tubo", filters);
+export const fetchContactabilidadItauEvolucion = (filters) => fetchContactabilidad("evolucion", filters);
+export const fetchContactabilidadItauDetalle = (filters) => fetchContactabilidad("detalle", filters);
+
+export async function downloadContactabilidadItauDetalle(filters) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/contactabilidad/itau-vencida/detalle/export`, filters),
+    "contactabilidad_itau_vencida_detalle.xlsx"
   );
 }

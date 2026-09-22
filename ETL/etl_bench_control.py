@@ -1,26 +1,35 @@
 import argparse
+import base64
 import json
 import logging
 import os
+import re
 import sys
+import tempfile
 import unicodedata
 from contextlib import suppress
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pyodbc
+import requests
 from dotenv import load_dotenv
 from openpyxl import load_workbook
 
 
 TABLE = "dbo.tmp_BENCH_CONTROL_DIARIO"
-DEFAULT_ONEDRIVE_PATH = r"C:\Users\Analista de Datos\Phoenix Service\Cobranzas - Documentos\Control semanal puesto BENCH.xlsx"
 DEFAULT_LOG_DIR = Path(__file__).resolve().parents[1] / "Logs"
 STATE_FILE = DEFAULT_LOG_DIR / "etl_bench_control_state.json"
-SCHEMA_VERSION = "2026-07-03-schema-signature"
+SCHEMA_VERSION = "2026-08-31-business-days-remaining"
 BENCH_FILENAME = "Control semanal puesto BENCH.xlsx"
+DEFAULT_GRAPH_SHARE_URL = (
+    "https://phoenixservice1.sharepoint.com/:x:/r/sites/Cobranzas/_layouts/15/Doc.aspx?"
+    "sourcedoc=%7B9743AD98-27D5-40ED-BEE6-919B57F3D447%7D&file=Control%20semanal%20puesto%20BENCH.xlsx"
+    "&action=default&mobileredirect=true"
+)
+GRAPH_API_BASE = "https://graph.microsoft.com/v1.0"
 HEADER_EMPRESA = "EMPRESA"
 HEADER_SEGMENTO = "SEGMENTO"
 SPANISH_MONTHS = {
@@ -36,6 +45,30 @@ SPANISH_MONTHS = {
     "OCTUBRE",
     "NOVIEMBRE",
     "DICIEMBRE",
+}
+
+# FERIADOS CHILE 2026: https://www.feriadoschilenos.cl/feriados-2026/
+CHILE_HOLIDAYS_BY_YEAR: dict[int, frozenset[date]] = {
+    2026: frozenset(
+        {
+            date(2026, 1, 1),
+            date(2026, 4, 3),
+            date(2026, 4, 4),
+            date(2026, 5, 1),
+            date(2026, 5, 21),
+            date(2026, 6, 21),
+            date(2026, 6, 29),
+            date(2026, 7, 16),
+            date(2026, 8, 15),
+            date(2026, 9, 18),
+            date(2026, 9, 19),
+            date(2026, 10, 12),
+            date(2026, 10, 31),
+            date(2026, 11, 1),
+            date(2026, 12, 8),
+            date(2026, 12, 25),
+        }
+    ),
 }
 
 
@@ -77,6 +110,128 @@ def read_state_file() -> dict[str, Any]:
 def write_state_file(state: dict[str, Any]) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _env_first(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _graph_access_token() -> str:
+    tenant_id = _env_first("GRAPH_TENANT_ID", "AZURE_TENANT_ID")
+    client_id = _env_first("GRAPH_CLIENT_ID", "AZURE_CLIENT_ID")
+    client_secret = _env_first("GRAPH_CLIENT_SECRET", "AZURE_CLIENT_SECRET")
+
+    if tenant_id and client_id and client_secret:
+        token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+        form = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "scope": "https://graph.microsoft.com/.default",
+            "grant_type": "client_credentials",
+        }
+        token_response = requests.post(token_url, data=form, timeout=30)
+        if token_response.status_code != 200:
+            raise RuntimeError(
+                f"No se pudo obtener token Graph: {token_response.status_code} {token_response.text}"
+            )
+        body = token_response.json()
+        access_token = str(body.get("access_token") or "").strip()
+        if not access_token:
+            raise RuntimeError("Azure no devolvio access_token para Graph")
+        return access_token
+
+    fallback = _env_first("GRAPH_ACCESS_TOKEN")
+    if fallback:
+        return fallback
+
+    raise RuntimeError(
+        "Faltan credenciales de Graph. Define AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET o GRAPH_ACCESS_TOKEN"
+    )
+
+
+def _graph_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {_graph_access_token()}",
+        "Accept": "application/json",
+    }
+
+
+def _graph_share_url() -> str:
+    return (os.getenv("BENCH_GRAPH_SHARE_URL") or DEFAULT_GRAPH_SHARE_URL).strip()
+
+
+def _encode_share_url(share_url: str) -> str:
+    encoded = base64.b64encode(share_url.encode("utf-8")).decode("ascii")
+    encoded = encoded.rstrip("=").replace("+", "-").replace("/", "_")
+    return f"u!{encoded}"
+
+
+def _graph_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    cleaned = value.strip()
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+
+
+def _graph_bench_metadata() -> dict[str, Any]:
+    share_url = _graph_share_url()
+    endpoint = f"{GRAPH_API_BASE}/shares/{_encode_share_url(share_url)}/driveItem"
+    response = requests.get(
+        endpoint,
+        headers=_graph_headers(),
+        params={"$select": "id,name,eTag,lastModifiedDateTime,@microsoft.graph.downloadUrl"},
+        timeout=60,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"No se pudo leer el archivo BENCH desde Graph: {response.status_code} {response.text}")
+
+    payload = response.json()
+    download_url = str(payload.get("@microsoft.graph.downloadUrl") or "").strip()
+    if not download_url:
+        download_url = f"{GRAPH_API_BASE}/shares/{_encode_share_url(share_url)}/driveItem/content"
+
+    return {
+        "share_url": share_url,
+        "item_id": str(payload.get("id") or "").strip(),
+        "file_name": str(payload.get("name") or BENCH_FILENAME).strip() or BENCH_FILENAME,
+        "etag": str(payload.get("eTag") or "").strip(),
+        "last_modified": _graph_datetime(str(payload.get("lastModifiedDateTime") or "").strip()),
+        "download_url": download_url,
+    }
+
+
+def _download_graph_bench_file(
+    target_dir: Path | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[Path, dict[str, Any]]:
+    metadata = metadata or _graph_bench_metadata()
+    target_dir = target_dir or Path(tempfile.gettempdir())
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = re.sub(r"[^A-Za-z0-9._\- ]", "_", metadata["file_name"])
+    etag_suffix = re.sub(r"[^A-Za-z0-9]+", "_", metadata["etag"] or "noetag").strip("_") or "noetag"
+    download_path = target_dir / f"bench_control_{etag_suffix}_{safe_name}"
+
+    download_url = str(metadata["download_url"])
+    if download_url.startswith(GRAPH_API_BASE):
+        response = requests.get(download_url, headers=_graph_headers(), timeout=120, allow_redirects=True)
+    else:
+        response = requests.get(download_url, timeout=120)
+    if response.status_code != 200:
+        raise RuntimeError(f"No se pudo descargar el archivo BENCH desde Graph: {response.status_code} {response.text}")
+
+    download_path.write_bytes(response.content)
+    logging.info("Archivo BENCH descargado desde Graph: %s", download_path)
+    return download_path, metadata
 
 
 def normalize_text(value: object) -> str:
@@ -148,19 +303,7 @@ def connect() -> pyodbc.Connection:
 
 
 def resolve_excel_path(file_path: str | None) -> Path:
-    configured = file_path or os.getenv("BENCH_ONEDRIVE_PATH") or DEFAULT_ONEDRIVE_PATH
-    path = Path(configured)
-    if path.exists() and path.is_file():
-        return path
-
-    discovered = discover_bench_file()
-    if discovered:
-        logging.warning("Ruta BENCH configurada no existe (%s). Usando archivo detectado: %s", path, discovered)
-        return discovered
-
-    if not path.exists():
-        raise FileNotFoundError(f"No existe archivo BENCH: {path}")
-    raise FileNotFoundError(f"La ruta BENCH no es un archivo valido: {path}")
+    raise RuntimeError("La fuente BENCH ahora es fija por Microsoft Graph y no usa rutas locales.")
 
 
 def discover_bench_file() -> Path | None:
@@ -227,7 +370,14 @@ def refresh_workbook_cache(path: Path) -> None:
 def clean_string(value: object) -> str | None:
     if value is None:
         return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     text = str(value).strip()
+    if text.lower() in {"nan", "nat", "none"}:
+        return None
     return text or None
 
 
@@ -243,6 +393,11 @@ def parse_date(value: object) -> date | None:
 def parse_percentage(value: object, number_format: str | None = None) -> float | None:
     if value is None:
         return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     if isinstance(value, bool):
         return None
 
@@ -283,8 +438,40 @@ def parse_business_day(value: object) -> int | None:
         return None
     try:
         return int(float(str(cleaned).replace(",", ".")))
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
+
+
+def chile_holidays_for_year(year: int) -> frozenset[date]:
+    try:
+        return CHILE_HOLIDAYS_BY_YEAR[year]
+    except KeyError as exc:
+        available_years = ", ".join(str(item) for item in sorted(CHILE_HOLIDAYS_BY_YEAR))
+        raise RuntimeError(
+            f"No hay catalogo de feriados de Chile para el anio {year}. "
+            f"Anos disponibles: {available_years}"
+        ) from exc
+
+
+def business_days_remaining(fecha: date) -> int:
+    """Count business days strictly after fecha until the end of its month."""
+    holidays = chile_holidays_for_year(fecha.year)
+    next_day = fecha + timedelta(days=1)
+    if next_day.month != fecha.month:
+        return 0
+
+    month_end = (
+        date(fecha.year, fecha.month + 1, 1) - timedelta(days=1)
+        if fecha.month < 12
+        else date(fecha.year, 12, 31)
+    )
+    business_days = 0
+    current = next_day
+    while current <= month_end:
+        if current.weekday() < 5 and current not in holidays:
+            business_days += 1
+        current += timedelta(days=1)
+    return business_days
 
 
 def safe_period_values(df: pd.DataFrame) -> list[str]:
@@ -297,6 +484,15 @@ def nullable_float(value: object) -> float | None:
     if value is None or pd.isna(value):
         return None
     return float(value)
+
+
+def nullable_int(value: object) -> int | None:
+    if value is None or pd.isna(value):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def spanish_month_name(month: int) -> str:
@@ -358,7 +554,7 @@ def is_month_banner_row(values: list[Any]) -> bool:
 def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
     merged_values = build_merged_value_map(worksheet)
     records: list[dict[str, Any]] = []
-    current_dates: list[tuple[int, date, int | None]] = []
+    current_dates: list[tuple[int, date]] = []
 
     for row_idx in range(1, worksheet.max_row + 1):
         row_values = [
@@ -374,10 +570,7 @@ def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
             for col_idx in range(3, worksheet.max_column + 1):
                 fecha = parse_date(worksheet_cell_value(worksheet, merged_values, row_idx, col_idx))
                 if fecha:
-                    dia_habil = parse_business_day(
-                        worksheet_cell_value(worksheet, merged_values, row_idx - 1, col_idx) if row_idx > 1 else None
-                    )
-                    current_dates.append((col_idx, fecha, dia_habil))
+                    current_dates.append((col_idx, fecha))
             continue
 
         if not current_dates:
@@ -390,7 +583,7 @@ def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
         if normalize_text(segmento) in SPANISH_MONTHS:
             continue
 
-        for col_idx, fecha, dia_habil in current_dates:
+        for col_idx, fecha in current_dates:
             cell = worksheet.cell(row=row_idx, column=col_idx)
             cumplimiento = parse_percentage(
                 worksheet_cell_value(worksheet, merged_values, row_idx, col_idx),
@@ -402,7 +595,6 @@ def extract_sheet_records(worksheet, sheet_name: str) -> list[dict[str, Any]]:
                     "empresa": empresa,
                     "segmento": segmento,
                     "fecha": fecha,
-                    "dia_habil": dia_habil,
                     "cumplimiento": cumplimiento,
                 }
             )
@@ -473,7 +665,7 @@ def transform_dataframe(extracted_rows: list[dict[str, Any]]) -> tuple[pd.DataFr
                 "fecha": fecha,
                 "anio": fecha.year,
                 "mes": spanish_month_name(fecha.month),
-                "dia_habil": row.get("dia_habil"),
+                "dia_habil": business_days_remaining(fecha),
                 "negocio": negocio,
                 "segmento": segmento,
                 "empresa": empresa,
@@ -486,13 +678,11 @@ def transform_dataframe(extracted_rows: list[dict[str, Any]]) -> tuple[pd.DataFr
     if not records:
         raise RuntimeError("No se encontraron filas validas en el archivo BENCH")
     df = pd.DataFrame.from_records(records)
-    df["_dia_habil_sort"] = df["dia_habil"].fillna(-1)
     df = df.sort_values(
-        by=["fecha", "negocio", "segmento", "empresa", "_dia_habil_sort"],
-        ascending=[True, True, True, True, False],
+        by=["fecha", "negocio", "segmento", "empresa"],
+        ascending=[True, True, True, True],
     )
     df = df.drop_duplicates(subset=["fecha", "negocio", "segmento", "empresa"], keep="first")
-    df = df.drop(columns=["_dia_habil_sort"])
     stats["rows_valid"] = len(df.index)
     return df, stats
 
@@ -580,14 +770,24 @@ def ensure_table(cur: pyodbc.Cursor) -> None:
         create_bench_table(cur)
 
 
-def load_already_processed(source_path: Path, source_mtime: datetime) -> bool:
+def load_already_processed(graph_item_id: str, graph_etag: str) -> bool:
     state = read_state_file()
     return (
         str(state.get("schema_version") or "") == SCHEMA_VERSION
-        and
-        str(state.get("source_path") or "") == str(source_path)
-        and str(state.get("source_mtime") or "") == source_mtime.isoformat()
+        and str(state.get("graph_item_id") or "") == graph_item_id
+        and str(state.get("graph_etag") or "") == graph_etag
     )
+
+
+def bench_table_has_rows() -> bool:
+    """Do not skip a source reload when the destination table is empty."""
+    with connect() as cn:
+        cur = cn.cursor()
+        cur.execute(f"SELECT OBJECT_ID('{TABLE}', 'U')")
+        if cur.fetchone()[0] is None:
+            return False
+        cur.execute(f"SELECT TOP 1 1 FROM {TABLE}")
+        return cur.fetchone() is not None
 
 
 def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int, int]:
@@ -612,7 +812,7 @@ def merge_rows(cur: pyodbc.Cursor, df: pd.DataFrame) -> tuple[int, int, int]:
             row["fecha"],
             int(row["anio"]),
             row["mes"],
-            int(row["dia_habil"]) if row.get("dia_habil") is not None else None,
+            nullable_int(row.get("dia_habil")),
             row["negocio"],
             row["segmento"],
             row["empresa"],
@@ -726,9 +926,13 @@ def build_summary_payload(
     success: bool,
     status: str,
     log_path: Path,
+    source_mode: str | None = None,
     source_file: str | None = None,
     source_path: str | None = None,
     source_mtime: datetime | None = None,
+    graph_item_id: str | None = None,
+    graph_etag: str | None = None,
+    graph_last_modified: datetime | None = None,
     sheet_name: str | None = None,
     requested_sheet: str | None = None,
     processed_sheets: list[str] | None = None,
@@ -747,9 +951,13 @@ def build_summary_payload(
         "success": success,
         "status": status,
         "table": table,
+        "source_mode": source_mode,
         "source_file": source_file,
         "source_path": source_path,
         "source_mtime": source_mtime.isoformat() if source_mtime else None,
+        "graph_item_id": graph_item_id,
+        "graph_etag": graph_etag,
+        "graph_last_modified": graph_last_modified.isoformat() if graph_last_modified else None,
         "sheet_name": sheet_name,
         "requested_sheet": requested_sheet,
         "processed_sheets": processed_sheets or [],
@@ -779,19 +987,64 @@ def build_summary_payload(
 def run(file_path: str | None = None, periodo_override: str | None = None, sheet_override: str | None = None) -> int:
     load_env_files()
     log_path = setup_logging()
-    excel_path: Path | None = None
+    downloaded_path: Path | None = None
     source_mtime: datetime | None = None
     source_file: str | None = None
+    graph_item_id: str | None = None
+    graph_etag: str | None = None
+    graph_last_modified: datetime | None = None
+    graph_share_url: str | None = None
     requested_sheet = sheet_override or os.getenv("BENCH_SHEET_NAME")
     workbook_sheets: list[str] = []
     processed_sheets: list[str] = []
     columns_detected: list[str] = ["fecha", "anio", "mes", "dia_habil", "negocio", "segmento", "empresa", "cumplimiento", "fecha_actualizacion"]
 
     try:
-        excel_path = resolve_excel_path(file_path)
-        source_mtime = datetime.fromtimestamp(excel_path.stat().st_mtime).replace(microsecond=0)
-        source_file = excel_path.name
-        extracted_rows, processed_sheets, workbook_sheets = read_excel_source(excel_path, requested_sheet=requested_sheet)
+        graph_metadata = _graph_bench_metadata()
+        graph_share_url = str(graph_metadata.get("share_url") or "").strip() or None
+        graph_item_id = str(graph_metadata.get("item_id") or "").strip() or None
+        graph_etag = str(graph_metadata.get("etag") or "").strip() or None
+        graph_last_modified = graph_metadata.get("last_modified")
+        source_file = str(graph_metadata.get("file_name") or BENCH_FILENAME).strip() or BENCH_FILENAME
+        source_mtime = graph_last_modified
+
+        if (
+            graph_item_id
+            and graph_etag
+            and load_already_processed(graph_item_id, graph_etag)
+            and bench_table_has_rows()
+        ):
+            logging.info(
+                "Sin cambios Graph: archivo %s con item_id=%s y eTag=%s ya fue cargado.",
+                source_file,
+                graph_item_id,
+                graph_etag,
+            )
+            payload = build_summary_payload(
+                success=True,
+                status="skipped",
+                log_path=log_path,
+                source_mode="graph",
+                source_file=source_file,
+                source_path=graph_share_url,
+                source_mtime=source_mtime,
+                graph_item_id=graph_item_id,
+                graph_etag=graph_etag,
+                graph_last_modified=graph_last_modified,
+                sheet_name=None,
+                requested_sheet=requested_sheet,
+                processed_sheets=[],
+                workbook_sheets=[],
+                skipped_unchanged=True,
+                periodos=[],
+                columns_detected=columns_detected,
+            )
+            emit_payload(payload)
+            return 0
+
+        downloaded_path, graph_metadata = _download_graph_bench_file(metadata=graph_metadata)
+        refresh_workbook_cache(downloaded_path)
+        extracted_rows, processed_sheets, workbook_sheets = read_excel_source(downloaded_path, requested_sheet=requested_sheet)
         sheet_name = processed_sheets[0] if len(processed_sheets) == 1 else "MULTI_SHEET"
         df_prepared, stats = transform_dataframe(extracted_rows)
 
@@ -800,26 +1053,6 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
             if df_prepared.empty:
                 raise RuntimeError(f"No hay filas BENCH para el periodo solicitado {periodo_override}")
             stats["rows_valid"] = len(df_prepared.index)
-
-        if load_already_processed(excel_path, source_mtime):
-            logging.info("Sin cambios: el archivo %s con mtime %s ya fue cargado.", source_file, source_mtime.isoformat())
-            payload = build_summary_payload(
-                success=True,
-                status="skipped",
-                log_path=log_path,
-                source_file=source_file,
-                source_path=str(excel_path),
-                source_mtime=source_mtime,
-                sheet_name=sheet_name,
-                requested_sheet=requested_sheet,
-                processed_sheets=processed_sheets,
-                workbook_sheets=workbook_sheets,
-                skipped_unchanged=True,
-                periodos=safe_period_values(df_prepared),
-                columns_detected=columns_detected,
-            )
-            emit_payload(payload)
-            return 0
 
         with connect() as cn:
             cn.autocommit = False
@@ -831,9 +1064,13 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
         write_state_file(
             {
                 "schema_version": SCHEMA_VERSION,
-                "source_path": str(excel_path),
                 "source_file": source_file,
-                "source_mtime": source_mtime.isoformat(),
+                "source_mode": "graph",
+                "source_path": graph_share_url,
+                "source_mtime": source_mtime.isoformat() if source_mtime else None,
+                "graph_item_id": graph_item_id,
+                "graph_etag": graph_etag,
+                "graph_last_modified": graph_last_modified.isoformat() if graph_last_modified else None,
                 "processed_at": datetime.now().replace(microsecond=0).isoformat(),
             }
         )
@@ -842,9 +1079,13 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
             success=True,
             status="ok",
             log_path=log_path,
+            source_mode="graph",
             source_file=source_file,
-            source_path=str(excel_path),
+            source_path=graph_share_url,
             source_mtime=source_mtime,
+            graph_item_id=graph_item_id,
+            graph_etag=graph_etag,
+            graph_last_modified=graph_last_modified,
             sheet_name=sheet_name,
             requested_sheet=requested_sheet,
             processed_sheets=processed_sheets,
@@ -860,14 +1101,18 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
         emit_payload(payload)
         return 0
     except Exception as exc:
-        logging.error("Fallo ETL BENCH: %s", exc)
+        logging.exception("Fallo ETL BENCH: %s", exc)
         payload = build_summary_payload(
             success=False,
             status="error",
             log_path=log_path,
-            source_file=source_file or (excel_path.name if excel_path else None),
-            source_path=str(excel_path) if excel_path else None,
+            source_mode="graph",
+            source_file=source_file,
+            source_path=graph_share_url,
             source_mtime=source_mtime,
+            graph_item_id=graph_item_id,
+            graph_etag=graph_etag,
+            graph_last_modified=graph_last_modified,
             requested_sheet=requested_sheet,
             processed_sheets=processed_sheets,
             workbook_sheets=workbook_sheets,
@@ -876,6 +1121,10 @@ def run(file_path: str | None = None, periodo_override: str | None = None, sheet
         )
         emit_payload(payload)
         return 1
+    finally:
+        if downloaded_path is not None:
+            with suppress(Exception):
+                downloaded_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -63,6 +63,21 @@ def _period_start(periodo: str | None) -> str:
     return (rows[0].get("periodo") if rows else None) or date.today().replace(day=1).isoformat()
 
 
+def _products_with_cycle_config(periodo: str) -> set[str]:
+    """Productos con asignacion ejecutivo-ciclo cargada para el periodo.
+
+    Si un producto no aparece aqui, su bloque se calcula sin filtrar por ciclo
+    asignado, que es el comportamiento historico.
+    """
+    sql = """
+    SELECT DISTINCT LOWER(LTRIM(RTRIM(producto))) AS producto
+    FROM dbo.sth_ejecutivos_ciclo
+    WHERE periodo = ?
+      AND activo = 1
+    """
+    return {row["producto"] for row in run_query(sql, (periodo,)) if row.get("producto")}
+
+
 def _safe_div(num: float, den: float) -> float:
     if den is None or den == 0:
         return 0.0
@@ -87,9 +102,15 @@ def _tramo_meta(product_key: str, ciclo: int) -> str:
     return f"Ciclo {ciclo}"
 
 
-def _build_detail_for_product(periodo: str, product_key: str) -> dict:
+def _build_detail_for_product(
+    periodo: str,
+    product_key: str,
+    productos_con_ciclo: set[str] | None = None,
+) -> dict:
     config = PRODUCT_CONFIG[product_key]
     ciclos = config["ciclos"]
+    if productos_con_ciclo is None:
+        productos_con_ciclo = _products_with_cycle_config(periodo)
 
     if product_key == "tarjeta":
         sql = """
@@ -136,19 +157,23 @@ def _build_detail_for_product(periodo: str, product_key: str) -> dict:
         extra_cycle_exec_filter = ""
         params_exec: list[str] = []
 
-        if product_key == "hipotecario":
+        if product_key in productos_con_ciclo:
             extra_cycle_exec_filter = """
-            AND EXISTS (
-                SELECT 1
-                FROM dbo.sth_hipotecario_ejecutivos_ciclo hc
-                WHERE hc.periodo = ?
-                    AND hc.ciclo = CAST(b.fld_Ciclo AS INT)
-                    AND LTRIM(RTRIM(hc.ejecutivo)) =
-                        ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal')
-                    AND hc.activo = 1
+            AND (
+                ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal') = 'Grupal'
+                OR EXISTS (
+                    SELECT 1
+                    FROM dbo.sth_ejecutivos_ciclo ec
+                    WHERE ec.periodo = ?
+                        AND ec.producto = ?
+                        AND ec.ciclo = CAST(b.fld_Ciclo AS INT)
+                        AND LTRIM(RTRIM(ec.ejecutivo)) =
+                            ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal')
+                        AND ec.activo = 1
+                )
             )
             """
-            params_exec.append(periodo)
+            params_exec.extend([periodo, product_key])
 
         sql = f"""
         WITH base AS (
@@ -262,10 +287,11 @@ def get_filter_values() -> dict:
 def get_detail_view(filters: dict) -> list[dict]:
     periodo = _period_start(filters.get("periodo"))
     ejecutivo_filter = (filters.get("ejecutivo") or "").strip().lower()
+    productos_con_ciclo = _products_with_cycle_config(periodo)
 
     result: list[dict] = []
     for product in PRODUCT_ORDER:
-        data = _build_detail_for_product(periodo, product)
+        data = _build_detail_for_product(periodo, product, productos_con_ciclo)
         rows = data["rows"]
 
         if product in ("hipotecario", "consumo"):

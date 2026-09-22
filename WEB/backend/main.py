@@ -3,13 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers.admin_users import router as admin_users_router
 from routers.administrativas import router as administrativas_router
+from routers.contactabilidad import router as contactabilidad_router
 from routers.bench import router as bench_router
 from routers.auth import router as auth_router
 from routers.bit_castigo import router as bit_castigo_router
 from routers.bit import router as bit_router
 from routers.gm import router as gm_router
 from routers.gestiones_diarias_sct import router as gestiones_diarias_sct_router
+from routers.kpi_avance_phoenix import router as kpi_avance_phoenix_router
 from routers.itau_castigo import router as itau_castigo_router
+from routers.kpi_diario import router as kpi_diario_router
 from routers.la_araucana import router as la_araucana_router
 from routers.porsche import router as porsche_router
 from routers.sc_tardia import router as sc_tardia_router
@@ -49,6 +52,8 @@ app.include_router(sc_temprana_router, prefix="/api/sc-temprana", tags=["sc-temp
 app.include_router(gm_router, prefix="/api/gm", tags=["gm"])
 app.include_router(gestiones_diarias_sct_router, prefix="/api/gestiones-diarias-sct", tags=["gestiones-diarias-sct"])
 app.include_router(bench_router, prefix="/api/bench", tags=["bench"])
+app.include_router(kpi_avance_phoenix_router, prefix="/api/kpi-avance-phoenix", tags=["kpi-avance-phoenix"])
+app.include_router(kpi_diario_router, prefix="/api/kpi-diario", tags=["kpi-diario"])
 app.include_router(itau_castigo_router, prefix="/api/itau-castigo", tags=["itau-castigo"])
 app.include_router(bit_castigo_router, prefix="/api/bit-castigo", tags=["bit-castigo"])
 app.include_router(bit_router, prefix="/api/bit", tags=["bit"])
@@ -59,3 +64,4 @@ app.include_router(sth_router, prefix="/api/sth", tags=["sth"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users_router, prefix="/api/admin", tags=["admin-users"])
 app.include_router(administrativas_router, prefix="/api/administrativas", tags=["administrativas"])
+app.include_router(contactabilidad_router, prefix="/api/contactabilidad", tags=["contactabilidad"])

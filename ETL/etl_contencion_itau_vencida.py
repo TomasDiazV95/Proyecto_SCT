@@ -62,7 +62,7 @@ COLUMN_SPECS = [
     ("RENE_MES", "integer"),
     ("FLAG_CAMPANA", "integer"),
     ("EN_AGIR", "text2"),
-    ("DETALLE_MARCA", "text50"),
+    ("DETALLE_MARCA", "text100"),
     ("FLAG_EXCLUSION", "integer"),
     ("EXCLUSION_GLOSA", "text2"),
     ("PILOTO_ASIG", "text2"),

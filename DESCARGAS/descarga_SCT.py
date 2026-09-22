@@ -1,111 +1,1030 @@
-import zipfile
 import os
+import re
+import time
+import shutil
+import zipfile
+from datetime import datetime
+
 from pathlib import Path
+
 from playwright.sync_api import Playwright, sync_playwright
+
+
+# ============================================================
+# CONFIGURACION GENERAL
+# ============================================================
+
+URL_VISOR = "https://recuperaciones.santanderconsumer.cl/"
 
 BASE_DIR = Path(__file__).resolve().parent
 ENV_PATH = BASE_DIR / ".env"
 ROOT_ENV_PATH = BASE_DIR.parent / ".env"
 
 
+# ============================================================
+# CARGAR .ENV
+# ============================================================
+
 def cargar_env(path: Path) -> None:
     if not path.exists():
         return
 
     for linea in path.read_text(encoding="utf-8").splitlines():
+
         linea = linea.strip()
-        if not linea or linea.startswith("#") or "=" not in linea:
+
+        if not linea:
+            continue
+
+        if linea.startswith("#"):
+            continue
+
+        if "=" not in linea:
             continue
 
         clave, valor = linea.split("=", 1)
-        os.environ.setdefault(clave.strip(), valor.strip())
+
+        os.environ.setdefault(
+            clave.strip(),
+            valor.strip()
+        )
 
 
 cargar_env(ROOT_ENV_PATH)
 cargar_env(ENV_PATH)
 
-USUARIO = os.getenv("USUARIO", "")
-CLAVE = os.getenv("CLAVE", "")
 
-CARPETA_BASE = Path(r"C:\Users\Analista de Datos\Desktop\SCT BENCH")
+# ============================================================
+# VARIABLES .ENV
+# ============================================================
+
+USUARIO = os.getenv(
+    "USUARIO",
+    ""
+)
+
+CLAVE = os.getenv(
+    "CLAVE",
+    ""
+)
+
+
+
+# ============================================================
+# CARPETAS LOCALES DESDE .ENV
+# ============================================================
+
+BENCH_TEMP_FOLDER = os.getenv("BENCH_TEMP_FOLDER", "").strip()
+BENCH_STC_FOLDER = os.getenv("BENCH_STC_FOLDER", "").strip()
+BENCH_SC_CASTIGO_FOLDER = os.getenv("BENCH_SC_CASTIGO_FOLDER", "").strip()
+
+
+def resolver_carpeta_extraida() -> Path:
+    rutas = {
+        "BENCH_TEMP_FOLDER": BENCH_TEMP_FOLDER,
+        "BENCH_STC_FOLDER": BENCH_STC_FOLDER,
+        "BENCH_SC_CASTIGO_FOLDER": BENCH_SC_CASTIGO_FOLDER,
+    }
+
+    faltantes = [nombre for nombre, valor in rutas.items() if not valor]
+    if faltantes:
+        raise RuntimeError(
+            "Faltan rutas BENCH en el .env: " + ", ".join(faltantes)
+        )
+
+    carpetas = {nombre: Path(valor) for nombre, valor in rutas.items()}
+    referencia = carpetas["BENCH_TEMP_FOLDER"]
+
+    if any(carpeta != referencia for carpeta in carpetas.values()):
+        detalle = "\n".join(
+            f"{nombre}={carpeta}" for nombre, carpeta in carpetas.items()
+        )
+        raise RuntimeError(
+            "Las carpetas BENCH del .env no coinciden:\n" + detalle
+        )
+
+    return referencia
+
+
+CARPETA_EXTRAIDA = resolver_carpeta_extraida()
+CARPETA_BASE = CARPETA_EXTRAIDA.parent
 CARPETA_ZIP = CARPETA_BASE / "zip"
-CARPETA_EXTRAIDA = CARPETA_BASE / "extraido"
+ARCHIVO_LOG = CARPETA_BASE / "descargas.log"
 
 
-def buscar_archivo_bench(carpeta: Path) -> Path:
-    archivos = [p for p in carpeta.iterdir() if p.is_file()]
+def registrar_descarga(nombre_logico: str, nombre_archivo: str) -> None:
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    CARPETA_BASE.mkdir(parents=True, exist_ok=True)
 
-    for archivo in archivos:
-        nombre = archivo.name.upper()
-        if "BENCH MORA TARDIA - PHOENIX" in nombre:
-            return archivo
+    with ARCHIVO_LOG.open("a", encoding="utf-8") as log:
+        log.write(f"{fecha} | {nombre_logico} | {nombre_archivo}\n")
 
-    raise FileNotFoundError(
-        f"No encontré un archivo con 'BENCH MORA TARDIA - PHOENIX' en {carpeta}"
+    print(f"LOG: {nombre_logico} | {nombre_archivo}")
+
+
+# ============================================================
+# CONFIGURACION DESCARGAS
+# ============================================================
+
+DESCARGAS = [
+    {
+        "nombre":
+            "BENCH CASTIGO",
+
+        "carpeta_visor":
+            "📁 BENCH CASTIGO",
+
+        "patron_archivo":
+            "BENCH CASTIGO - PHOENIX",
+
+        # CASTIGO SI requiere ordenar
+        "ordenar":
+            True,
+    },
+
+    {
+        "nombre":
+            "BENCH MORA TARDIA",
+
+        "carpeta_visor":
+            "📁 BENCH MORA TARDIA",
+
+        "patron_archivo":
+            "BENCH MORA TARDIA - PHOENIX",
+
+        # Ya viene ordenado
+        "ordenar":
+            False,
+    },
+
+    {
+        "nombre":
+            "BENCH MORA TEMPRANA - TELEFONIA",
+
+        "carpeta_visor":
+            "📁 BENCH MORA TEMPRANA",
+
+        "patron_archivo":
+            (
+                "BENCH MORA TEMPRANA - "
+                "PHOENIX (TELEFONIA)"
+            ),
+
+        # Ya viene ordenado
+        "ordenar":
+            False,
+    },
+]
+
+
+# ============================================================
+# VALIDAR CONFIGURACION
+# ============================================================
+
+def validar_configuracion() -> None:
+
+    variables = {
+        "USUARIO": USUARIO,
+        "CLAVE": CLAVE,
+    }
+
+    faltantes = [
+        nombre
+        for nombre, valor in variables.items()
+        if not valor
+    ]
+
+    if faltantes:
+        raise RuntimeError(
+            "Faltan variables en .env: "
+            + ", ".join(faltantes)
+        )
+
+
+# ============================================================
+# LIMPIAR EXTRAIDO
+# ============================================================
+
+def limpiar_carpeta_extraida() -> None:
+
+    CARPETA_EXTRAIDA.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    for elemento in (
+        CARPETA_EXTRAIDA.iterdir()
+    ):
+
+        if elemento.is_file():
+
+            elemento.unlink()
+
+        elif elemento.is_dir():
+
+            shutil.rmtree(
+                elemento
+            )
+
+    print(
+        f"Carpeta limpia: "
+        f"{CARPETA_EXTRAIDA}"
     )
 
 
-def run(playwright: Playwright) -> None:
-    if not USUARIO or not CLAVE:
-        raise ValueError("Faltan USUARIO o CLAVE en el archivo .env")
+# ============================================================
+# LIMPIAR ZIP
+# ============================================================
 
-    CARPETA_ZIP.mkdir(parents=True, exist_ok=True)
-    CARPETA_EXTRAIDA.mkdir(parents=True, exist_ok=True)
+def limpiar_carpeta_zip() -> None:
 
-    browser = playwright.chromium.launch(headless=False)
-    context = browser.new_context(accept_downloads=True)
-    page = context.new_page()
+    CARPETA_ZIP.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    page.goto("https://recuperaciones.santanderconsumer.cl/")
+    for archivo in (
+        CARPETA_ZIP.glob(
+            "*.zip"
+        )
+    ):
 
-    page.get_by_role("textbox", name="Usuario").fill(USUARIO)
-    page.get_by_role("textbox", name="Clave").fill(CLAVE)
-    page.get_by_role("textbox", name="Clave").press("Enter")
+        try:
 
-    page.get_by_role("link", name=" explorador archivos").wait_for()
-    page.get_by_role("link", name=" explorador archivos").click()
-
-    frame = page.locator('iframe[name="myMainFrame"]').content_frame
-
-    frame.get_by_role("link", name="📁 BENCH MORA TARDIA").wait_for()
-    frame.get_by_role("link", name="📁 BENCH MORA TARDIA").click()
-
-    frame.get_by_role("button", name="FECHA DE MODIFICACIÓN ↓↑").click()
-    frame.locator("#rptEntriesWFM_chkSelectWFM_0").check()
-
-    with page.expect_download() as download_info:
-        frame.get_by_role("button", name="Descargar Archivos").click()
-
-    download = download_info.value
-
-    # Guardar ZIP con su nombre real
-    nombre_zip = download.suggested_filename
-    if not nombre_zip.lower().endswith(".zip"):
-        nombre_zip += ".zip"
-
-    ruta_zip = CARPETA_ZIP / nombre_zip
-    download.save_as(str(ruta_zip))
-    print(f"ZIP descargado en: {ruta_zip}")
-
-    # Limpiar carpeta extraída anterior
-    for archivo in CARPETA_EXTRAIDA.iterdir():
-        if archivo.is_file():
             archivo.unlink()
 
-    # Descomprimir ZIP
-    with zipfile.ZipFile(ruta_zip, "r") as zip_ref:
-        zip_ref.extractall(CARPETA_EXTRAIDA)
+        except Exception as e:
 
-    print(f"ZIP extraído en: {CARPETA_EXTRAIDA}")
+            print(
+                f"No se pudo eliminar "
+                f"{archivo.name}: {e}"
+            )
 
-    # Buscar el archivo correcto dentro del ZIP
-    archivo_bench = buscar_archivo_bench(CARPETA_EXTRAIDA)
-
-    print(f"Archivo listo para ETL: {archivo_bench}")
-
-    context.close()
-    browser.close()
+    print(
+        f"Carpeta ZIP limpia: "
+        f"{CARPETA_ZIP}"
+    )
 
 
-with sync_playwright() as playwright:
-    run(playwright)
+# ============================================================
+# BUSCAR PRIMERA FILA COINCIDENTE
+# ============================================================
+
+def buscar_primera_fila(
+    frame,
+    patron_archivo: str,
+):
+
+    filas = (
+        frame
+        .locator("tr")
+        .filter(
+            has_text=patron_archivo
+        )
+    )
+
+    fila = (
+        filas.first
+    )
+
+    try:
+
+        fila.wait_for(
+            state="visible",
+            timeout=10000,
+        )
+
+    except Exception as e:
+
+        raise FileNotFoundError(
+            f"No se encontró "
+            f"'{patron_archivo}'."
+        ) from e
+
+    return fila
+
+
+# ============================================================
+# GUARDAR DESCARGA
+# ============================================================
+
+def guardar_download(
+    download,
+    nombre_logico: str,
+) -> Path:
+
+    nombre_zip = (
+        download
+        .suggested_filename
+    )
+
+    if not (
+        nombre_zip
+        .lower()
+        .endswith(".zip")
+    ):
+
+        nombre_zip += ".zip"
+
+    ruta_zip = (
+        CARPETA_ZIP
+        / nombre_zip
+    )
+
+    if ruta_zip.exists():
+
+        ruta_zip.unlink()
+
+    download.save_as(
+        str(ruta_zip)
+    )
+
+    if not ruta_zip.exists():
+
+        raise RuntimeError(
+            f"No se guardó el ZIP de "
+            f"{nombre_logico}."
+        )
+
+    if (
+        ruta_zip.stat().st_size
+        == 0
+    ):
+
+        raise RuntimeError(
+            f"ZIP vacío para "
+            f"{nombre_logico}."
+        )
+
+    print(
+        f"ZIP guardado: "
+        f"{ruta_zip}"
+    )
+
+    print(
+        f"Tamaño: "
+        f"{ruta_zip.stat().st_size:,} bytes"
+    )
+
+    return ruta_zip
+
+
+# ============================================================
+# DESCARGAR DESDE CARPETA
+# ============================================================
+
+def descargar_desde_carpeta(
+    page,
+    frame,
+    configuracion: dict,
+) -> Path:
+
+    nombre = (
+        configuracion[
+            "nombre"
+        ]
+    )
+
+    carpeta_visor = (
+        configuracion[
+            "carpeta_visor"
+        ]
+    )
+
+    patron_archivo = (
+        configuracion[
+            "patron_archivo"
+        ]
+    )
+
+    ordenar = (
+        configuracion
+        .get(
+            "ordenar",
+            False
+        )
+    )
+
+    print()
+    print("=" * 70)
+    print(
+        f"PROCESANDO: {nombre}"
+    )
+    print("=" * 70)
+
+    # ========================================================
+    # ABRIR CARPETA
+    # ========================================================
+
+    carpeta = (
+        frame
+        .get_by_role(
+            "link",
+            name=carpeta_visor,
+        )
+    )
+
+    carpeta.wait_for(
+        state="visible",
+        timeout=10000,
+    )
+
+    carpeta.click()
+
+    # ========================================================
+    # ESPERAR TABLA
+    # ========================================================
+
+    frame.locator(
+        "tr"
+    ).first.wait_for(
+        state="visible",
+        timeout=10000,
+    )
+
+    print(
+        f"Carpeta abierta: "
+        f"{nombre}"
+    )
+
+    # ========================================================
+    # ORDENAR SOLO SI CORRESPONDE
+    # ========================================================
+
+    if ordenar:
+
+        print(
+            "Ordenando por "
+            "FECHA DE MODIFICACIÓN..."
+        )
+
+        boton_fecha = (
+            frame
+            .get_by_role(
+                "button",
+                name="FECHA DE MODIFICACIÓN ↓↑",
+            )
+        )
+
+        boton_fecha.wait_for(
+            state="visible",
+            timeout=10000,
+        )
+
+        boton_fecha.click()
+
+        # Pequeña espera para que
+        # la tabla cambie de orden
+        page.wait_for_timeout(
+            500
+        )
+
+        print(
+            "Tabla ordenada."
+        )
+
+    else:
+
+        print(
+            "No se modifica el orden "
+            "de esta carpeta."
+        )
+
+    # ========================================================
+    # TOMAR PRIMER ARCHIVO COINCIDENTE
+    # ========================================================
+
+    fila = (
+        buscar_primera_fila(
+            frame,
+            patron_archivo,
+        )
+    )
+
+    texto_archivo = (
+        fila
+        .inner_text()
+        .strip()
+    )
+
+    print()
+    print(
+        "SE DESCARGARA:"
+    )
+
+    print(
+        texto_archivo
+    )
+
+    # ========================================================
+    # DESMARCAR CUALQUIER CHECKBOX ANTERIOR
+    # ========================================================
+
+    marcados = (
+        frame
+        .locator(
+            'input[type="checkbox"]:checked'
+        )
+    )
+
+    while (
+        marcados.count()
+        > 0
+    ):
+
+        try:
+
+            marcados.first.uncheck()
+
+        except Exception:
+
+            break
+
+    # ========================================================
+    # MARCAR CHECKBOX DE LA FILA
+    # ========================================================
+
+    checkbox = (
+        fila
+        .locator(
+            'input[type="checkbox"]'
+        )
+        .first
+    )
+
+    checkbox.wait_for(
+        state="visible",
+        timeout=10000,
+    )
+
+    checkbox.check()
+
+    if not checkbox.is_checked():
+
+        raise RuntimeError(
+            f"No fue posible seleccionar "
+            f"{nombre}."
+        )
+
+    print(
+        "Checkbox seleccionado."
+    )
+
+    print(
+        "Fila seleccionada:"
+    )
+
+    print(
+        fila
+        .inner_text()
+        .strip()
+    )
+
+    # ========================================================
+    # BOTON DESCARGA
+    # ========================================================
+
+    boton_descarga = (
+        frame
+        .get_by_role(
+            "button",
+            name="Descargar Archivos",
+        )
+    )
+
+    boton_descarga.wait_for(
+        state="visible",
+        timeout=10000,
+    )
+
+    print(
+        f"Descargando "
+        f"{nombre}..."
+    )
+
+    # ========================================================
+    # DESCARGAR
+    # ========================================================
+
+    with page.expect_download(
+        timeout=120000
+    ) as download_info:
+
+        boton_descarga.click()
+
+    download = (
+        download_info.value
+    )
+
+    print(
+        "Descarga recibida."
+    )
+
+    return guardar_download(
+        download,
+        nombre,
+    )
+
+
+# ============================================================
+# EXTRAER Y BORRAR ZIP
+# ============================================================
+
+def extraer_y_eliminar_zip(
+    ruta_zip: Path,
+    nombre_logico: str,
+) -> list[Path]:
+
+    print()
+    print(
+        f"Extrayendo: "
+        f"{ruta_zip.name}"
+    )
+
+    try:
+
+        with zipfile.ZipFile(
+            ruta_zip,
+            "r",
+        ) as zip_ref:
+
+            nombres = (
+                zip_ref.namelist()
+            )
+
+            zip_ref.extractall(
+                CARPETA_EXTRAIDA
+            )
+
+        archivos_extraidos = []
+
+        for nombre in nombres:
+
+            archivo = (
+                CARPETA_EXTRAIDA
+                / nombre
+            )
+
+            if archivo.is_file():
+
+                archivos_extraidos.append(
+                    archivo
+                )
+
+                registrar_descarga(
+                    nombre_logico,
+                    archivo.name,
+                )
+
+        # Borrar ZIP solo después
+        # de extracción exitosa
+        ruta_zip.unlink()
+
+        print(
+            f"ZIP eliminado: "
+            f"{ruta_zip.name}"
+        )
+
+        return archivos_extraidos
+
+    except Exception:
+
+        print(
+            f"Error extrayendo "
+            f"{ruta_zip}"
+        )
+
+        print(
+            "El ZIP se conserva "
+            "para revisión."
+        )
+
+        raise
+
+
+# ============================================================
+# LOGIN
+# ============================================================
+
+def autenticar_visor(
+    page
+) -> None:
+
+    print()
+    print("=" * 70)
+    print("LOGIN VISOR")
+    print("=" * 70)
+
+    page.goto(
+        URL_VISOR,
+        wait_until="domcontentloaded",
+        timeout=30000,
+    )
+
+    # ========================================================
+    # USUARIO
+    # ========================================================
+
+    campo_usuario = (
+        page
+        .get_by_role(
+            "textbox",
+            name="Número de usuario",
+        )
+    )
+
+    campo_usuario.wait_for(
+        state="visible",
+        timeout=30000,
+    )
+
+    campo_usuario.fill(
+        USUARIO
+    )
+
+    # ========================================================
+    # CLAVE
+    # ========================================================
+
+    campo_clave = (
+        page
+        .get_by_role(
+            "textbox",
+            name="Clave",
+        )
+    )
+
+    campo_clave.fill(
+        CLAVE
+    )
+
+    print(
+        "Ingresando al visor..."
+    )
+
+    page.get_by_role(
+        "button",
+        name="Ingresar",
+    ).click()
+
+    # ========================================================
+    # ESPERAR HOME DIRECTAMENTE
+    # ========================================================
+
+    link_explorador = (
+        page
+        .get_by_role(
+            "link",
+            name=" explorador archivos",
+        )
+    )
+
+    link_explorador.wait_for(
+        state="visible",
+        timeout=30000,
+    )
+
+    print(
+        "Login completado."
+    )
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def run(
+    playwright: Playwright
+) -> None:
+
+    validar_configuracion()
+
+    # ========================================================
+    # CARPETAS
+    # ========================================================
+
+    CARPETA_ZIP.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    CARPETA_EXTRAIDA.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    # Limpiar una sola vez al inicio
+    limpiar_carpeta_extraida()
+    limpiar_carpeta_zip()
+
+    # ========================================================
+    # NAVEGADOR
+    # ========================================================
+
+    browser = (
+        playwright
+        .chromium
+        .launch(
+            headless=False
+        )
+    )
+
+    context = (
+        browser
+        .new_context(
+            accept_downloads=True
+        )
+    )
+
+    page = (
+        context
+        .new_page()
+    )
+
+    try:
+
+        # ====================================================
+        # LOGIN
+        # ====================================================
+
+        autenticar_visor(
+            page
+        )
+
+        # ====================================================
+        # ABRIR EXPLORADOR UNA VEZ
+        # ====================================================
+
+        print()
+        print(
+            "Abriendo explorador..."
+        )
+
+        link_explorador = (
+            page
+            .get_by_role(
+                "link",
+                name=" explorador archivos",
+            )
+        )
+
+        link_explorador.click()
+
+        # ====================================================
+        # IFRAME
+        # ====================================================
+
+        iframe = (
+            page
+            .locator(
+                'iframe[name="myMainFrame"]'
+            )
+        )
+
+        iframe.wait_for(
+            state="attached",
+            timeout=30000,
+        )
+
+        frame = (
+            iframe
+            .content_frame
+        )
+
+        if frame is None:
+
+            raise RuntimeError(
+                "No fue posible acceder "
+                "al iframe myMainFrame."
+            )
+
+        frame.locator(
+            "body"
+        ).wait_for(
+            state="visible",
+            timeout=10000,
+        )
+
+        print(
+            "Explorador abierto."
+        )
+
+        # ====================================================
+        # DESCARGAS
+        # ====================================================
+
+        zips_descargados = []
+
+        for (
+            indice,
+            configuracion
+        ) in enumerate(
+            DESCARGAS,
+            start=1,
+        ):
+
+            print()
+            print(
+                f"DESCARGA "
+                f"{indice}/"
+                f"{len(DESCARGAS)}"
+            )
+
+            ruta_zip = (
+                descargar_desde_carpeta(
+                    page,
+                    frame,
+                    configuracion,
+                )
+            )
+
+            zips_descargados.append(
+                (ruta_zip, configuracion["nombre"])
+            )
+
+        # ====================================================
+        # EXTRAER
+        # ====================================================
+
+        print()
+        print("=" * 70)
+        print("EXTRAYENDO ARCHIVOS")
+        print("=" * 70)
+
+        archivos_finales = []
+
+        for ruta_zip, nombre_logico in (
+            zips_descargados
+        ):
+
+            extraidos = (
+                extraer_y_eliminar_zip(
+                    ruta_zip,
+                    nombre_logico,
+                )
+            )
+
+            archivos_finales.extend(
+                extraidos
+            )
+
+        # ====================================================
+        # RESUMEN
+        # ====================================================
+
+        print()
+        print("=" * 70)
+        print("PROCESO COMPLETADO")
+        print("=" * 70)
+
+        for archivo in (
+            archivos_finales
+        ):
+
+            print(
+                f"OK: "
+                f"{archivo.name}"
+            )
+
+        print("-" * 70)
+
+        print(
+            f"Destino: "
+            f"{CARPETA_EXTRAIDA}"
+        )
+
+        print(
+            f"Archivos extraídos: "
+            f"{len(archivos_finales)}"
+        )
+
+        print("=" * 70)
+
+    finally:
+
+        try:
+
+            context.close()
+
+        except Exception:
+
+            pass
+
+        try:
+
+            browser.close()
+
+        except Exception:
+
+            pass
+
+
+# ============================================================
+# EJECUCION
+# ============================================================
+
+if __name__ == "__main__":
+
+    with sync_playwright() as playwright:
+
+        run(playwright)

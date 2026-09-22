@@ -6,6 +6,7 @@ import AdministrativasPage from "./pages/administrativas/AdministrativasPage";
 import BenchPage from "./pages/BenchPage";
 import BitCastigoPage from "./pages/BitCastigoPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
+import ContactabilidadItauVencidaPage from "./pages/ContactabilidadItauVencidaPage";
 import BitPage from "./pages/BitPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GestionesDiariasSctPage from "./pages/GestionesDiariasSctPage";
@@ -14,6 +15,7 @@ import HomePage from "./pages/HomePage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
 import ItauAdministrativasPage from "./pages/administrativas/ItauAdministrativasPage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
+import KpiAvancePhoenixPage from "./pages/KpiAvancePhoenixPage";
 import LoginPage from "./pages/LoginPage";
 import PanelPage from "./pages/PanelPage";
 import PorschePage from "./pages/PorschePage";
@@ -33,7 +35,9 @@ export default function App() {
       <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
       <Route path="/productividad" element={<ProtectedRoute><PanelPage panelCode="productividad" /></ProtectedRoute>} />
       <Route path="/kpi" element={<ProtectedRoute><PanelPage panelCode="kpi" /></ProtectedRoute>} />
-      <Route path="/contactabilidad" element={<ProtectedRoute><PanelPage panelCode="contactabilidad" emptyTitle="Panel de Contactabilidad en preparacion" emptyDescription="Este panel quedo reservado para nuevos indicadores de contactabilidad." /></ProtectedRoute>} />
+      <Route path="/kpi-avance-phoenix" element={<ProtectedRoute moduleCode="kpi-diario"><KpiAvancePhoenixPage /></ProtectedRoute>} />
+      <Route path="/contactabilidad" element={<ProtectedRoute moduleCode="contactabilidad"><PanelPage panelCode="contactabilidad" /></ProtectedRoute>} />
+      <Route path="/contactabilidad/itau-vencida" element={<ProtectedRoute moduleCode="contactabilidad"><ContactabilidadItauVencidaPage /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute moduleCode="admin"><PanelPage panelCode="admin" /></ProtectedRoute>} />
       <Route path="/sc-tardia" element={<ProtectedRoute moduleCode="sc-tardia"><ScTardiaPage /></ProtectedRoute>} />
       <Route path="/sc-temprana" element={<ProtectedRoute moduleCode="sc-temprana"><ScTempranaPage /></ProtectedRoute>} />
@@ -44,7 +48,7 @@ export default function App() {
       <Route path="/bit-castigo" element={<ProtectedRoute moduleCode="bit-castigo"><BitCastigoPage /></ProtectedRoute>} />
       <Route path="/bit" element={<ProtectedRoute moduleCode="bit"><BitPage /></ProtectedRoute>} />
       <Route path="/la-araucana" element={<ProtectedRoute moduleCode="la-araucana"><LaAraucanaPage /></ProtectedRoute>} />
-      <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} />
+      {/* <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} /> */}
       <Route path="/sth" element={<ProtectedRoute moduleCode="sth"><SthPage /></ProtectedRoute>} />
       <Route path="/factura" element={<ProtectedRoute moduleCode="factura"><PanelPage panelCode="factura" emptyTitle="Panel de Factura en preparacion" emptyDescription="Este modulo esta reservado para simular facturas" /></ProtectedRoute>} />
       <Route path="/administrativas" element={<ProtectedRoute moduleCode="administrativas"><AdministrativasPage /></ProtectedRoute>} />
