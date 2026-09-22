@@ -47,6 +47,16 @@ def _block_index(block: str) -> int:
         return 99
 
 
+def _executive_key(value) -> str:
+    """Clave normalizada para cruzar ejecutivos entre tablas.
+
+    El JOIN en SQL cruza sin problemas porque el collation de la base es
+    case-insensitive, pero los diccionarios de Python no: la sabana puede traer
+    el nombre en mayusculas y stc_bloques_ejecutivos en Title Case.
+    """
+    return _clean_text(value).upper()
+
+
 def _active_blocks_by_executive(periodo: str) -> dict[str, list[str]]:
     sql = """
     SELECT
@@ -62,7 +72,7 @@ def _active_blocks_by_executive(periodo: str) -> dict[str, list[str]]:
         ejecutivo = row.get("ejecutivo") or ""
         bloque = row.get("bloque") or ""
         if ejecutivo and bloque:
-            active.setdefault(ejecutivo, []).append(bloque)
+            active.setdefault(_executive_key(ejecutivo), []).append(bloque)
     return active
 
 
@@ -413,7 +423,7 @@ def _rows_from_query(filters: dict) -> list[dict]:
                 "monto_meta_norm": float(row.get("monto_meta_norm") or 0),
                 "normalizado": float(row.get("normalizado") or 0),
                 "cantidad_casos": int(row.get("cantidad_casos") or 0),
-                "bloques_activos": active_blocks.get(row.get("ejecutivo") or "", []),
+                "bloques_activos": active_blocks.get(_executive_key(row.get("ejecutivo")), []),
                 "ponderadores_nivel_1": level_1_weights,
             }
         )
