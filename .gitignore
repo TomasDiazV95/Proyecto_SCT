@@ -11,4 +11,22 @@ WEB/automation/logs/
 sql/create_dashboard_view.sql
 archivos/
 !.env.example
-/Logs
+
+# Datos locales / pruebas
+data/Prompt V4.txt
+data/prueba.xlsx
+
+# Logs ETL
+ETL/logs/
+
+Logs/
+# Temporales
+tmp/
+temp/
+*.tmp
+
+# Editor / sistema
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

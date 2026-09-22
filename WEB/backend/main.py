@@ -9,6 +9,7 @@ from routers.auth import router as auth_router
 from routers.bit_castigo import router as bit_castigo_router
 from routers.bit import router as bit_router
 from routers.gm import router as gm_router
+from routers.gestiones_diarias_sct import router as gestiones_diarias_sct_router
 from routers.kpi_avance_phoenix import router as kpi_avance_phoenix_router
 from routers.itau_castigo import router as itau_castigo_router
 from routers.kpi_diario import router as kpi_diario_router
@@ -49,6 +50,7 @@ def health() -> dict:
 app.include_router(sc_tardia_router, prefix="/api/sc-tardia", tags=["sc-tardia"])
 app.include_router(sc_temprana_router, prefix="/api/sc-temprana", tags=["sc-temprana"])
 app.include_router(gm_router, prefix="/api/gm", tags=["gm"])
+app.include_router(gestiones_diarias_sct_router, prefix="/api/gestiones-diarias-sct", tags=["gestiones-diarias-sct"])
 app.include_router(bench_router, prefix="/api/bench", tags=["bench"])
 app.include_router(kpi_avance_phoenix_router, prefix="/api/kpi-avance-phoenix", tags=["kpi-avance-phoenix"])
 app.include_router(kpi_diario_router, prefix="/api/kpi-diario", tags=["kpi-diario"])

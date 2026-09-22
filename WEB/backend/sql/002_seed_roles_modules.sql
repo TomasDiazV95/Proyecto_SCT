@@ -20,6 +20,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'sc-tardia')
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'sc-temprana')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('sc-temprana', 'SC Temprana', '/sc-temprana');
 
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'gestiones-diarias-sct')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('gestiones-diarias-sct', 'Gestiones Diarias SCT', '/gestiones-diarias-sct');
+ELSE
+    UPDATE dbo.modules SET display_name = 'Gestiones Diarias SCT', route_path = '/gestiones-diarias-sct', is_active = 1 WHERE code = 'gestiones-diarias-sct';
+
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'gm')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('gm', 'GM', '/gm');
 

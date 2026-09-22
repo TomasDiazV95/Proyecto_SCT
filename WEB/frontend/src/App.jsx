@@ -9,6 +9,7 @@ import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ContactabilidadItauVencidaPage from "./pages/ContactabilidadItauVencidaPage";
 import BitPage from "./pages/BitPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import GestionesDiariasSctPage from "./pages/GestionesDiariasSctPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
@@ -40,6 +41,7 @@ export default function App() {
       <Route path="/admin" element={<ProtectedRoute moduleCode="admin"><PanelPage panelCode="admin" /></ProtectedRoute>} />
       <Route path="/sc-tardia" element={<ProtectedRoute moduleCode="sc-tardia"><ScTardiaPage /></ProtectedRoute>} />
       <Route path="/sc-temprana" element={<ProtectedRoute moduleCode="sc-temprana"><ScTempranaPage /></ProtectedRoute>} />
+      <Route path="/gestiones-diarias-sct" element={<ProtectedRoute moduleCode="gestiones-diarias-sct"><GestionesDiariasSctPage /></ProtectedRoute>} />
       <Route path="/gm" element={<ProtectedRoute moduleCode="gm"><GmPage /></ProtectedRoute>} />
       <Route path="/bench" element={<ProtectedRoute moduleCode="bench"><BenchPage /></ProtectedRoute>} />
       <Route path="/itau-castigo" element={<ProtectedRoute moduleCode="itau-castigo"><ItauCastigoPage /></ProtectedRoute>} />
