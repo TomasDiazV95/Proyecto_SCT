@@ -1,12 +1,15 @@
 import os
 import re
 import time
+import html
 import shutil
 import zipfile
-from datetime import datetime
 
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
+from urllib.parse import quote
 
+import requests
 from playwright.sync_api import Playwright, sync_playwright
 
 
@@ -66,6 +69,21 @@ USUARIO = os.getenv(
 CLAVE = os.getenv(
     "CLAVE",
     ""
+)
+
+GRAPH_TENANT_ID = os.getenv("GRAPH_TENANT_ID", "")
+GRAPH_CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "")
+GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "")
+VISOR_MAILBOX = os.getenv("VISOR_MAILBOX", "")
+
+# Espera antes de comenzar a consultar Outlook/Graph.
+OTP_WAIT_SECONDS = int(
+    os.getenv("OTP_WAIT_SECONDS", "60")
+)
+
+# Tiempo adicional maximo esperando OTP.
+OTP_TIMEOUT_SECONDS = int(
+    os.getenv("OTP_TIMEOUT_SECONDS", "180")
 )
 
 
@@ -186,6 +204,10 @@ def validar_configuracion() -> None:
     variables = {
         "USUARIO": USUARIO,
         "CLAVE": CLAVE,
+        "GRAPH_TENANT_ID": GRAPH_TENANT_ID,
+        "GRAPH_CLIENT_ID": GRAPH_CLIENT_ID,
+        "GRAPH_CLIENT_SECRET": GRAPH_CLIENT_SECRET,
+        "VISOR_MAILBOX": VISOR_MAILBOX,
     }
 
     faltantes = [
@@ -199,6 +221,254 @@ def validar_configuracion() -> None:
             "Faltan variables en .env: "
             + ", ".join(faltantes)
         )
+
+
+# ============================================================
+# MICROSOFT GRAPH
+# ============================================================
+
+def obtener_token_graph() -> str:
+    url = (
+        "https://login.microsoftonline.com/"
+        f"{GRAPH_TENANT_ID}/oauth2/v2.0/token"
+    )
+
+    data = {
+        "client_id": GRAPH_CLIENT_ID,
+        "client_secret": GRAPH_CLIENT_SECRET,
+        "scope": "https://graph.microsoft.com/.default",
+        "grant_type": "client_credentials",
+    }
+
+    response = requests.post(
+        url,
+        data=data,
+        timeout=30,
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            "No fue posible obtener token de Graph. "
+            f"HTTP {response.status_code}: "
+            f"{response.text}"
+        )
+
+    return response.json()["access_token"]
+
+
+def html_a_text(contenido: str) -> str:
+    if not contenido:
+        return ""
+
+    contenido = html.unescape(contenido)
+
+    contenido = re.sub(
+        r"<script.*?</script>",
+        " ",
+        contenido,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    contenido = re.sub(
+        r"<style.*?</style>",
+        " ",
+        contenido,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    contenido = re.sub(
+        r"<[^>]+>",
+        " ",
+        contenido,
+    )
+
+    contenido = re.sub(
+        r"\s+",
+        " ",
+        contenido,
+    )
+
+    return contenido.strip()
+
+
+def extraer_codigo_visor(
+    contenido: str
+) -> str | None:
+
+    texto = html_a_text(
+        contenido
+    ).upper()
+
+    # 8 caracteres alfanumericos,
+    # con al menos una letra y un numero.
+    patron = (
+        r"\b"
+        r"(?=[A-Z0-9]{8}\b)"
+        r"(?=[A-Z0-9]*[A-Z])"
+        r"(?=[A-Z0-9]*[0-9])"
+        r"[A-Z0-9]{8}"
+        r"\b"
+    )
+
+    match = re.search(
+        patron,
+        texto,
+    )
+
+    if match:
+        return match.group(0)
+
+    return None
+
+
+def normalizar_texto(
+    texto: str
+) -> str:
+
+    return (
+        texto
+        .casefold()
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
+
+
+def obtener_codigo_desde_graph(
+    fecha_solicitud: datetime,
+    timeout: int = 180,
+) -> str:
+
+    token = obtener_token_graph()
+
+    mailbox = quote(
+        VISOR_MAILBOX,
+        safe="@.",
+    )
+
+    url = (
+        "https://graph.microsoft.com/v1.0/"
+        f"users/{mailbox}/messages"
+    )
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    params = {
+        "$top": 50,
+        "$select": (
+            "id,"
+            "subject,"
+            "receivedDateTime,"
+            "body"
+        ),
+        "$orderby": "receivedDateTime desc",
+    }
+
+    fecha_minima = (
+        fecha_solicitud
+        - timedelta(minutes=2)
+    )
+
+    inicio = time.time()
+
+    print()
+    print("=" * 70)
+    print("BUSCANDO CODIGO OTP")
+    print("=" * 70)
+
+    while time.time() - inicio < timeout:
+
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=30,
+        )
+
+        if not response.ok:
+            raise RuntimeError(
+                "Error consultando Graph. "
+                f"HTTP {response.status_code}: "
+                f"{response.text}"
+            )
+
+        mensajes = (
+            response
+            .json()
+            .get("value", [])
+        )
+
+        for mensaje in mensajes:
+
+            asunto = (
+                mensaje
+                .get("subject", "")
+                .strip()
+            )
+
+            received_raw = mensaje.get(
+                "receivedDateTime"
+            )
+
+            if not received_raw:
+                continue
+
+            try:
+                received = datetime.fromisoformat(
+                    received_raw.replace(
+                        "Z",
+                        "+00:00",
+                    )
+                )
+            except ValueError:
+                continue
+
+            if received < fecha_minima:
+                continue
+
+            if (
+                "codigo de autenticacion"
+                not in normalizar_texto(asunto)
+            ):
+                continue
+
+            body = (
+                mensaje
+                .get("body", {})
+                .get("content", "")
+            )
+
+            codigo = extraer_codigo_visor(
+                body
+            )
+
+            if codigo:
+                print(
+                    "OTP encontrado correctamente."
+                )
+                return codigo
+
+        transcurrido = int(
+            time.time() - inicio
+        )
+
+        print(
+            f"OTP todavía no disponible "
+            f"({transcurrido}/{timeout}s). "
+            "Reintentando en 3 segundos..."
+        )
+
+        time.sleep(3)
+
+    raise TimeoutError(
+        "No se encontró el código de Visor "
+        f"después de {timeout} segundos."
+    )
 
 
 # ============================================================
@@ -703,7 +973,7 @@ def extraer_y_eliminar_zip(
 
 
 # ============================================================
-# LOGIN
+# LOGIN + OTP
 # ============================================================
 
 def autenticar_visor(
@@ -725,12 +995,9 @@ def autenticar_visor(
     # USUARIO
     # ========================================================
 
-    campo_usuario = (
-        page
-        .get_by_role(
-            "textbox",
-            name="Número de usuario",
-        )
+    campo_usuario = page.get_by_role(
+        "textbox",
+        name="Número de usuario",
     )
 
     campo_usuario.wait_for(
@@ -746,20 +1013,23 @@ def autenticar_visor(
     # CLAVE
     # ========================================================
 
-    campo_clave = (
-        page
-        .get_by_role(
-            "textbox",
-            name="Clave",
-        )
+    campo_clave = page.get_by_role(
+        "textbox",
+        name="Clave",
     )
 
     campo_clave.fill(
         CLAVE
     )
 
+    fecha_solicitud_otp = (
+        datetime.now(
+            timezone.utc
+        )
+    )
+
     print(
-        "Ingresando al visor..."
+        "Solicitando código..."
     )
 
     page.get_by_role(
@@ -768,15 +1038,80 @@ def autenticar_visor(
     ).click()
 
     # ========================================================
-    # ESPERAR HOME DIRECTAMENTE
+    # CERRAR AVISO
     # ========================================================
 
-    link_explorador = (
-        page
-        .get_by_role(
-            "link",
-            name=" explorador archivos",
-        )
+    boton_cerrar = page.get_by_text(
+        "CERRAR"
+    )
+
+    boton_cerrar.wait_for(
+        state="visible",
+        timeout=30000,
+    )
+
+    boton_cerrar.click()
+
+    # ========================================================
+    # CAMPO OTP
+    # ========================================================
+
+    campo_codigo = page.get_by_role(
+        "textbox",
+        name="Código de 8 caracteres",
+    )
+
+    campo_codigo.wait_for(
+        state="visible",
+        timeout=30000,
+    )
+
+    # ========================================================
+    # ESPERA INICIAL OTP
+    # ========================================================
+
+    print(
+        f"Esperando {OTP_WAIT_SECONDS} "
+        "segundos para recibir el correo..."
+    )
+
+    page.wait_for_timeout(
+        OTP_WAIT_SECONDS * 1000
+    )
+
+    # ========================================================
+    # GRAPH
+    # ========================================================
+
+    codigo = obtener_codigo_desde_graph(
+        fecha_solicitud=(
+            fecha_solicitud_otp
+        ),
+        timeout=(
+            OTP_TIMEOUT_SECONDS
+        ),
+    )
+
+    # ========================================================
+    # VALIDAR CODIGO
+    # ========================================================
+
+    campo_codigo.fill(
+        codigo
+    )
+
+    page.get_by_role(
+        "button",
+        name="Validar código",
+    ).click()
+
+    # ========================================================
+    # ESPERAR HOME
+    # ========================================================
+
+    link_explorador = page.get_by_role(
+        "link",
+        name=" explorador archivos",
     )
 
     link_explorador.wait_for(
