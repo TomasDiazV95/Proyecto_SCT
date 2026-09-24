@@ -8,11 +8,12 @@ const initialFilters = {
   ejecutivo: "",
 };
 
-const blockOrder = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO", "F1 - F2", "F3", "F4", "TOTAL F1 - F4"];
+const blockOrder = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO", "F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
 const generalDisplayBlocks = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO", "TOTAL F1 - F4"];
 const generalComplianceBlocks = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO"];
 const stcAlertBlocks = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO"];
-const castigoAlertBlocks = ["F1 - F2", "F3"];
+const castigoAlertBlocks = ["F1", "F2", "F3"];
+const castigoBlocks = ["F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
 
 const blockMeta = {
   C3: { title: "C3", subtitle: "Contencion y normalizacion", icon: "bi-bullseye" },
@@ -20,7 +21,8 @@ const blockMeta = {
   C5: { title: "C5", subtitle: "Contencion tramo 90-119", icon: "bi-layers" },
   C6: { title: "C6", subtitle: "Salidas convenio", icon: "bi-arrow-up-right-circle" },
   "PRE CASTIGO": { title: "Pre Castigo", subtitle: "Contencion susceptible castigo", icon: "bi-exclamation-diamond" },
-  "F1 - F2": { title: "F1 - F2", subtitle: "Recupero castigo", icon: "bi-cash-coin" },
+  F1: { title: "F1", subtitle: "Recupero castigo", icon: "bi-cash-coin" },
+  F2: { title: "F2", subtitle: "Recupero castigo", icon: "bi-cash-stack" },
   F3: { title: "F3", subtitle: "Recupero castigo", icon: "bi-currency-dollar" },
   F4: { title: "F4", subtitle: "Seguimiento castigo", icon: "bi-archive" },
   "TOTAL F1 - F4": { title: "Total F1 - F4", subtitle: "Castigo consolidado", icon: "bi-diagram-3" },
@@ -225,18 +227,28 @@ export default function ScTardiaPage() {
         const current = grouped.get(key) || {
           ejecutivo: row.ejecutivo,
           casos_asignados: 0,
-          bloques: {},
+          sumas: {},
           bloques_activos: new Set(),
           ponderadores_nivel_1: { PTC: 0, STOCK: 0 },
         };
         current.casos_asignados += num(row.cantidad_casos);
-        current.bloques[row.bloque] = row.cumplimiento_operativo;
+        // Un ejecutivo puede tener el mismo bloque en varias zonas: se suma primero y se divide despues.
+        const suma = current.sumas[row.bloque] || { bloque: row.bloque, contenido: 0, monto_meta_cont: 0, normalizado: 0, monto_meta_norm: 0 };
+        suma.contenido += num(row.contenido);
+        suma.monto_meta_cont += num(row.monto_meta_cont);
+        suma.normalizado += num(row.normalizado);
+        suma.monto_meta_norm += num(row.monto_meta_norm);
+        current.sumas[row.bloque] = suma;
         (row.bloques_activos || []).forEach((block) => current.bloques_activos.add(block));
         current.ponderadores_nivel_1 = row.ponderadores_nivel_1 || current.ponderadores_nivel_1;
         grouped.set(key, current);
       });
 
     return Array.from(grouped.values())
+      .map(({ sumas, ...rest }) => ({
+        ...rest,
+        bloques: Object.fromEntries(Object.values(sumas).map((suma) => [suma.bloque, rowCompliance(suma)])),
+      }))
       .map((item) => {
         const activeMoraBlocks = generalComplianceBlocks.filter((block) => item.bloques_activos.has(block));
         const hasMoraTardia = activeMoraBlocks.length > 0;
@@ -301,6 +313,21 @@ export default function ScTardiaPage() {
 
   const selectedBlockRows = (view === "ciclo" ? rowsWithMetrics : visibleMetricRows).filter((row) => row.bloque === selectedBlock);
   const showNormalizationColumns = selectedBlock === "C3";
+  const selectedBlockSums = castigoBlocks.includes(selectedBlock) && selectedBlockRows.length
+    ? selectedBlockRows.reduce(
+        (acc, row) => ({
+          deuda_asignada: acc.deuda_asignada + num(row.deuda_asignada),
+          monto_meta_cont: acc.monto_meta_cont + num(row.monto_meta_cont),
+          contenido: acc.contenido + num(row.contenido),
+          cantidad_casos: acc.cantidad_casos + num(row.cantidad_casos),
+        }),
+        { deuda_asignada: 0, monto_meta_cont: 0, contenido: 0, cantidad_casos: 0 }
+      )
+    : null;
+  // Total castigo: se suma primero y se divide despues (no es el promedio de los %).
+  const selectedBlockTotal = selectedBlockSums
+    ? { ...selectedBlockSums, pct_contencion: cappedPct(selectedBlockSums.contenido, selectedBlockSums.monto_meta_cont) }
+    : null;
   const selectedMeta = blockMeta[selectedBlock] || { title: selectedBlock, subtitle: "Detalle de bloque", icon: "bi-layers" };
 
   const alerts = useMemo(() => {
@@ -495,6 +522,16 @@ export default function ScTardiaPage() {
                               <td>{num(row.cantidad_casos).toLocaleString("es-CL")}</td>
                             </tr>
                           ))}
+                          {selectedBlockTotal && (
+                            <tr className="sc-total-row">
+                              <td>Total</td>
+                              <td>{formatMoney(selectedBlockTotal.deuda_asignada)}</td>
+                              <td>{formatMoney(selectedBlockTotal.monto_meta_cont)}</td>
+                              <td>{formatMoney(selectedBlockTotal.contenido)}</td>
+                              <td><span className={metricClass(selectedBlockTotal.pct_contencion)}>{formatPct(selectedBlockTotal.pct_contencion)}</span></td>
+                              <td>{selectedBlockTotal.cantidad_casos.toLocaleString("es-CL")}</td>
+                            </tr>
+                          )}
                           {!selectedBlockRows.length && <EmptyRow colSpan={showNormalizationColumns ? 10 : 6} />}
                         </tbody>
                       </table>

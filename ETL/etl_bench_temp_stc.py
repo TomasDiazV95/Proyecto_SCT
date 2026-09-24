@@ -68,7 +68,7 @@ def connect():
         f"Uid={USER};"
         f"Pwd={PASSWORD};"
         "TrustServerCertificate=yes;"
-        "Encrypt=yes;"
+        "Encrypt=no;"
     )
     return pyodbc.connect(conn_str)
 
