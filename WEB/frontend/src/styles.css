@@ -2279,6 +2279,12 @@ html.phoenix-page-active #root {
   white-space: nowrap;
 }
 
+.sc-tardia-page .sc-table-modern tbody tr.sc-total-row td {
+  background: #f3f6fa;
+  font-weight: 700;
+  border-top: 2px solid #d6dde8;
+}
+
 .sc-tardia-page .sc-table-modern tbody td:first-child {
   border-left: 1px solid #eef1f5;
   border-radius: 12px 0 0 12px;

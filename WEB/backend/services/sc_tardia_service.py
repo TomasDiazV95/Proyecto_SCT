@@ -11,11 +11,25 @@ BLOCK_ORDER = [
     "C5",
     "C6",
     "PRE CASTIGO",
-    "F1 - F2",
+    "F1",
+    "F2",
     "F3",
     "F4",
     "TOTAL F1 - F4",
 ]
+
+
+def _zona_sql(column: str) -> str:
+    """Unifica la zona: la carga CASTIGO trae 'CENTRO-NORTE', 'CENTRO-SUR', 'METROPOLITANA'
+    y STC trae 'ZONA NORTE CENTRO', 'ZONA CENTRO SUR', 'ZONA METROPOLITANA'."""
+    return f"""
+        CASE UPPER(REPLACE(REPLACE(LTRIM(RTRIM({column})), '-', ' '), 'ZONA ', ''))
+            WHEN 'CENTRO SUR' THEN 'ZONA CENTRO SUR'
+            WHEN 'METROPOLITANA' THEN 'ZONA METROPOLITANA'
+            WHEN 'CENTRO NORTE' THEN 'ZONA NORTE CENTRO'
+            WHEN 'NORTE CENTRO' THEN 'ZONA NORTE CENTRO'
+            ELSE NULLIF(LTRIM(RTRIM({column})), '')
+        END"""
 
 
 def _clean_text(value) -> str:
@@ -72,7 +86,10 @@ def _active_blocks_by_executive(periodo: str) -> dict[str, list[str]]:
         ejecutivo = row.get("ejecutivo") or ""
         bloque = row.get("bloque") or ""
         if ejecutivo and bloque:
-            active.setdefault(_executive_key(ejecutivo), []).append(bloque)
+            # La asignacion historica 'F1 - F2' habilita los bloques F1 y F2, que se reportan por separado.
+            bloques = ["F1", "F2"] if bloque == "F1 - F2" else [bloque]
+            actuales = active.setdefault(_executive_key(ejecutivo), [])
+            actuales.extend(b for b in bloques if b not in actuales)
     return active
 
 
@@ -124,7 +141,7 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             v.fecha,
             v.rut,
             v.operacion,
-            v.zona,
+            {_zona_sql("v.zona")} AS zona,
             v.deuda,
             v.contenido,
             v.normalizado,
@@ -177,7 +194,8 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             ejecutivo,
             origen,
             CASE
-                WHEN ciclo IN ('F1', 'F2') THEN 'F1 - F2'
+                WHEN ciclo = 'F1' THEN 'F1'
+                WHEN ciclo = 'F2' THEN 'F2'
                 WHEN ciclo = 'F3' THEN 'F3'
                 WHEN ciclo = 'F4' THEN 'F4'
                 ELSE NULL
@@ -252,15 +270,29 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             zona,
             SUM(ISNULL(deuda, 0)) AS deuda_asignada,
             SUM(ISNULL(contenido, 0)) AS contenido,
-            COUNT(DISTINCT operacion) AS cantidad_casos,
-            CASE
-                WHEN bloque = 'F1 - F2' THEN 'Recupero castigo F1 y F2'
-                WHEN bloque = 'F3' THEN 'Recupero castigo F3'
-                ELSE NULL
-            END AS variable_meta_cont
+            SUM(CASE WHEN ciclo = 'F1' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f1,
+            SUM(CASE WHEN ciclo = 'F2' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f2,
+            SUM(CASE WHEN ciclo = 'F3' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f3,
+            COUNT(DISTINCT operacion) AS cantidad_casos
         FROM castigo_clasificado
         WHERE bloque IS NOT NULL
         GROUP BY bloque, ejecutivo, zona
+    ),
+
+    -- Meta de castigo por fase = asignacion de la fase x % de la fase.
+    -- Desde 2026-08 las metas vienen separadas (F1, F2); antes era una sola 'F1 y F2'.
+    metas_castigo AS (
+        SELECT
+            COALESCE(
+                MAX(CASE WHEN variable = 'Recupero castigo F1' THEN meta_valor END),
+                MAX(CASE WHEN variable = 'Recupero castigo F1 y F2' THEN meta_valor END)
+            ) AS pct_f1,
+            COALESCE(
+                MAX(CASE WHEN variable = 'Recupero castigo F2' THEN meta_valor END),
+                MAX(CASE WHEN variable = 'Recupero castigo F1 y F2' THEN meta_valor END)
+            ) AS pct_f2,
+            MAX(CASE WHEN variable = 'Recupero castigo F3' THEN meta_valor END) AS pct_f3
+        FROM metas
     ),
 
     resultado_castigo AS (
@@ -270,16 +302,21 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             r.ejecutivo,
             r.zona,
             r.deuda_asignada,
-            CASE WHEN meta_cont.meta_valor IS NULL THEN NULL ELSE ROUND(r.deuda_asignada * meta_cont.meta_valor / 100.0, 0) END AS monto_meta_cont,
+            CASE
+                WHEN r.bloque = 'F1' THEN ROUND(r.deuda_f1 * ISNULL(mc.pct_f1, 0) / 100.0, 0)
+                WHEN r.bloque = 'F2' THEN ROUND(r.deuda_f2 * ISNULL(mc.pct_f2, 0) / 100.0, 0)
+                WHEN r.bloque = 'F3' THEN ROUND(r.deuda_f3 * ISNULL(mc.pct_f3, 0) / 100.0, 0)
+                ELSE NULL
+            END AS monto_meta_cont,
             r.contenido,
             CAST(NULL AS NUMERIC(18, 2)) AS monto_meta_norm,
             CAST(NULL AS NUMERIC(18, 2)) AS normalizado,
             r.cantidad_casos
         FROM resultado_castigo_base r
-        LEFT JOIN metas meta_cont
-            ON meta_cont.variable = r.variable_meta_cont
+        CROSS JOIN metas_castigo mc
     ),
 
+    -- Cumplimiento castigo = SUM(recupero F1..F3) / SUM(meta F1..F3): se suma primero y se divide despues.
     resultado_castigo_consolidado_base AS (
         SELECT
             'CASTIGO CONSOLIDADO' AS reporte,
@@ -287,13 +324,14 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             ejecutivo,
             zona,
             SUM(CASE WHEN ciclo IN ('F1', 'F2', 'F3') THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_asignada,
-            SUM(CASE WHEN ciclo IN ('F1', 'F2') THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f1_f2,
+            SUM(CASE WHEN ciclo = 'F1' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f1,
+            SUM(CASE WHEN ciclo = 'F2' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f2,
             SUM(CASE WHEN ciclo = 'F3' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f3,
-            SUM(CASE WHEN ciclo IN ('F1', 'F2', 'F3', 'F4') THEN ISNULL(contenido, 0) ELSE 0 END) AS contenido,
+            SUM(CASE WHEN ciclo IN ('F1', 'F2', 'F3') THEN ISNULL(contenido, 0) ELSE 0 END) AS contenido,
             COUNT(DISTINCT operacion) AS cantidad_casos
         FROM base
         WHERE origen = 'CASTIGO'
-          AND ciclo IN ('F1', 'F2', 'F3', 'F4')
+          AND ciclo IN ('F1', 'F2', 'F3')
         GROUP BY ejecutivo, zona
     ),
 
@@ -305,8 +343,9 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             r.zona,
             r.deuda_asignada,
             ROUND(
-                  (r.deuda_f1_f2 * ISNULL(meta_f1_f2.meta_valor, 0) / 100.0)
-                + (r.deuda_f3 * ISNULL(meta_f3.meta_valor, 0) / 100.0),
+                  (r.deuda_f1 * ISNULL(mc.pct_f1, 0) / 100.0)
+                + (r.deuda_f2 * ISNULL(mc.pct_f2, 0) / 100.0)
+                + (r.deuda_f3 * ISNULL(mc.pct_f3, 0) / 100.0),
                 0
             ) AS monto_meta_cont,
             r.contenido,
@@ -314,10 +353,7 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             CAST(NULL AS NUMERIC(18, 2)) AS normalizado,
             r.cantidad_casos
         FROM resultado_castigo_consolidado_base r
-        LEFT JOIN metas meta_f1_f2
-            ON meta_f1_f2.variable = 'Recupero castigo F1 y F2'
-        LEFT JOIN metas meta_f3
-            ON meta_f3.variable = 'Recupero castigo F3'
+        CROSS JOIN metas_castigo mc
     ),
 
     resultado_final AS (
@@ -342,11 +378,18 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             rf.cantidad_casos
         FROM resultado_final rf
         CROSS JOIN periodo_meta pm
-        INNER JOIN dbo.stc_bloques_ejecutivos be
-            ON LTRIM(RTRIM(be.ejecutivo)) = rf.ejecutivo
-           AND LTRIM(RTRIM(be.bloque)) = rf.bloque
-           AND be.periodo = pm.periodo
-           AND be.activo = 1
+        WHERE EXISTS (
+            SELECT 1
+            FROM dbo.stc_bloques_ejecutivos be
+            WHERE LTRIM(RTRIM(be.ejecutivo)) = rf.ejecutivo
+              AND be.periodo = pm.periodo
+              AND be.activo = 1
+              AND (
+                    LTRIM(RTRIM(be.bloque)) = rf.bloque
+                    -- La asignacion historica 'F1 - F2' habilita F1 y F2 por separado.
+                 OR (LTRIM(RTRIM(be.bloque)) = 'F1 - F2' AND rf.bloque IN ('F1', 'F2'))
+              )
+        )
     )
 
     SELECT
@@ -377,11 +420,12 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             WHEN 'C5' THEN 3
             WHEN 'C6' THEN 4
             WHEN 'PRE CASTIGO' THEN 5
-            WHEN 'F1 - F2' THEN 6
-            WHEN 'F3' THEN 7
-            WHEN 'F4' THEN 8
-            WHEN 'TOTAL F1 - F4' THEN 9
-            ELSE 10
+            WHEN 'F1' THEN 6
+            WHEN 'F2' THEN 7
+            WHEN 'F3' THEN 8
+            WHEN 'F4' THEN 9
+            WHEN 'TOTAL F1 - F4' THEN 10
+            ELSE 11
         END
     """
 
@@ -447,8 +491,8 @@ def get_filter_values() -> dict:
     WHERE fecha IS NOT NULL
     ORDER BY valor DESC
     """
-    sql_zonas = """
-    SELECT DISTINCT LTRIM(RTRIM(zona)) AS valor
+    sql_zonas = f"""
+    SELECT DISTINCT {_zona_sql("zona")} AS valor
     FROM dbo.vw_stc_sabana_avance
     WHERE zona IS NOT NULL AND LTRIM(RTRIM(zona)) <> ''
     ORDER BY valor
