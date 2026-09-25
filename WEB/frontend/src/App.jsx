@@ -12,6 +12,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
+import ItauVencidaPage from "./pages/ItauVencidaPage";
 import ItauAdministrativasPage from "./pages/administrativas/ItauAdministrativasPage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
 import KpiAvancePhoenixPage from "./pages/KpiAvancePhoenixPage";
@@ -43,6 +44,7 @@ export default function App() {
       <Route path="/gm" element={<ProtectedRoute moduleCode="gm"><GmPage /></ProtectedRoute>} />
       <Route path="/bench" element={<ProtectedRoute moduleCode="bench"><BenchPage /></ProtectedRoute>} />
       <Route path="/itau-castigo" element={<ProtectedRoute moduleCode="itau-castigo"><ItauCastigoPage /></ProtectedRoute>} />
+      <Route path="/itau-vencida" element={<ProtectedRoute moduleCode="itau-vencida"><ItauVencidaPage /></ProtectedRoute>} />
       <Route path="/bit-castigo" element={<ProtectedRoute moduleCode="bit-castigo"><BitCastigoPage /></ProtectedRoute>} />
       <Route path="/bit" element={<ProtectedRoute moduleCode="bit"><BitPage /></ProtectedRoute>} />
       <Route path="/la-araucana" element={<ProtectedRoute moduleCode="la-araucana"><LaAraucanaPage /></ProtectedRoute>} />

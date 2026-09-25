@@ -312,6 +312,22 @@ export async function fetchItauCastigoProducto(filters) {
   return res.json();
 }
 
+export async function fetchItauVencidaFilters() {
+  const res = await apiFetch(`${API_BASE}/api/itau-vencida/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de Itaú Vencida");
+  }
+  return res.json();
+}
+
+export async function fetchItauVencidaGeneral(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de Itaú Vencida");
+  }
+  return res.json();
+}
+
 export async function fetchGmBucket(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters));
   if (!res.ok) {
@@ -472,6 +488,37 @@ export async function updateAdminUserStatus(userId, isActive) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(body?.detail || "No se pudo actualizar el estado");
+  }
+  return body;
+}
+
+export async function fetchItauMedibles(periodo) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/administrativas/itau/medibles`, { periodo }));
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron cargar los casos medibles");
+  }
+  return body;
+}
+
+export async function addItauMedible(payload) {
+  const res = await apiFetch(`${API_BASE}/api/administrativas/itau/medibles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo agregar el filtro");
+  }
+  return body;
+}
+
+export async function deleteItauMedible(filtro) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/administrativas/itau/medibles`, filtro), { method: "DELETE" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo eliminar el filtro");
   }
   return body;
 }

@@ -37,6 +37,13 @@ export const modulePanels = [
         buttonLabel: "Ir a Itaú Castigo",
       },
       {
+        code: "itau-vencida",
+        title: "Itaú Vencida",
+        description: "Productividad y contención de cartera vencida Itaú.",
+        path: "/itau-vencida",
+        buttonLabel: "Ir a Itaú Vencida",
+      },
+      {
         code: "sth",
         title: "Santander Hipotecario",
         description: "Productividad hipotecaria y productos asociados.",

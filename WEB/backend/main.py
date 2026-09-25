@@ -11,6 +11,7 @@ from routers.bit import router as bit_router
 from routers.gm import router as gm_router
 from routers.kpi_avance_phoenix import router as kpi_avance_phoenix_router
 from routers.itau_castigo import router as itau_castigo_router
+from routers.itau_vencida import router as itau_vencida_router
 from routers.kpi_diario import router as kpi_diario_router
 from routers.la_araucana import router as la_araucana_router
 from routers.porsche import router as porsche_router
@@ -53,6 +54,7 @@ app.include_router(bench_router, prefix="/api/bench", tags=["bench"])
 app.include_router(kpi_avance_phoenix_router, prefix="/api/kpi-avance-phoenix", tags=["kpi-avance-phoenix"])
 app.include_router(kpi_diario_router, prefix="/api/kpi-diario", tags=["kpi-diario"])
 app.include_router(itau_castigo_router, prefix="/api/itau-castigo", tags=["itau-castigo"])
+app.include_router(itau_vencida_router, prefix="/api/itau-vencida", tags=["itau-vencida"])
 app.include_router(bit_castigo_router, prefix="/api/bit-castigo", tags=["bit-castigo"])
 app.include_router(bit_router, prefix="/api/bit", tags=["bit"])
 # app.include_router(factura_router, prefix="/api/factura", tags=["factura"])

@@ -16,9 +16,7 @@ from dotenv import load_dotenv
 
 CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
 CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
-CARTERIZADO_TABLE = "dbo.tmp_BIT_carterizado"
 DEFAULT_BIT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\AUTOMATIZACION\BIT")
-DEFAULT_CARTERIZADO_FILENAME = "CARTERIZADO.xlsx"
 CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6}|\d{8})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
 CONTENCION_PATTERN = re.compile(r"^Seguimiento_Metas_PHOENIX_(\d{8})\.xlsx$", re.IGNORECASE)
 CASTIGO_NUMERIC_COLUMNS = {"MTO_RECUPERO_FINAL", "GC_CASTIGO"}
@@ -42,9 +40,7 @@ UF_CACHE_PATH = Path(__file__).resolve().parents[1] / "Logs" / "bit_uf_cache.jso
 @dataclass
 class BitSources:
     cont: pd.DataFrame
-    cart: pd.DataFrame
     cont_source_file: str
-    cart_source_file: str
     cont_period: str | None = None
     castigo: pd.DataFrame | None = None
     castigo_source_file: str | None = None
@@ -510,19 +506,6 @@ def ensure_castigo_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> tuple[
     return ensure_dynamic_table(cur, CASTIGO_TABLE, requested_columns, CASTIGO_NUMERIC_COLUMNS)
 
 
-def ensure_carterizado_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> tuple[list[str], list[str]]:
-    excel_columns, added_columns = ensure_dynamic_table(
-        cur,
-        CARTERIZADO_TABLE,
-        excel_columns,
-        include_source_file=False,
-    )
-    existing = get_table_columns(cur, CARTERIZADO_TABLE)
-    if "SOURCE_FILE" in existing:
-        cur.execute(f"ALTER TABLE {CARTERIZADO_TABLE} DROP COLUMN [source_file]")
-    return excel_columns, added_columns
-
-
 def prepare_contencion_dataframe(df: pd.DataFrame, periodo: str | None = None) -> tuple[pd.DataFrame, dict[str, object]]:
     if not periodo:
         raise RuntimeError("No se puede preparar contencion sin periodo para resolver MONTO_UF")
@@ -612,11 +595,6 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
         if not folder.exists():
             raise FileNotFoundError(f"No existe carpeta: {folder}")
         cont_path = find_unique_file(folder, "Seguimiento_Metas_PHOENIX_*.xlsx", "contencion", required=True)
-        cart_path = folder / DEFAULT_CARTERIZADO_FILENAME
-        if not cont_path.exists() or not cart_path.exists():
-            raise FileNotFoundError(
-                f"En la carpeta deben existir un archivo Seguimiento_Metas_PHOENIX_*.xlsx y {DEFAULT_CARTERIZADO_FILENAME}"
-            )
 
         cont_source_name = cont_path.name
         cont_period = extract_contencion_period(cont_source_name)
@@ -635,7 +613,6 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
                 )
 
         cont = load_sheet(cont_path, 0)
-        cart = load_sheet(cart_path, 0)
         castigo_path, castigo_source_file, castigo_period = resolve_castigo_source(folder)
         castigo_df = load_sheet(castigo_path, 0)
         if not len(castigo_df.columns):
@@ -643,9 +620,7 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
 
         return BitSources(
             cont=cont,
-            cart=cart,
             cont_source_file=cont_source_name,
-            cart_source_file=cart_path.name,
             cont_period=cont_period,
             castigo=castigo_df,
             castigo_source_file=castigo_source_file,
@@ -657,13 +632,10 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
         if not xlsx.exists():
             raise FileNotFoundError(f"No existe archivo: {xlsx}")
         cont = load_sheet(xlsx, "CONTENCION")
-        cart = load_sheet(xlsx, "CARTERIZADO")
         cont_period = extract_contencion_period(xlsx.name) if CONTENCION_PATTERN.match(xlsx.name) else None
         return BitSources(
             cont=cont,
-            cart=cart,
             cont_source_file=xlsx.name,
-            cart_source_file=xlsx.name,
             cont_period=cont_period,
         )
 
@@ -732,16 +704,13 @@ def insert_dynamic_sheet(
     skip_null_column: str | None = None,
     include_source_file: bool = True,
 ) -> tuple[int, int]:
-    if table_name == CARTERIZADO_TABLE and not include_source_file:
-        excel_columns, added_columns = ensure_carterizado_table(cur, [str(col) for col in df.columns])
-    else:
-        excel_columns, added_columns = ensure_dynamic_table(
-            cur,
-            table_name,
-            [str(col) for col in df.columns],
-            numeric_columns,
-            include_source_file=include_source_file,
-        )
+    excel_columns, added_columns = ensure_dynamic_table(
+        cur,
+        table_name,
+        [str(col) for col in df.columns],
+        numeric_columns,
+        include_source_file=include_source_file,
+    )
     cur.execute(f"DELETE FROM {table_name} WHERE periodo = ?", (periodo,))
 
     insert_columns = ["periodo"] + (["source_file"] if include_source_file else []) + excel_columns
@@ -755,26 +724,18 @@ def insert_dynamic_sheet(
     skipped_rows = 0
     for _, row in df.iterrows():
         if skip_null_column and clean_cell(row.get(skip_null_column)) is None:
-            if table_name == CARTERIZADO_TABLE and skip_null_column == "NRO_OPERACION":
-                pass
-            else:
-                skipped_rows += 1
-                continue
+            skipped_rows += 1
+            continue
 
         out = [periodo]
         if include_source_file:
             out.append(source_file)
         for col in excel_columns:
             value = row.get(col)
-            if table_name == CARTERIZADO_TABLE and col.upper() == "NRO_OPERACION":
-                cleaned_value = clean_cell(value)
-                out.append("" if cleaned_value is None else cleaned_value)
-                continue
+            if col.upper() in numeric_columns:
+                out.append(soft_decimal(value))
             else:
-                if col.upper() in numeric_columns:
-                    out.append(soft_decimal(value))
-                else:
-                    out.append(clean_cell(value))
+                out.append(clean_cell(value))
         rows.append(tuple(out))
 
     if rows:
@@ -790,7 +751,6 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
     sources = _read_sources(file_path, folder_path)
     cont_period = resolve_contencion_period(periodo, sources)
     castigo_period = sources.castigo_period
-    skipped_cart_rows = 0
     prepared_cont, contencion_stats = prepare_contencion_dataframe(sources.cont, cont_period)
 
     with connect() as cn:
@@ -805,15 +765,6 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
             sources.cont_source_file,
             numeric_columns=CONTENCION_NUMERIC_COLUMNS,
         )
-        cart_rows, skipped_cart_rows = insert_dynamic_sheet(
-            cur,
-            CARTERIZADO_TABLE,
-            cont_period,
-            sources.cart,
-            sources.cart_source_file,
-            skip_null_column="NRO_OPERACION",
-            include_source_file=False,
-        )
 
         castigo_rows = insert_castigo(cur, castigo_period, sources.castigo, sources.castigo_source_file)
 
@@ -821,7 +772,6 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
 
     print(
         f"Carga BIT completada. periodo_contencion={cont_period}, contencion={cont_rows}, "
-        f"carterizado={cart_rows}, carterizado_omitido_sin_nro_operacion={skipped_cart_rows}, "
         f"contencion_mto_cuota_invalido={contencion_stats['invalid_mto_cuota']}, "
         f"contencion_monto_uf_invalido_original={contencion_stats['invalid_monto_uf_original']}, "
         f"contencion_monto_uf_aplicado={contencion_stats['monto_uf_aplicado']}, "
@@ -839,7 +789,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--periodo",
         required=False,
-        help="Periodo YYYY-MM solo para contencion/carterizado. Si se omite, se infiere del nombre del archivo.",
+        help="Periodo YYYY-MM solo para contencion. Si se omite, se infiere del nombre del archivo.",
     )
     args = parser.parse_args()
     run(args.periodo, args.file, str(DEFAULT_BIT_FOLDER))
+
