@@ -55,6 +55,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'itau-castigo')
 ELSE
     UPDATE dbo.modules SET display_name = 'Itaú Castigo', route_path = '/itau-castigo', is_active = 1 WHERE code = 'itau-castigo';
 
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'itau-vencida')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('itau-vencida', 'Itaú Vencida', '/itau-vencida');
+ELSE
+    UPDATE dbo.modules SET display_name = 'Itaú Vencida', route_path = '/itau-vencida', is_active = 1 WHERE code = 'itau-vencida';
+
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'global')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('global', 'Acceso Global', '/');
 ELSE

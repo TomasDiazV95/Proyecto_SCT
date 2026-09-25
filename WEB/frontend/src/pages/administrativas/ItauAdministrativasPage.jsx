@@ -7,6 +7,7 @@ import {
   fetchItauAdministrativasPeriodos,
 } from "../../api";
 import { saveDownload } from "../../utils/download";
+import MediblesItauCard from "./MediblesItauCard";
 
 function formatPeriodo(periodo) {
   if (!periodo) {
@@ -155,6 +156,9 @@ export default function ItauAdministrativasPage() {
             loading={loading.cuotasPagadas || loading.periodos}
             onDownload={downloadCuotasPagadas}
           />
+        </div>
+        <div className="col-12">
+          <MediblesItauCard />
         </div>
       </div>
     </div>

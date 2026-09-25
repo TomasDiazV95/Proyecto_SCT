@@ -2622,6 +2622,371 @@ th {
   color: #4b250f;
 }
 
+/* Itau Vencida: tabla neutra con acentos por producto; el color semantico queda solo en cumplimiento */
+.itau-vencida-table {
+  --iv-bg: #ffffff;
+  --iv-bg-soft: #f8fafc;
+  --iv-border: #e2e8f0;
+  --iv-border-strong: #cbd5e1;
+  --iv-text: #1e293b;
+  --iv-text-muted: #64748b;
+  --iv-head: #f1f5f9;
+  --iv-head-strong: #e2e8f0;
+  --iv-consumo: #6366f1;
+  --iv-hipot: #2563eb;
+  --bs-table-bg: var(--iv-bg);
+  --bs-table-color: var(--iv-text);
+  --bs-table-border-color: var(--iv-border);
+  --bs-table-hover-bg: var(--iv-bg-soft);
+  color: var(--iv-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.itau-vencida-table th,
+.itau-vencida-table td {
+  border-color: var(--iv-border);
+  white-space: nowrap;
+}
+
+.itau-vencida-table thead th {
+  background: var(--iv-head);
+  color: var(--iv-text);
+  font-weight: 600;
+  border-bottom: 1px solid var(--iv-border);
+}
+
+.itau-vencida-table thead th.iv-consumo,
+.itau-vencida-table thead th.iv-hipot {
+  font-size: 0.95rem;
+}
+
+.itau-vencida-table thead th.iv-consumo:not(.iv-sub) {
+  background: var(--iv-consumo);
+  border-color: var(--iv-consumo);
+  color: #ffffff;
+}
+
+.itau-vencida-table thead th.iv-hipot:not(.iv-sub) {
+  background: var(--iv-hipot);
+  border-color: var(--iv-hipot);
+  color: #ffffff;
+}
+
+.itau-vencida-table thead th.iv-sub {
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.itau-vencida-table thead th.iv-sub.iv-consumo {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.itau-vencida-table thead th.iv-sub.iv-hipot {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.itau-vencida-table thead th.iv-final,
+.itau-vencida-table thead th:first-child {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.itau-vencida-table .iv-peso {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.itau-vencida-table .iv-group-start {
+  border-left: 1px solid var(--iv-border-strong);
+}
+
+.itau-vencida-table .itau-total-row td {
+  background: var(--iv-bg-soft);
+  border-top: 2px solid var(--iv-border-strong);
+  color: var(--iv-text);
+}
+
+.iv-badge {
+  display: inline-block;
+  min-width: 4.5rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.iv-badge-ok {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.iv-badge-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.iv-badge-bad {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.iv-badge-na {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* Itau Vencida: pestañas Resumen / Detalle por fase */
+.iv-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.iv-tab {
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 0.5rem 0.5rem 0 0;
+  background: transparent;
+  color: #64748b;
+  font-weight: 600;
+  padding: 0.55rem 1.1rem;
+  margin-bottom: -1px;
+}
+
+.iv-tab:hover {
+  color: #0f766e;
+}
+
+.iv-tab.active {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  border-top: 3px solid #0f766e;
+  color: #0f766e;
+}
+
+.iv-tab-card {
+  border-top-left-radius: 0;
+}
+
+.itau-vencida-table thead th.iv-fase-head {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.iv-detalle-table .iv-detalle-group {
+  border-top: 2px solid #cbd5e1;
+}
+
+.iv-detalle-table .iv-detalle-ejecutivo {
+  vertical-align: top;
+  font-weight: 600;
+  background: #ffffff;
+}
+
+.iv-detalle-table .iv-fase-cell {
+  color: #475569;
+  font-weight: 600;
+}
+
+.iv-detalle-table .iv-subtotal-row td {
+  background: #f8fafc;
+}
+
+.iv-detalle-table .iv-no-aplica {
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+
+.iv-meta-pct {
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
+/* Itau Vencida: drawer de reglas y metas */
+.iv-medibles {
+  margin-top: 1.25rem;
+  padding: 0.75rem;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #0f766e;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+}
+
+.iv-medibles-title {
+  font-weight: 600;
+  color: #0f766e;
+  margin-bottom: 0.5rem;
+}
+
+.iv-medibles-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.iv-medibles-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+}
+
+.iv-medibles-col {
+  min-width: 6.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.iv-medibles-valor {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: #ccfbf1;
+  color: #115e59;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.iv-info-btn {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-weight: 500;
+}
+
+.iv-info-btn:hover,
+.iv-info-btn:focus-visible {
+  border-color: #0f766e;
+  color: #0f766e;
+  background: #f0fdfa;
+}
+
+.iv-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  z-index: 1040;
+  animation: iv-fade 0.15s ease-out;
+}
+
+.iv-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(460px, 100vw);
+  background: #ffffff;
+  color: #1e293b;
+  z-index: 1045;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
+  animation: iv-slide 0.2s ease-out;
+}
+
+.iv-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 1rem;
+  border-top: 4px solid #0f766e;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.iv-drawer-body {
+  padding: 1.25rem 1.5rem 2rem;
+  overflow-y: auto;
+}
+
+.iv-drawer-muted {
+  color: #64748b;
+}
+
+.iv-drawer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.iv-drawer-block {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.iv-drawer-block-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.5rem 0.75rem;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.iv-accent-consumo .iv-drawer-block-head {
+  background: #6366f1;
+}
+
+.iv-accent-hipot .iv-drawer-block-head {
+  background: #2563eb;
+}
+
+.iv-drawer-peso {
+  font-size: 0.75rem;
+  font-weight: 400;
+  opacity: 0.9;
+}
+
+.iv-drawer-table th,
+.iv-drawer-table td {
+  padding: 0.35rem 0.75rem;
+  border-color: #e2e8f0;
+  color: #1e293b;
+}
+
+.iv-drawer-table thead th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  background: #f8fafc;
+}
+
+@keyframes iv-slide {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes iv-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iv-drawer,
+  .iv-drawer-backdrop {
+    animation: none;
+  }
+}
+
 .itau-castigo-page .btn-warning {
   background: var(--itau-orange);
   border-color: var(--itau-orange);
