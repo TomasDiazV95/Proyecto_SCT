@@ -7,7 +7,7 @@ from database import get_connection, run_query
 
 TABLE = "dbo.itau_vencida_filtros_medibles"
 # Lista blanca: el nombre de columna se interpola en SQL, los valores siempre van como parametros.
-COLUMNAS = ("DETALLE_MARCA", "CANAL", "PRODUCTO", "SEGMENTO")
+COLUMNAS = ("DETALLE_MARCA", "CANAL", "PRODUCTO", "SEGMENTO", "FASE_PROY_MAX")
 GESTOR_PHOENIX = "PHOENIX"
 MAX_VALOR = 200
 
@@ -108,36 +108,53 @@ def get_medibles(periodo: str) -> dict:
     }
 
 
-def add_medible(periodo: str, columna: str, valor: str) -> dict:
-    periodo, columna, valor = _filtro(periodo, columna, valor)
+def add_medibles(periodo: str, columna: str, valores: list[str]) -> dict:
+    """Agrega varios valores de una columna en una sola transaccion. Los que ya estaban se informan y no se duplican."""
+    limpios: list[str] = []
+    for valor in valores or []:
+        periodo_ok, columna_ok, valor_ok = _filtro(periodo, columna, valor)
+        if valor_ok.upper() not in {v.upper() for v in limpios}:
+            limpios.append(valor_ok)
+    if not limpios:
+        raise FiltroInvalido("Selecciona al menos un valor")
+    periodo, columna = _periodo(periodo), str(columna).strip().upper()
+
+    agregados: list[str] = []
+    ya_existian: list[str] = []
     with get_connection() as cn:
         cur = cn.cursor()
-        cur.execute(
-            f"""
-            SELECT activo
-            FROM {TABLE}
-            WHERE periodo = ? AND columna = ? AND UPPER(LTRIM(RTRIM(valor))) = UPPER(?)
-            """,
-            (periodo, columna, valor),
-        )
-        existing = cur.fetchone()
-        if existing and existing[0]:
-            raise FiltroDuplicado(f"{valor} ya esta configurado en {columna} para {periodo}")
-        if existing:
+        for valor in limpios:
             cur.execute(
                 f"""
-                UPDATE {TABLE} SET activo = 1
+                SELECT activo
+                FROM {TABLE}
                 WHERE periodo = ? AND columna = ? AND UPPER(LTRIM(RTRIM(valor))) = UPPER(?)
                 """,
                 (periodo, columna, valor),
             )
-        else:
-            cur.execute(
-                f"INSERT INTO {TABLE} (periodo, columna, valor, activo) VALUES (?, ?, ?, 1)",
-                (periodo, columna, valor),
-            )
+            existing = cur.fetchone()
+            if existing and existing[0]:
+                ya_existian.append(valor)
+                continue
+            if existing:
+                cur.execute(
+                    f"""
+                    UPDATE {TABLE} SET activo = 1
+                    WHERE periodo = ? AND columna = ? AND UPPER(LTRIM(RTRIM(valor))) = UPPER(?)
+                    """,
+                    (periodo, columna, valor),
+                )
+            else:
+                cur.execute(
+                    f"INSERT INTO {TABLE} (periodo, columna, valor, activo) VALUES (?, ?, ?, 1)",
+                    (periodo, columna, valor),
+                )
+            agregados.append(valor)
         cn.commit()
-    return get_medibles(periodo)
+
+    if not agregados:
+        raise FiltroDuplicado(f"Los valores seleccionados ya estaban configurados para {periodo}")
+    return {**get_medibles(periodo), "agregados": agregados, "ya_existian": ya_existian}
 
 
 def delete_medible(periodo: str, columna: str, valor: str) -> dict:

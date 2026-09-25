@@ -118,7 +118,7 @@ WITH carterizado AS (
 
 # Columnas de la contencion que se pueden usar como filtro de casos medibles (lista blanca:
 # el nombre de columna se interpola en el SQL, los valores siempre van como parametros).
-COLUMNAS_MEDIBLES = ("DETALLE_MARCA", "CANAL", "PRODUCTO", "SEGMENTO")
+COLUMNAS_MEDIBLES = ("DETALLE_MARCA", "CANAL", "PRODUCTO", "SEGMENTO", "FASE_PROY_MAX")
 
 
 def _load_filtros_medibles(periodo: str) -> list[dict]:
