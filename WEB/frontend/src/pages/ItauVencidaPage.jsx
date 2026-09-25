@@ -146,7 +146,7 @@ export default function ItauVencidaPage() {
   }
 
   function renderFiltrosMedibles() {
-    const etiquetas = { DETALLE_MARCA: "Detalle marca", CANAL: "Canal", PRODUCTO: "Producto", SEGMENTO: "Segmento" };
+    const etiquetas = { DETALLE_MARCA: "Detalle marca", CANAL: "Canal", PRODUCTO: "Producto", SEGMENTO: "Segmento", FASE_PROY_MAX: "Fase" };
     const grupos = [];
     filtrosMedibles.forEach((filtro) => {
       let grupo = grupos.find((item) => item.columna === filtro.columna);
@@ -166,7 +166,7 @@ export default function ItauVencidaPage() {
               <li key={grupo.columna}>
                 <span className="iv-medibles-col">{etiquetas[grupo.columna] || grupo.columna}</span>
                 {grupo.valores.map((valor) => (
-                  <span key={valor} className="iv-medibles-valor">{valor}</span>
+                  <span key={valor} className="iv-medibles-valor">{grupo.columna === "FASE_PROY_MAX" ? `Fase ${valor}` : valor}</span>
                 ))}
               </li>
             ))}

@@ -1,12 +1,17 @@
-import { useEffect, useState } from "react";
-import { addItauMedible, deleteItauMedible, fetchItauMedibles } from "../../api";
+import { useEffect, useRef, useState } from "react";
+import { addItauMedibles, deleteItauMedible, fetchItauMedibles } from "../../api";
 
 const COLUMNAS = [
   { value: "DETALLE_MARCA", label: "Detalle marca" },
   { value: "CANAL", label: "Canal" },
   { value: "PRODUCTO", label: "Producto" },
   { value: "SEGMENTO", label: "Segmento" },
+  { value: "FASE_PROY_MAX", label: "Fase" },
 ];
+
+function valorLabel(columna, valor) {
+  return columna === "FASE_PROY_MAX" ? `Fase ${valor}` : valor;
+}
 
 function currentPeriodo() {
   const now = new Date();
@@ -20,10 +25,35 @@ function columnaLabel(value) {
 export default function MediblesItauCard() {
   const [periodo, setPeriodo] = useState(currentPeriodo());
   const [data, setData] = useState({ filtros: [], valores: {}, periodos_configurados: [] });
-  const [form, setForm] = useState({ columna: "DETALLE_MARCA", valor: "" });
+  const [form, setForm] = useState({ columna: "DETALLE_MARCA", valores: [] });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [aviso, setAviso] = useState("");
+  const [valoresOpen, setValoresOpen] = useState(false);
+  const valoresRef = useRef(null);
+
+  useEffect(() => {
+    if (!valoresOpen) {
+      return undefined;
+    }
+    function onClickOutside(event) {
+      if (valoresRef.current && !valoresRef.current.contains(event.target)) {
+        setValoresOpen(false);
+      }
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape") {
+        setValoresOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [valoresOpen]);
 
   useEffect(() => {
     if (!/^\d{4}-\d{2}$/.test(periodo)) {
@@ -56,15 +86,20 @@ export default function MediblesItauCard() {
 
   async function onAdd(event) {
     event.preventDefault();
-    if (!form.valor.trim()) {
+    if (!form.valores.length) {
       return;
     }
     setSaving(true);
     setError("");
+    setAviso("");
     try {
-      const body = await addItauMedible({ periodo, ...form, valor: form.valor.trim() });
+      const body = await addItauMedibles({ periodo, columna: form.columna, valores: form.valores });
       setData(body);
-      setForm((prev) => ({ ...prev, valor: "" }));
+      setForm((prev) => ({ ...prev, valores: [] }));
+      setValoresOpen(false);
+      if (body.ya_existian?.length) {
+        setAviso(`Ya estaban agregados: ${body.ya_existian.map((valor) => valorLabel(form.columna, valor)).join(", ")}.`);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -73,11 +108,12 @@ export default function MediblesItauCard() {
   }
 
   async function onDelete(filtro) {
-    if (!window.confirm(`¿Eliminar "${filtro.valor}" (${columnaLabel(filtro.columna)}) de ${periodo}?`)) {
+    if (!window.confirm(`¿Eliminar "${valorLabel(filtro.columna, filtro.valor)}" (${columnaLabel(filtro.columna)}) de ${periodo}?`)) {
       return;
     }
     setSaving(true);
     setError("");
+    setAviso("");
     try {
       const body = await deleteItauMedible({ periodo, ...filtro });
       setData(body);
@@ -93,6 +129,24 @@ export default function MediblesItauCard() {
     data.filtros.filter((filtro) => filtro.columna === form.columna).map((filtro) => filtro.valor.toUpperCase())
   );
   const sugerencias = (data.valores?.[form.columna] || []).filter((valor) => !agregados.has(valor.toUpperCase()));
+
+  function toggleValor(valor) {
+    setForm((prev) => ({
+      ...prev,
+      valores: prev.valores.includes(valor) ? prev.valores.filter((item) => item !== valor) : [...prev.valores, valor],
+    }));
+  }
+
+  const todosSeleccionados = sugerencias.length > 0 && sugerencias.every((valor) => form.valores.includes(valor));
+  let resumenSeleccion = "Selecciona uno o más valores";
+  if (!sugerencias.length) {
+    resumenSeleccion = "Sin valores disponibles en la contención";
+  } else if (form.valores.length > 2) {
+    resumenSeleccion = `${form.valores.length} valores seleccionados`;
+  } else if (form.valores.length) {
+    resumenSeleccion = form.valores.map((valor) => valorLabel(form.columna, valor)).join(", ");
+  }
+
   const grupos = COLUMNAS.map((columna) => ({
     ...columna,
     filtros: data.filtros.filter((filtro) => filtro.columna === columna.value),
@@ -117,13 +171,14 @@ export default function MediblesItauCard() {
               value={periodo}
               onChange={(event) => {
                 setPeriodo(event.target.value);
-                setForm((prev) => ({ ...prev, valor: "" }));
+                setForm((prev) => ({ ...prev, valores: [] }));
               }}
             />
           </div>
         </div>
 
         {error && <div className="alert alert-danger py-2">{error}</div>}
+        {aviso && <div className="alert alert-info py-2">{aviso}</div>}
 
         <form className="row g-2 align-items-end mb-4" onSubmit={onAdd}>
           <div className="col-12 col-md-3">
@@ -131,7 +186,10 @@ export default function MediblesItauCard() {
             <select
               className="form-select"
               value={form.columna}
-              onChange={(event) => setForm((prev) => ({ ...prev, columna: event.target.value, valor: "" }))}
+              onChange={(event) => {
+                setForm({ columna: event.target.value, valores: [] });
+                setValoresOpen(false);
+              }}
             >
               {COLUMNAS.map((item) => (
                 <option key={item.value} value={item.value}>{item.label}</option>
@@ -139,26 +197,46 @@ export default function MediblesItauCard() {
             </select>
           </div>
           <div className="col-12 col-md-7">
-            <label className="form-label mb-1">Valor</label>
-            <select
-              className="form-select"
-              value={form.valor}
-              disabled={loading || !sugerencias.length}
-              onChange={(event) => setForm((prev) => ({ ...prev, valor: event.target.value }))}
-            >
-              <option value="">
-                {sugerencias.length ? "Selecciona un valor" : "Sin valores disponibles en la contención"}
-              </option>
-              {sugerencias.map((valor) => (
-                <option key={valor} value={valor}>
-                  {valor}
-                </option>
-              ))}
-            </select>
+            <label className="form-label mb-1">Valores</label>
+            <div className="position-relative" ref={valoresRef}>
+              <button
+                type="button"
+                className="form-select text-start text-truncate"
+                disabled={loading || !sugerencias.length}
+                aria-expanded={valoresOpen}
+                onClick={() => setValoresOpen((open) => !open)}
+              >
+                {resumenSeleccion}
+              </button>
+              {valoresOpen && (
+                <div className="medibles-multi-panel shadow">
+                  <label className="medibles-multi-option medibles-multi-all">
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={todosSeleccionados}
+                      onChange={() => setForm((prev) => ({ ...prev, valores: todosSeleccionados ? [] : [...sugerencias] }))}
+                    />
+                    Seleccionar todos
+                  </label>
+                  {sugerencias.map((valor) => (
+                    <label key={valor} className="medibles-multi-option">
+                      <input
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={form.valores.includes(valor)}
+                        onChange={() => toggleValor(valor)}
+                      />
+                      {valorLabel(form.columna, valor)}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <div className="col-12 col-md-2 d-grid">
-            <button type="submit" className="btn btn-info" disabled={saving || loading || !form.valor.trim()}>
-              {saving ? "Guardando..." : "Agregar"}
+            <button type="submit" className="btn btn-info" disabled={saving || loading || !form.valores.length}>
+              {saving ? "Guardando..." : form.valores.length > 1 ? `Agregar (${form.valores.length})` : "Agregar"}
             </button>
           </div>
         </form>
@@ -180,7 +258,7 @@ export default function MediblesItauCard() {
                   grupo.filtros.map((filtro) => (
                     <tr key={`${filtro.columna}-${filtro.valor}`}>
                       <td>{grupo.label}</td>
-                      <td>{filtro.valor}</td>
+                      <td>{valorLabel(filtro.columna, filtro.valor)}</td>
                       <td className="text-end">
                         <button type="button" className="btn btn-sm btn-outline-danger" disabled={saving} onClick={() => onDelete(filtro)}>
                           Eliminar

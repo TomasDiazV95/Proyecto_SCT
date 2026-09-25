@@ -4215,3 +4215,42 @@ th {
     min-width: 160px;
   }
 }
+
+/* Casos medibles Itau Vencida: selector de varios valores */
+.medibles-multi-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 1030;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0.35rem 0;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+}
+
+.medibles-multi-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  color: #1e293b;
+}
+
+.medibles-multi-option:hover {
+  background: #f1f5f9;
+}
+
+.medibles-multi-option .form-check-input {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.medibles-multi-all {
+  font-weight: 600;
+  border-bottom: 1px solid #e2e8f0;
+}

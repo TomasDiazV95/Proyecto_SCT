@@ -501,7 +501,7 @@ export async function fetchItauMedibles(periodo) {
   return body;
 }
 
-export async function addItauMedible(payload) {
+export async function addItauMedibles(payload) {
   const res = await apiFetch(`${API_BASE}/api/administrativas/itau/medibles`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from services.itau_vencida_medibles_service import (
     FiltroDuplicado,
     FiltroInvalido,
-    add_medible,
+    add_medibles,
     delete_medible,
     get_medibles,
 )
@@ -61,7 +61,7 @@ def itau_cuotas_pagadas_export(periodo: str = Query(...)) -> StreamingResponse:
 class MedibleRequest(BaseModel):
     periodo: str
     columna: str
-    valor: str
+    valores: list[str]
 
 
 def _medibles_call(fn, *args) -> dict:
@@ -82,7 +82,7 @@ def itau_medibles(periodo: str = Query(...)) -> dict:
 
 @router.post("/itau/medibles")
 def itau_medibles_add(payload: MedibleRequest) -> dict:
-    return _medibles_call(add_medible, payload.periodo, payload.columna, payload.valor)
+    return _medibles_call(add_medibles, payload.periodo, payload.columna, payload.valores)
 
 
 @router.delete("/itau/medibles")

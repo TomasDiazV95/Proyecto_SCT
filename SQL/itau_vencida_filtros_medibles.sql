@@ -3,7 +3,7 @@
 -- Se administra desde Panel Administrativo > Itau > "Casos medibles Itau Vencida".
 --
 -- Reglas:
---   * columna: DETALLE_MARCA, CANAL, PRODUCTO o SEGMENTO (columnas de contencion_itau_vencida).
+--   * columna: DETALLE_MARCA, CANAL, PRODUCTO, SEGMENTO o FASE_PROY_MAX (columnas de contencion_itau_vencida).
 --   * En cada columna configurada, el caso debe tener uno de sus valores.
 --   * Columnas distintas se combinan con AND. Una columna sin valores no restringe.
 --   * Un mes sin nada configurado no tiene casos medibles. No se hereda del mes anterior.
@@ -17,9 +17,22 @@ BEGIN
         valor NVARCHAR(200) NOT NULL,
         activo BIT NOT NULL CONSTRAINT DF_itau_vencida_filtros_medibles_activo DEFAULT (1),
         CONSTRAINT PK_itau_vencida_filtros_medibles PRIMARY KEY (periodo, columna, valor),
-        CONSTRAINT CK_itau_vencida_filtros_medibles_columna CHECK (columna IN ('DETALLE_MARCA', 'CANAL', 'PRODUCTO', 'SEGMENTO')),
+        CONSTRAINT CK_itau_vencida_filtros_medibles_columna CHECK (columna IN ('DETALLE_MARCA', 'CANAL', 'PRODUCTO', 'SEGMENTO', 'FASE_PROY_MAX')),
         CONSTRAINT CK_itau_vencida_filtros_medibles_periodo CHECK (periodo LIKE '[2][0-9][0-9][0-9]-[01][0-9]')
     );
+END;
+GO
+
+-- Agrega FASE_PROY_MAX a las columnas permitidas en tablas creadas antes.
+IF EXISTS (
+    SELECT 1 FROM sys.check_constraints
+    WHERE name = 'CK_itau_vencida_filtros_medibles_columna'
+      AND definition NOT LIKE '%FASE_PROY_MAX%'
+)
+BEGIN
+    ALTER TABLE dbo.itau_vencida_filtros_medibles DROP CONSTRAINT CK_itau_vencida_filtros_medibles_columna;
+    ALTER TABLE dbo.itau_vencida_filtros_medibles ADD CONSTRAINT CK_itau_vencida_filtros_medibles_columna
+        CHECK (columna IN ('DETALLE_MARCA', 'CANAL', 'PRODUCTO', 'SEGMENTO', 'FASE_PROY_MAX'));
 END;
 GO
 
