@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
 import { downloadLaAraucanaExcel, fetchLaAraucanaFilters, fetchLaAraucanaResumen } from "../api";
+import { Field, FilterBar, LoadingState, PageHeader, SectionCard } from "../components/productividad/ui";
 
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -153,69 +153,60 @@ export default function LaAraucanaPage() {
   }
 
   return (
-    <div className="container-fluid py-4 app-shell">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h1 className="h3 m-0">La Araucana - Productividad</h1>
-          <Link to="/productividad" className="small text-decoration-none">
-            Volver al Home
-          </Link>
-        </div>
-        {canDownload && (
-          <button className="btn btn-success" onClick={onDownload} disabled={!selected.periodo || downloading}>
-            {downloading ? "Descargando..." : "Descargar Excel"}
-          </button>
-        )}
-      </div>
+    <div className="pd-page">
+      <PageHeader
+        title="La Araucana"
+        subtitle="Productividad Caja La Araucana por tipo de cartera."
+        actions={
+          canDownload && (
+            <button type="button" className="pd-btn pd-btn-secondary" onClick={onDownload} disabled={!selected.periodo || downloading}>
+              <i className="bi bi-download" aria-hidden="true" /> {downloading ? "Descargando..." : "Descargar Excel"}
+            </button>
+          )
+        }
+      />
 
-      <div className="card shadow-sm mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-12 col-md-2">
-              <label className="form-label">Periodo</label>
-              <select className="form-select" value={selected.periodo} onChange={(e) => onPeriodo(e.target.value)} disabled={loadingFilters}>
-                {!filters.periodos.length && <option value="">{loadingFilters ? "Cargando..." : "Sin meses"}</option>}
-                {filters.periodos.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-2">
-              <label className="form-label">Tipo cartera</label>
-              <select className="form-select" value={selected.tipo_cartera} onChange={(e) => onFilter("tipo_cartera", e.target.value)}>
-                <option value="">Todas</option>
-                {filters.tipo_cartera.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-3">
-              <label className="form-label">Ejecutivo</label>
-              <select className="form-select" value={selected.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
-                <option value="">Todos</option>
-                {ejecutivoOptions.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
+      <FilterBar>
+        <Field label="Periodo">
+          <select className="form-select" value={selected.periodo} onChange={(e) => onPeriodo(e.target.value)} disabled={loadingFilters}>
+            {!filters.periodos.length && <option value="">{loadingFilters ? "Cargando..." : "Sin meses"}</option>}
+            {filters.periodos.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Tipo cartera">
+          <select className="form-select" value={selected.tipo_cartera} onChange={(e) => onFilter("tipo_cartera", e.target.value)}>
+            <option value="">Todas</option>
+            {filters.tipo_cartera.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ejecutivo">
+          <select className="form-select" value={selected.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
+            <option value="">Todos</option>
+            {ejecutivoOptions.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      <div className="card shadow-sm">
-        <div className="card-body table-responsive">
-          {loading ? (
-            <div className="text-center py-4">Cargando...</div>
-          ) : (
-            <table className="table table-sm table-bordered align-middle la-pivot-table mb-0">
+      <SectionCard bodyClassName="">
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <div className="pd-table-scroll">
+            <table className="pd-table">
               <colgroup>
                 <col style={{ width: "26%" }} />
                 <col style={{ width: "16%" }} />
@@ -227,51 +218,46 @@ export default function LaAraucanaPage() {
               <thead>
                 <tr>
                   <th>Ejecutivo</th>
-                  <th className="text-center">Deuda</th>
-                  <th className="text-center">Q Folios</th>
-                  <th className="text-center">Recupero</th>
-                  <th className="text-center">% Contacto Titular</th>
-                  <th className="text-center">% Aporte</th>
+                  <th className="pd-num">Deuda</th>
+                  <th className="pd-num">Q Folios</th>
+                  <th className="pd-num">Recupero</th>
+                  <th className="pd-num">% Contacto Titular</th>
+                  <th className="pd-num pd-th-key">% Aporte</th>
                 </tr>
               </thead>
               <tbody>
                 {groupedRows.map((group) => (
                   <React.Fragment key={group.tipo}>
-                    <tr className="la-pivot-group">
-                      <td>{group.tipo}</td>
-                      <td />
-                      <td />
-                      <td />
-                      <td />
-                      <td />
+                    <tr className="pd-row-group">
+                      <td colSpan={6}>{group.tipo}</td>
                     </tr>
                     {group.rows.map((row) => (
                       <tr key={`${row.tipo_cartera}-${row.ejecutivo}`}>
-                        <td className="la-pivot-child">{row.ejecutivo}</td>
-                        <td className="text-end">{formatMoney(row.deuda)}</td>
-                        <td className="text-end">{formatMoney(row.q_folios)}</td>
-                        <td className="text-end">{formatRecovero(row.recupero)}</td>
-                        <td className="text-end">{formatPct(row.pct_contacto_titular)}</td>
-                        <td className="text-end">{formatPct(row.pct_aporte)}</td>
+                        <td className="pd-cell-indent">{row.ejecutivo}</td>
+                        <td className="pd-num">{formatMoney(row.deuda)}</td>
+                        <td className="pd-num">{formatMoney(row.q_folios)}</td>
+                        <td className="pd-num">{formatRecovero(row.recupero)}</td>
+                        <td className="pd-num">{formatPct(row.pct_contacto_titular)}</td>
+                        <td className="pd-num pd-cell-strong">{formatPct(row.pct_aporte)}</td>
                       </tr>
                     ))}
                   </React.Fragment>
                 ))}
                 {total && (
-                  <tr className="la-pivot-total">
+                  <tr className="pd-row-total">
                     <td>{total.ejecutivo}</td>
-                    <td className="text-end">{formatMoney(total.deuda)}</td>
-                    <td className="text-end">{formatMoney(total.q_folios)}</td>
-                    <td className="text-end">{formatRecovero(total.recupero)}</td>
-                    <td className="text-end">{formatPct(total.pct_contacto_titular)}</td>
-                    <td className="text-end">{formatPct(total.pct_aporte)}</td>
+                    <td className="pd-num">{formatMoney(total.deuda)}</td>
+                    <td className="pd-num">{formatMoney(total.q_folios)}</td>
+                    <td className="pd-num">{formatRecovero(total.recupero)}</td>
+                    <td className="pd-num">{formatPct(total.pct_contacto_titular)}</td>
+                    <td className="pd-num">{formatPct(total.pct_aporte)}</td>
                   </tr>
                 )}
               </tbody>
             </table>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
+      </SectionCard>
     </div>
   );
 }

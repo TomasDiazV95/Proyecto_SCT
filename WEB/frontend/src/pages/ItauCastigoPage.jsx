@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { fetchItauCastigoFilters, fetchItauCastigoGeneral, fetchItauCastigoProducto } from "../api";
+import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, relativeLegendItems } from "../components/productividad/ui";
 
 
 function formatMoney(value) {
@@ -44,12 +44,12 @@ function percentile(sortedValues, p) {
 function dotClass(value, thresholds) {
   const num = Number(value || 0);
   if (num >= thresholds.p66) {
-    return "gm-dot gm-dot-ok";
+    return "pd-status pd-status-success";
   }
   if (num >= thresholds.p33) {
-    return "gm-dot gm-dot-warn";
+    return "pd-status pd-status-warning";
   }
-  return "gm-dot gm-dot-bad";
+  return "pd-status pd-status-danger";
 }
 
 
@@ -136,43 +136,40 @@ export default function ItauCastigoPage() {
     }
 
     return (
-      <div className="card shadow-sm mb-3 itau-meta-card">
-        <div className="card-body py-2">
-          <div className="itau-meta-title">Meta recuperación</div>
-          <div className="table-responsive">
-            <table className="table table-sm mb-0 itau-meta-table">
-              <thead>
-                <tr>
-                  <th>Cobrador</th>
-                  <th className="text-end">Meta Recupero</th>
+      <SectionCard title="Meta recuperación" className="pd-card-narrow" bodyClassName="">
+        <div className="pd-table-scroll">
+          <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+            <thead>
+              <tr>
+                <th>Cobrador</th>
+                <th className="pd-num">Meta Recupero</th>
+              </tr>
+            </thead>
+            <tbody>
+              {generalMetas.map((row) => (
+                <tr key={row.cobrador_vista}>
+                  <td>{row.cobrador_vista}</td>
+                  <td className="pd-num">${formatMoney(row.meta_recupero)}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {generalMetas.map((row) => (
-                  <tr key={row.cobrador_vista}>
-                    <td>{row.cobrador_vista}</td>
-                    <td className="text-end">${formatMoney(row.meta_recupero)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
+      </SectionCard>
     );
   }
 
   function renderGeneralTable() {
     return (
-      <table className="table table-striped table-hover align-middle gm-data-table itau-castigo-table">
+      <table className="pd-table">
         <thead>
           <tr>
             <th>Ejecutivo</th>
             <th>Cobrador Vista</th>
-            <th className="text-center">Total Deuda</th>
-            <th className="text-center">Recupero Total</th>
-            <th className="text-center">% Efectividad</th>
-            <th className="text-center">Cumplimiento</th>
+            <th className="pd-num">Total Deuda</th>
+            <th className="pd-num">Recupero Total</th>
+            <th className="pd-num">% Efectividad</th>
+            <th className="pd-num pd-th-key">Cumplimiento</th>
           </tr>
         </thead>
         <tbody>
@@ -180,22 +177,24 @@ export default function ItauCastigoPage() {
             <tr key={`itau-general-${row.ejecutivo}-${idx}`}>
               <td>{row.ejecutivo}</td>
               <td>{row.cobrador_vista || "-"}</td>
-              <td className="text-center">${formatMoney(row.deuda_total)}</td>
-              <td className="text-center">${formatMoney(row.recupero_total)}</td>
-              <td className="text-center">{formatPct(row.pct_efectividad)}</td>
-              <td className="fw-semibold text-center">
-                <span className={dotClass(row.cumplimiento, thresholds)} /> {formatPct(row.cumplimiento)}
+              <td className="pd-num">${formatMoney(row.deuda_total)}</td>
+              <td className="pd-num">${formatMoney(row.recupero_total)}</td>
+              <td className="pd-num">{formatPct(row.pct_efectividad)}</td>
+              <td className="pd-num">
+                <span className={dotClass(row.cumplimiento, thresholds)}>{formatPct(row.cumplimiento)}</span>
               </td>
             </tr>
           ))}
           {total && (
-            <tr className="fw-semibold itau-total-row">
+            <tr className="pd-row-total">
               <td>{total.ejecutivo}</td>
               <td>{total.cobrador_vista || ""}</td>
-              <td className="text-center">${formatMoney(total.deuda_total)}</td>
-              <td className="text-center">${formatMoney(total.recupero_total)}</td>
-              <td className="text-center">{formatPct(total.pct_efectividad)}</td>
-              <td className="text-center">{formatPct(total.cumplimiento)}</td>
+              <td className="pd-num">${formatMoney(total.deuda_total)}</td>
+              <td className="pd-num">${formatMoney(total.recupero_total)}</td>
+              <td className="pd-num">{formatPct(total.pct_efectividad)}</td>
+              <td className="pd-num">
+                <span className="pd-status pd-status-none">{formatPct(total.cumplimiento)}</span>
+              </td>
             </tr>
           )}
         </tbody>
@@ -205,47 +204,51 @@ export default function ItauCastigoPage() {
 
   function renderProductoTable() {
     return (
-      <table className="table table-striped table-hover align-middle gm-data-table itau-castigo-table">
+      <table className="pd-table">
         <thead>
           <tr>
             <th rowSpan={2}>Ejecutivo</th>
-            <th colSpan={3} className="text-center">Phoenix</th>
-            <th colSpan={3} className="text-center">Phoenix MCV</th>
+            <th colSpan={3} className="pd-th-group-1 pd-group-start">Phoenix</th>
+            <th colSpan={3} className="pd-th-group-2 pd-group-start">Phoenix MCV</th>
           </tr>
           <tr>
-            <th className="text-center">Deuda</th>
-            <th className="text-center">Recupero</th>
-            <th className="text-center">% Recupero</th>
-            <th className="text-center">Deuda</th>
-            <th className="text-center">Recupero</th>
-            <th className="text-center">% Recupero</th>
+            <th className="pd-num pd-th-sub-1 pd-group-start">Deuda</th>
+            <th className="pd-num pd-th-sub-1">Recupero</th>
+            <th className="pd-num pd-th-sub-1">% Recupero</th>
+            <th className="pd-num pd-th-sub-2 pd-group-start">Deuda</th>
+            <th className="pd-num pd-th-sub-2">Recupero</th>
+            <th className="pd-num pd-th-sub-2">% Recupero</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((row, idx) => (
             <tr key={`itau-producto-${row.ejecutivo}-${idx}`}>
               <td>{row.ejecutivo}</td>
-              <td className="text-center">${formatMoney(row.deuda_phoenix)}</td>
-              <td className="text-center">${formatMoney(row.recupero_phoenix)}</td>
-              <td className="fw-semibold text-center">
-                <span className={dotClass(row.pct_recupero_phoenix, thresholds)} /> {formatPct(row.pct_recupero_phoenix)}
+              <td className="pd-num pd-group-start">${formatMoney(row.deuda_phoenix)}</td>
+              <td className="pd-num">${formatMoney(row.recupero_phoenix)}</td>
+              <td className="pd-num">
+                <span className={dotClass(row.pct_recupero_phoenix, thresholds)}>{formatPct(row.pct_recupero_phoenix)}</span>
               </td>
-              <td className="text-center">${formatMoney(row.deuda_phoenix_mcv)}</td>
-              <td className="text-center">${formatMoney(row.recupero_phoenix_mcv)}</td>
-              <td className="fw-semibold text-center">
-                <span className={dotClass(row.pct_recupero_phoenix_mcv, thresholds)} /> {formatPct(row.pct_recupero_phoenix_mcv)}
+              <td className="pd-num pd-group-start">${formatMoney(row.deuda_phoenix_mcv)}</td>
+              <td className="pd-num">${formatMoney(row.recupero_phoenix_mcv)}</td>
+              <td className="pd-num">
+                <span className={dotClass(row.pct_recupero_phoenix_mcv, thresholds)}>{formatPct(row.pct_recupero_phoenix_mcv)}</span>
               </td>
             </tr>
           ))}
           {total && (
-            <tr className="fw-semibold itau-total-row">
+            <tr className="pd-row-total">
               <td>{total.ejecutivo}</td>
-              <td className="text-center">${formatMoney(total.deuda_phoenix)}</td>
-              <td className="text-center">${formatMoney(total.recupero_phoenix)}</td>
-              <td className="text-center">{formatPct(total.pct_recupero_phoenix)}</td>
-              <td className="text-center">${formatMoney(total.deuda_phoenix_mcv)}</td>
-              <td className="text-center">${formatMoney(total.recupero_phoenix_mcv)}</td>
-              <td className="text-center">{formatPct(total.pct_recupero_phoenix_mcv)}</td>
+              <td className="pd-num pd-group-start">${formatMoney(total.deuda_phoenix)}</td>
+              <td className="pd-num">${formatMoney(total.recupero_phoenix)}</td>
+              <td className="pd-num">
+                <span className="pd-status pd-status-none">{formatPct(total.pct_recupero_phoenix)}</span>
+              </td>
+              <td className="pd-num pd-group-start">${formatMoney(total.deuda_phoenix_mcv)}</td>
+              <td className="pd-num">${formatMoney(total.recupero_phoenix_mcv)}</td>
+              <td className="pd-num">
+                <span className="pd-status pd-status-none">{formatPct(total.pct_recupero_phoenix_mcv)}</span>
+              </td>
             </tr>
           )}
         </tbody>
@@ -254,73 +257,55 @@ export default function ItauCastigoPage() {
   }
 
   return (
-    <div className="container-fluid py-4 app-shell itau-castigo-page">
-      <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <div>
-          <h1 className="h3 m-0">Itaú Castigo - Productividad</h1>
-          <Link to="/productividad" className="small text-decoration-none">
-            Volver al Home
-          </Link>
-        </div>
-        <div className="btn-group">
-          <button className={`btn btn-${view === "general" ? "warning" : "outline-warning"}`} onClick={() => setView("general")}>
-            Vista General
+    <div className="pd-page">
+      <PageHeader
+        title="Itaú Castigo"
+        subtitle="Productividad y recupero de cartera castigada Itaú."
+        actions={
+          <button type="button" className="pd-btn pd-btn-ghost" onClick={logout}>
+            <i className="bi bi-box-arrow-right" aria-hidden="true" /> Cerrar sesión
           </button>
-          <button className={`btn btn-${view === "producto" ? "warning" : "outline-warning"}`} onClick={() => setView("producto")}>
-            Vista Producto
-          </button>
-          <button className="btn btn-outline-secondary" onClick={logout}>Cerrar sesion</button>
-        </div>
-      </div>
+        }
+      />
 
-      <div className="card shadow-sm mb-3 itau-filter-card">
-        <div className="card-body">
-          <div className="row g-2 align-items-end">
-            <div className="col-12 col-md-3">
-              <label className="form-label">Fecha de carga</label>
-              <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>
-                {options.fechas_carga.map((value) => (
-                  <option key={value} value={value}>
-                    {formatDate(value)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-3">
-              <label className="form-label">Ejecutivo</label>
-              <select className="form-select" value={filters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
-                <option value="">Todos</option>
-                {options.ejecutivos.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-4 small text-muted">
-              Base: {formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} | Mes metas/carterizado: {formatDate(metadata.periodo) || "N/D"}
-            </div>
-          </div>
-        </div>
-      </div>
+      <FilterBar note={`Base: ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} · Mes metas/carterizado: ${formatDate(metadata.periodo) || "N/D"}`}>
+        <Field label="Fecha de carga">
+          <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>
+            {options.fechas_carga.map((value) => (
+              <option key={value} value={value}>
+                {formatDate(value)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ejecutivo">
+          <select className="form-select" value={filters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
+            <option value="">Todos</option>
+            {options.ejecutivos.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
       {!loading && renderGeneralMetas()}
 
-      <div className="card shadow-sm">
-        <div className="card-body table-responsive">
-          {loading ? <div className="text-center py-4">Cargando...</div> : view === "general" ? renderGeneralTable() : renderProductoTable()}
-        </div>
-      </div>
-
-      <div className="card shadow-sm mt-3 itau-legend-card">
-        <div className="card-body py-2 small">
-          <strong>Significado de colores:</strong>
-          <span className="ms-3"><span className="gm-dot gm-dot-bad" /> Bajo</span>
-          <span className="ms-3"><span className="gm-dot gm-dot-warn" /> Esperado</span>
-          <span className="ms-3"><span className="gm-dot gm-dot-ok" /> Sobre lo esperado</span>
-        </div>
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "general", label: "Vista General" },
+            { value: "producto", label: "Vista Producto" },
+          ]}
+        />
+        <SectionCard bodyClassName="" footer={<StatusLegend items={relativeLegendItems} />}>
+          {loading ? <LoadingState /> : <div className="pd-table-scroll">{view === "general" ? renderGeneralTable() : renderProductoTable()}</div>}
+        </SectionCard>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters, fetchScTempranaGeneral } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, relativeLegendItems } from "../components/productividad/ui";
 
 const initialFilters = {
   periodo: "",
@@ -44,12 +44,12 @@ function percentile(sortedValues, p) {
 function dotClassByThresholds(value, thresholds) {
   const num = Number(value || 0);
   if (num >= thresholds.p66) {
-    return "gm-dot gm-dot-ok";
+    return "pd-status pd-status-success";
   }
   if (num >= thresholds.p33) {
-    return "gm-dot gm-dot-warn";
+    return "pd-status pd-status-warning";
   }
-  return "gm-dot gm-dot-bad";
+  return "pd-status pd-status-danger";
 }
 
 function formatPeriodLabel(value) {
@@ -226,242 +226,248 @@ export default function ScTempranaPage() {
   const detailTo = detailTotal ? Math.min(detailPage * detailPageSize, detailTotal) : 0;
 
   return (
-    <div className="container-fluid py-4 app-shell">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h1 className="h3 m-0">SC Temprana - Productividad</h1>
-          <Link to="/productividad" className="small text-decoration-none">
-            Volver al Home
-          </Link>
-        </div>
-        <div className="btn-group">
-          <button className={`btn btn-${view === "general" ? "primary" : "outline-primary"}`} onClick={() => setView("general")}>
-            General
-          </button>
-          <button className={`btn btn-${view === "ejecutivos" ? "primary" : "outline-primary"}`} onClick={() => setView("ejecutivos")}>
-            Ejecutivos
-          </button>
-          <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => setView("detalle")}>
-            Detalle
-          </button>
-        </div>
-      </div>
+    <div className="pd-page">
+      <PageHeader title="SC Temprana" subtitle="Productividad y cumplimiento de cartera temprana." />
 
-      <div className="card shadow-sm mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-12 col-md-2">
-              <label className="form-label">Periodo</label>
-              <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
-                {options.periodos.map((v) => (
-                  <option key={v} value={v}>
-                    {formatPeriodLabel(v)}
+      <FilterBar
+        actions={
+          <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
+            <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+          </button>
+        }
+      >
+        <Field label="Periodo">
+          <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
+            {options.periodos.map((v) => (
+              <option key={v} value={v}>
+                {formatPeriodLabel(v)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {view !== "detalle" && (
+          <Field label="Ejecutivo">
+            <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
+              <option value="">Todos</option>
+              {options.ejecutivos.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {view === "detalle" && (
+          <>
+            <Field label="Operacion">
+              <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
+            </Field>
+            <Field label="Contenido">
+              <select className="form-select" value={detailFilters.contenido} onChange={(e) => onDetailChange("contenido", e.target.value)}>
+                <option value="">Todos</option>
+                <option value="1">Si</option>
+                <option value="0">No</option>
+              </select>
+            </Field>
+            <Field label="Normalizado">
+              <select className="form-select" value={detailFilters.normalizado} onChange={(e) => onDetailChange("normalizado", e.target.value)}>
+                <option value="">Todos</option>
+                <option value="1">Si</option>
+                <option value="0">No</option>
+              </select>
+            </Field>
+            <Field label="Usuario Gestion">
+              <select className="form-select" value={detailFilters.usuario_gestion} onChange={(e) => onDetailChange("usuario_gestion", e.target.value)}>
+                <option value="">Todos</option>
+                {options.usuarios_gestion.map((item) => (
+                  <option key={item.usuario} value={item.usuario}>
+                    {item.usuario}
                   </option>
                 ))}
               </select>
-            </div>
-            {view !== "detalle" && (
-              <div className="col-12 col-md-3">
-                <label className="form-label">Ejecutivo</label>
-                <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
-                  <option value="">Todos</option>
-                  {options.ejecutivos.map((v) => (
-                    <option key={v} value={v}>
-                      {v}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {view === "detalle" && (
-              <>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Operacion</label>
-                  <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Contenido</label>
-                  <select className="form-select" value={detailFilters.contenido} onChange={(e) => onDetailChange("contenido", e.target.value)}>
-                    <option value="">Todos</option>
-                    <option value="1">Si</option>
-                    <option value="0">No</option>
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Normalizado</label>
-                  <select className="form-select" value={detailFilters.normalizado} onChange={(e) => onDetailChange("normalizado", e.target.value)}>
-                    <option value="">Todos</option>
-                    <option value="1">Si</option>
-                    <option value="0">No</option>
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Usuario Gestion</label>
-                  <select className="form-select" value={detailFilters.usuario_gestion} onChange={(e) => onDetailChange("usuario_gestion", e.target.value)}>
-                    <option value="">Todos</option>
-                    {options.usuarios_gestion.map((item) => (
-                      <option key={item.usuario} value={item.usuario}>
-                        {item.usuario}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Tramo</label>
-                  <select className="form-select" value={detailFilters.tramo} onChange={(e) => onDetailChange("tramo", e.target.value)}>
-                    <option value="">Todos</option>
-                    <option value="C1">C1</option>
-                    <option value="C2">C2</option>
-                    {hasC3 && <option value="C3">C3</option>}
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Filas</label>
-                  <select
-                    className="form-select"
-                    value={detailPageSize}
-                    onChange={(e) => {
-                      setDetailPageSize(Number(e.target.value));
-                      setDetailPage(1);
-                    }}
-                  >
-                    <option value={100}>100</option>
-                    <option value={250}>250</option>
-                    <option value={500}>500</option>
-                  </select>
-                </div>
-              </>
-            )}
-            <div className="col-12 col-md-auto d-flex align-items-end">
-              <button className="btn btn-outline-secondary w-100" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
-                Limpiar filtros
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+            </Field>
+            <Field label="Tramo">
+              <select className="form-select" value={detailFilters.tramo} onChange={(e) => onDetailChange("tramo", e.target.value)}>
+                <option value="">Todos</option>
+                <option value="C1">C1</option>
+                <option value="C2">C2</option>
+                {hasC3 && <option value="C3">C3</option>}
+              </select>
+            </Field>
+            <Field label="Filas">
+              <select
+                className="form-select"
+                value={detailPageSize}
+                onChange={(e) => {
+                  setDetailPageSize(Number(e.target.value));
+                  setDetailPage(1);
+                }}
+              >
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+                <option value={500}>500</option>
+              </select>
+            </Field>
+          </>
+        )}
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      <div className="card shadow-sm">
-        <div className="card-body table-responsive">
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "general", label: "General" },
+            { value: "ejecutivos", label: "Ejecutivos" },
+            { value: "detalle", label: "Detalle" },
+          ]}
+        />
+        <SectionCard
+          bodyClassName=""
+          footer={
+            loading ? null : view === "ejecutivos" ? (
+              <StatusLegend items={relativeLegendItems} />
+            ) : view === "detalle" ? (
+              <Pagination
+                summary={`Mostrando ${detailFrom}-${detailTo} de ${detailTotal} operaciones. Pagina ${detailPage} de ${detailTotalPages}.`}
+                onPrev={() => setDetailPage((prev) => Math.max(1, prev - 1))}
+                onNext={() => setDetailPage((prev) => Math.min(detailTotalPages, prev + 1))}
+                prevDisabled={detailPage <= 1 || loading}
+                nextDisabled={detailPage >= detailTotalPages || loading}
+              />
+            ) : null
+          }
+        >
           {loading ? (
-            <div className="text-center py-4">Cargando...</div>
+            <LoadingState />
           ) : view === "general" ? (
-            <div className="text-center py-4 text-muted">Sin informacion disponible para vista general.</div>
+            <div className="pd-state">Sin informacion disponible para vista general.</div>
           ) : view === "ejecutivos" ? (
             <>
               {hasC3 && (
-                <div className="btn-group mb-3">
-                  <button className={`btn btn-sm btn-${executiveSubview === "c1c2" ? "primary" : "outline-primary"}`} onClick={() => setExecutiveSubview("c1c2")}>
-                    C1/C2
-                  </button>
-                  <button className={`btn btn-sm btn-${executiveSubview === "c3" ? "primary" : "outline-primary"}`} onClick={() => setExecutiveSubview("c3")}>
-                    C3
-                  </button>
+                <div className="pd-card-toolbar">
+                  <span className="pd-label">Tramo</span>
+                  <Segmented
+                    value={executiveSubview}
+                    onChange={setExecutiveSubview}
+                    options={[
+                      { value: "c1c2", label: "C1/C2" },
+                      { value: "c3", label: "C3" },
+                    ]}
+                  />
                 </div>
               )}
-              {executiveSubview === "c3" ? (
-                <table className="table table-striped table-hover align-middle">
-                  <thead>
-                    <tr>
-                      <th>Ejecutiva</th>
-                      <th>Deuda Asignada</th>
-                      <th>Monto Cont</th>
-                      <th>% Cont</th>
-                      <th>% cumplimiento</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cycleDataRows
-                      .filter((row) => Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0)
-                      .map((row) => (
-                        <tr key={`${row.ejecutivo}-c3`}>
+              <div className="pd-table-scroll">
+                {executiveSubview === "c3" ? (
+                  <table className="pd-table">
+                    <thead>
+                      <tr>
+                        <th>Ejecutiva</th>
+                        <th className="pd-num">Deuda Asignada</th>
+                        <th className="pd-num">Monto Cont</th>
+                        <th className="pd-num">% Cont</th>
+                        <th className="pd-num pd-th-key">% cumplimiento</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cycleDataRows
+                        .filter((row) => Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0)
+                        .map((row) => (
+                          <tr key={`${row.ejecutivo}-c3`}>
+                            <td>{row.ejecutivo}</td>
+                            <td className="pd-num">{formatMoney(row.c3_deuda_asignada)}</td>
+                            <td className="pd-num">{formatMoney(row.c3_monto_cont)}</td>
+                            <td className="pd-num">{formatPct(row.c3_porc_contenido)}</td>
+                            <td className="pd-num">
+                              <span className={dotClassByThresholds(row.c3_porc_aporte, c3Thresholds)}>{formatPct(row.c3_porc_aporte)}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      {cycleTotalRow && (
+                        <tr className="pd-row-total">
+                          <td>{cycleTotalRow.ejecutivo}</td>
+                          <td className="pd-num">{formatMoney(cycleTotalRow.c3_deuda_asignada)}</td>
+                          <td className="pd-num">{formatMoney(cycleTotalRow.c3_monto_cont)}</td>
+                          <td className="pd-num">{formatPct(cycleTotalRow.c3_porc_contenido)}</td>
+                          <td className="pd-num">
+                            <span className="pd-status pd-status-none">{formatPct(cycleTotalRow.c3_porc_aporte)}</span>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  <table className="pd-table">
+                    <thead>
+                      <tr>
+                        <th rowSpan={2}>Ejecutiva</th>
+                        <th colSpan={4} className="pd-th-group-1 pd-group-start">
+                          Tramo C1
+                        </th>
+                        <th colSpan={4} className="pd-th-group-2 pd-group-start">
+                          Tramo C2
+                        </th>
+                      </tr>
+                      <tr>
+                        <th className="pd-num pd-th-sub-1 pd-group-start">Deuda Asignada</th>
+                        <th className="pd-num pd-th-sub-1">Monto Cont</th>
+                        <th className="pd-num pd-th-sub-1">% Cont</th>
+                        <th className="pd-num pd-th-sub-1">% cumplimiento</th>
+                        <th className="pd-num pd-th-sub-2 pd-group-start">Deuda Asignada</th>
+                        <th className="pd-num pd-th-sub-2">Monto Cont</th>
+                        <th className="pd-num pd-th-sub-2">% Cont</th>
+                        <th className="pd-num pd-th-sub-2">% cumplimiento</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cycleDataRows.map((row) => (
+                        <tr key={row.ejecutivo}>
                           <td>{row.ejecutivo}</td>
-                          <td>{formatMoney(row.c3_deuda_asignada)}</td>
-                          <td>{formatMoney(row.c3_monto_cont)}</td>
-                          <td>{formatPct(row.c3_porc_contenido)}</td>
-                          <td className="fw-semibold">
-                            <span className={dotClassByThresholds(row.c3_porc_aporte, c3Thresholds)} /> {formatPct(row.c3_porc_aporte)}
+                          <td className="pd-num pd-group-start">{formatMoney(row.c1_deuda_asignada)}</td>
+                          <td className="pd-num">{formatMoney(row.c1_monto_cont)}</td>
+                          <td className="pd-num">{formatPct(row.c1_porc_contenido)}</td>
+                          <td className="pd-num">
+                            <span className={dotClassByThresholds(row.c1_porc_aporte, c1Thresholds)}>{formatPct(row.c1_porc_aporte)}</span>
+                          </td>
+                          <td className="pd-num pd-group-start">{formatMoney(row.c2_deuda_asignada)}</td>
+                          <td className="pd-num">{formatMoney(row.c2_monto_cont)}</td>
+                          <td className="pd-num">{formatPct(row.c2_porc_contenido)}</td>
+                          <td className="pd-num">
+                            <span className={dotClassByThresholds(row.c2_porc_aporte, c2Thresholds)}>{formatPct(row.c2_porc_aporte)}</span>
                           </td>
                         </tr>
                       ))}
-                    {cycleTotalRow && (
-                      <tr className="table-primary fw-semibold">
-                        <td>{cycleTotalRow.ejecutivo}</td>
-                        <td>{formatMoney(cycleTotalRow.c3_deuda_asignada)}</td>
-                        <td>{formatMoney(cycleTotalRow.c3_monto_cont)}</td>
-                        <td>{formatPct(cycleTotalRow.c3_porc_contenido)}</td>
-                        <td>{formatPct(cycleTotalRow.c3_porc_aporte)}</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              ) : (
-                <table className="table table-striped table-hover align-middle">
-              <thead>
-                <tr>
-                  <th rowSpan={2}>Ejecutiva</th>
-                  <th colSpan={4} className="text-center">
-                    Tramo C1
-                  </th>
-                  <th colSpan={4} className="text-center">
-                    Tramo C2
-                  </th>
-                </tr>
-                <tr>
-                  <th>Deuda Asignada</th>
-                  <th>Monto Cont</th>
-                  <th>% Cont</th>
-                  <th>% cumplimiento</th>
-                  <th>Deuda Asignada</th>
-                  <th>Monto Cont</th>
-                  <th>% Cont</th>
-                  <th>% cumplimiento</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cycleDataRows.map((row) => (
-                  <tr key={row.ejecutivo}>
-                    <td>{row.ejecutivo}</td>
-                    <td>{formatMoney(row.c1_deuda_asignada)}</td>
-                    <td>{formatMoney(row.c1_monto_cont)}</td>
-                    <td>{formatPct(row.c1_porc_contenido)}</td>
-                    <td className="fw-semibold">
-                      <span className={dotClassByThresholds(row.c1_porc_aporte, c1Thresholds)} /> {formatPct(row.c1_porc_aporte)}
-                    </td>
-                    <td>{formatMoney(row.c2_deuda_asignada)}</td>
-                    <td>{formatMoney(row.c2_monto_cont)}</td>
-                    <td>{formatPct(row.c2_porc_contenido)}</td>
-                    <td className="fw-semibold">
-                      <span className={dotClassByThresholds(row.c2_porc_aporte, c2Thresholds)} /> {formatPct(row.c2_porc_aporte)}
-                    </td>
-                  </tr>
-                ))}
-                {cycleTotalRow && (
-                  <tr className="table-primary fw-semibold">
-                    <td>{cycleTotalRow.ejecutivo}</td>
-                    <td>{formatMoney(cycleTotalRow.c1_deuda_asignada)}</td>
-                    <td>{formatMoney(cycleTotalRow.c1_monto_cont)}</td>
-                    <td>{formatPct(cycleTotalRow.c1_porc_contenido)}</td>
-                    <td>{formatPct(cycleTotalRow.c1_porc_aporte)}</td>
-                    <td>{formatMoney(cycleTotalRow.c2_deuda_asignada)}</td>
-                    <td>{formatMoney(cycleTotalRow.c2_monto_cont)}</td>
-                    <td>{formatPct(cycleTotalRow.c2_porc_contenido)}</td>
-                    <td>{formatPct(cycleTotalRow.c2_porc_aporte)}</td>
-                  </tr>
+                      {cycleTotalRow && (
+                        <tr className="pd-row-total">
+                          <td>{cycleTotalRow.ejecutivo}</td>
+                          <td className="pd-num pd-group-start">{formatMoney(cycleTotalRow.c1_deuda_asignada)}</td>
+                          <td className="pd-num">{formatMoney(cycleTotalRow.c1_monto_cont)}</td>
+                          <td className="pd-num">{formatPct(cycleTotalRow.c1_porc_contenido)}</td>
+                          <td className="pd-num">
+                            <span className="pd-status pd-status-none">{formatPct(cycleTotalRow.c1_porc_aporte)}</span>
+                          </td>
+                          <td className="pd-num pd-group-start">{formatMoney(cycleTotalRow.c2_deuda_asignada)}</td>
+                          <td className="pd-num">{formatMoney(cycleTotalRow.c2_monto_cont)}</td>
+                          <td className="pd-num">{formatPct(cycleTotalRow.c2_porc_contenido)}</td>
+                          <td className="pd-num">
+                            <span className="pd-status pd-status-none">{formatPct(cycleTotalRow.c2_porc_aporte)}</span>
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 )}
-              </tbody>
-            </table>
-              )}
+              </div>
             </>
           ) : (
-            <>
-              <table className="table table-striped table-hover align-middle">
+            <div className="pd-table-scroll">
+              <table className="pd-table">
                 <thead>
                   <tr>
                     <th>Operacion</th>
-                    <th>Deuda</th>
+                    <th className="pd-num">Deuda</th>
                     <th>Tramo</th>
                     <th>Contenido</th>
                     <th>Normalizado</th>
@@ -475,7 +481,7 @@ export default function ScTempranaPage() {
                   {detailRows.map((row, idx) => (
                     <tr key={`${row.operacion}-${idx}`}>
                       <td>{row.operacion}</td>
-                      <td>{formatMoney(row.deuda)}</td>
+                      <td className="pd-num">{formatMoney(row.deuda)}</td>
                       <td>{row.tramo}</td>
                       <td>{yesNo(row.contenido)}</td>
                       <td>{yesNo(row.normalizado)}</td>
@@ -485,31 +491,12 @@ export default function ScTempranaPage() {
                       <td>{row.telefono || "-"}</td>
                     </tr>
                   ))}
-                  {!detailRows.length && (
-                    <tr>
-                      <td colSpan={9} className="text-center text-muted py-4">
-                        Sin datos para los filtros seleccionados.
-                      </td>
-                    </tr>
-                  )}
+                  {!detailRows.length && <EmptyRow colSpan={9} />}
                 </tbody>
               </table>
-              <div className="d-flex flex-column flex-md-row gap-2 justify-content-between align-items-md-center mt-2">
-                <div className="small text-muted">
-                  Mostrando {detailFrom}-{detailTo} de {detailTotal} operaciones. Pagina {detailPage} de {detailTotalPages}.
-                </div>
-                <div className="btn-group">
-                  <button className="btn btn-outline-primary" onClick={() => setDetailPage((prev) => Math.max(1, prev - 1))} disabled={detailPage <= 1 || loading}>
-                    Anterior
-                  </button>
-                  <button className="btn btn-outline-primary" onClick={() => setDetailPage((prev) => Math.min(detailTotalPages, prev + 1))} disabled={detailPage >= detailTotalPages || loading}>
-                    Siguiente
-                  </button>
-                </div>
-              </div>
-            </>
+            </div>
           )}
-        </div>
+        </SectionCard>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { fetchItauVencidaFilters, fetchItauVencidaGeneral } from "../api";
+import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs } from "../components/productividad/ui";
 
 
 function formatMoney(value) {
@@ -32,16 +32,16 @@ function formatDate(value) {
 // Color semantico solo para cumplimiento: < 50% critico, 50-79% intermedio, >= 80% optimo.
 function cumplimientoClass(value) {
   if (value === null || value === undefined) {
-    return "iv-badge iv-badge-na";
+    return "pd-status pd-status-neutral";
   }
   const num = Number(value);
   if (num >= 0.8) {
-    return "iv-badge iv-badge-ok";
+    return "pd-status pd-status-success";
   }
   if (num >= 0.5) {
-    return "iv-badge iv-badge-warn";
+    return "pd-status pd-status-warning";
   }
-  return "iv-badge iv-badge-bad";
+  return "pd-status pd-status-danger";
 }
 
 
@@ -125,18 +125,18 @@ export default function ItauVencidaPage() {
           <span>{titulo}</span>
           <span className="iv-drawer-peso">Pondera {formatPct(fases[0].ponderacion)}</span>
         </div>
-        <table className="table table-sm mb-0 iv-drawer-table">
+        <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
           <thead>
             <tr>
               <th>Tramo</th>
-              <th className="text-end">Meta individual</th>
+              <th className="pd-num">Meta individual</th>
             </tr>
           </thead>
           <tbody>
             {fases.map((meta) => (
               <tr key={`${meta.producto}-${meta.fase}`}>
                 <td>Fase {meta.fase}</td>
-                <td className="text-end fw-semibold">{formatPct(meta.meta_contencion)}</td>
+                <td className="pd-num pd-cell-strong">{formatPct(meta.meta_contencion)}</td>
               </tr>
             ))}
           </tbody>
@@ -172,7 +172,7 @@ export default function ItauVencidaPage() {
             ))}
           </ul>
         ) : (
-          <div className="small iv-drawer-muted">
+          <div className="pd-small pd-muted">
             Este mes no tiene casos medibles configurados. Se agregan en Panel Administrativo &gt; Itaú.
           </div>
         )}
@@ -186,17 +186,17 @@ export default function ItauVencidaPage() {
     }
     return (
       <>
-        <div className="iv-drawer-backdrop" onClick={() => setMetasOpen(false)} />
-        <aside className="iv-drawer" role="dialog" aria-modal="true" aria-labelledby="iv-drawer-title">
-          <div className="iv-drawer-header">
+        <div className="pd-drawer-backdrop" onClick={() => setMetasOpen(false)} />
+        <aside className="pd-drawer" role="dialog" aria-modal="true" aria-labelledby="iv-drawer-title">
+          <div className="pd-drawer-header">
             <div>
-              <h2 id="iv-drawer-title" className="h5 m-0">Metas de contención</h2>
-              <div className="small iv-drawer-muted">Vigentes para {formatDate(metadata.periodo) || "N/D"}</div>
+              <h2 id="iv-drawer-title" className="pd-section-title">Metas de contención</h2>
+              <p className="pd-section-desc">Vigentes para {formatDate(metadata.periodo) || "N/D"}</p>
             </div>
             <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setMetasOpen(false)} />
           </div>
 
-          <div className="iv-drawer-body">
+          <div className="pd-drawer-body">
             {metas.length ? (
               <div className="iv-drawer-grid">
                 {renderMetasProducto("CONSUMO", "Contención Consumo", "iv-accent-consumo")}
@@ -213,13 +213,12 @@ export default function ItauVencidaPage() {
   }
 
   function renderGroupCells(row, producto) {
-    const cls = producto === "consumo" ? "iv-consumo" : "iv-hipot";
     return (
       <>
-        <td className={`text-center ${cls} iv-group-start`}>${formatMoney(row[`${producto}_saldo_ini`])}</td>
-        <td className={`text-center ${cls}`}>${formatMoney(row[`${producto}_saldo_cont`])}</td>
-        <td className={`text-center ${cls}`}>${formatMoney(row[`${producto}_meta_monto`])}</td>
-        <td className={`text-center ${cls}`}>
+        <td className="pd-num pd-group-start">${formatMoney(row[`${producto}_saldo_ini`])}</td>
+        <td className="pd-num">${formatMoney(row[`${producto}_saldo_cont`])}</td>
+        <td className="pd-num">${formatMoney(row[`${producto}_meta_monto`])}</td>
+        <td className="pd-num">
           <span className={cumplimientoClass(row[`${producto}_cumplimiento`])}>{formatPct(row[`${producto}_cumplimiento`])}</span>
         </td>
       </>
@@ -228,11 +227,11 @@ export default function ItauVencidaPage() {
 
   function renderRow(row, key, isTotal = false) {
     return (
-      <tr key={key} className={isTotal ? "fw-semibold itau-total-row" : undefined}>
+      <tr key={key} className={isTotal ? "pd-row-total" : undefined}>
         <td>{row.ejecutivo}</td>
         {renderGroupCells(row, "consumo")}
         {renderGroupCells(row, "hipotecario")}
-        <td className="text-center iv-final iv-group-start">
+        <td className="pd-num pd-group-start">
           <span className={cumplimientoClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
         </td>
       </tr>
@@ -240,24 +239,23 @@ export default function ItauVencidaPage() {
   }
 
   function renderFaseCells(fase, producto) {
-    const cls = producto === "consumo" ? "iv-consumo" : "iv-hipot";
     // Fase sin meta para el producto (p.ej. Hipotecario fase 7): no entra al calculo.
     if (fase[`${producto}_meta_pct`] == null) {
       return (
-        <td colSpan={4} className={`text-center ${cls} iv-group-start iv-no-aplica`}>
+        <td colSpan={4} className="pd-center pd-group-start pd-cell-muted">
           Sin meta
         </td>
       );
     }
     return (
       <>
-        <td className={`text-center ${cls} iv-group-start`}>${formatMoney(fase[`${producto}_saldo_ini`])}</td>
-        <td className={`text-center ${cls}`}>${formatMoney(fase[`${producto}_saldo_cont`])}</td>
-        <td className={`text-center ${cls}`}>
+        <td className="pd-num pd-group-start">${formatMoney(fase[`${producto}_saldo_ini`])}</td>
+        <td className="pd-num">${formatMoney(fase[`${producto}_saldo_cont`])}</td>
+        <td className="pd-num">
           ${formatMoney(fase[`${producto}_meta_monto`])}
-          <div className="iv-meta-pct">meta {formatPct(fase[`${producto}_meta_pct`])}</div>
+          <span className="pd-cell-sub">meta {formatPct(fase[`${producto}_meta_pct`])}</span>
         </td>
-        <td className={`text-center ${cls}`}>
+        <td className="pd-num">
           <span className={cumplimientoClass(fase[`${producto}_cumplimiento`])}>{formatPct(fase[`${producto}_cumplimiento`])}</span>
         </td>
       </>
@@ -268,24 +266,24 @@ export default function ItauVencidaPage() {
     const fases = row.fases || [];
     return [
       ...fases.map((fase, idx) => (
-        <tr key={`${keyPrefix}-fase-${fase.fase}`} className={isTotal ? "iv-detalle-total-fase" : undefined}>
+        <tr key={`${keyPrefix}-fase-${fase.fase}`}>
           {idx === 0 && (
-            <td rowSpan={fases.length + 1} className={`iv-detalle-ejecutivo${isTotal ? " fw-semibold" : ""}`}>
+            <td rowSpan={fases.length + 1} className="pd-cell-rowhead">
               {row.ejecutivo}
             </td>
           )}
-          <td className="text-center iv-fase-cell">Fase {fase.fase}</td>
+          <td className="pd-center pd-muted pd-cell-strong">Fase {fase.fase}</td>
           {renderFaseCells(fase, "consumo")}
           {renderFaseCells(fase, "hipotecario")}
-          <td className="text-center iv-final iv-group-start iv-no-aplica">—</td>
+          <td className="pd-num pd-group-start pd-cell-muted">—</td>
         </tr>
       )),
-      <tr key={`${keyPrefix}-subtotal`} className={`fw-semibold iv-subtotal-row${isTotal ? " itau-total-row" : ""}`}>
+      <tr key={`${keyPrefix}-subtotal`} className={isTotal ? "pd-row-total" : "pd-row-subtotal"}>
         {!fases.length && <td>{row.ejecutivo}</td>}
-        <td className="text-center iv-fase-cell">Total</td>
+        <td className="pd-center pd-cell-strong">Total</td>
         {renderGroupCells(row, "consumo")}
         {renderGroupCells(row, "hipotecario")}
-        <td className="text-center iv-final iv-group-start">
+        <td className="pd-num pd-group-start">
           <span className={cumplimientoClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
         </td>
       </tr>,
@@ -296,36 +294,36 @@ export default function ItauVencidaPage() {
     const detalle = view === "detalle";
     const subHeaders = ["Saldo Inicial", "Contenido", "Meta $", "Cumplimiento"];
     return (
-      <table className={`table align-middle mb-0 itau-vencida-table${detalle ? " iv-detalle-table" : " table-hover"}`}>
+      <table className={`pd-table${detalle ? " pd-table-static" : ""}`}>
         <thead>
           <tr>
-            <th rowSpan={2} className="align-middle">Ejecutivo</th>
-            {detalle && <th rowSpan={2} className="text-center align-middle iv-fase-head">Fase</th>}
-            <th colSpan={4} className="text-center iv-consumo iv-group-start">
-              Consumo <span className="iv-peso">pondera 60%</span>
+            <th rowSpan={2}>Ejecutivo</th>
+            {detalle && <th rowSpan={2} className="pd-center pd-th-key">Fase</th>}
+            <th colSpan={4} className="pd-th-group-1 pd-group-start">
+              Consumo <span className="pd-th-note">pondera 60%</span>
             </th>
-            <th colSpan={4} className="text-center iv-hipot iv-group-start">
-              Hipotecario <span className="iv-peso">pondera 40%</span>
+            <th colSpan={4} className="pd-th-group-2 pd-group-start">
+              Hipotecario <span className="pd-th-note">pondera 40%</span>
             </th>
-            <th rowSpan={2} className="text-center align-middle iv-final iv-group-start">Cumplimiento Final</th>
+            <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
           </tr>
           <tr>
             {subHeaders.map((label, idx) => (
-              <th key={`c-${label}`} className={`text-center iv-consumo iv-sub${idx === 0 ? " iv-group-start" : ""}`}>{label}</th>
+              <th key={`c-${label}`} className={`pd-num pd-th-sub-1${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
             ))}
             {subHeaders.map((label, idx) => (
-              <th key={`h-${label}`} className={`text-center iv-hipot iv-sub${idx === 0 ? " iv-group-start" : ""}`}>{label}</th>
+              <th key={`h-${label}`} className={`pd-num pd-th-sub-2${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
             ))}
           </tr>
         </thead>
         {detalle ? (
           <>
             {rows.map((row, idx) => (
-              <tbody key={`iv-detalle-${row.ejecutivo}-${idx}`} className="iv-detalle-group">
+              <tbody key={`iv-detalle-${row.ejecutivo}-${idx}`} className="pd-tbody-group">
                 {renderDetalleBloque(row, `iv-detalle-${idx}`)}
               </tbody>
             ))}
-            {total && <tbody className="iv-detalle-group">{renderDetalleBloque(total, "iv-detalle-total", true)}</tbody>}
+            {total && <tbody className="pd-tbody-group">{renderDetalleBloque(total, "iv-detalle-total", true)}</tbody>}
           </>
         ) : (
           <tbody>
@@ -338,90 +336,82 @@ export default function ItauVencidaPage() {
   }
 
   return (
-    <div className="container-fluid py-4 app-shell itau-castigo-page">
-      <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <div>
-          <h1 className="h3 m-0">Itaú Vencida - Productividad</h1>
-          <Link to="/productividad" className="small text-decoration-none">
-            Volver al Home
-          </Link>
-        </div>
-        <div className="btn-group">
-          <button className="btn btn-outline-secondary" onClick={logout}>Cerrar sesion</button>
-        </div>
-      </div>
+    <div className="pd-page">
+      <PageHeader
+        title="Itaú Vencida"
+        subtitle="Productividad y contención de cartera vencida Itaú."
+        actions={
+          <button type="button" className="pd-btn pd-btn-ghost" onClick={logout}>
+            <i className="bi bi-box-arrow-right" aria-hidden="true" /> Cerrar sesión
+          </button>
+        }
+      />
 
-      <div className="card shadow-sm mb-3 itau-filter-card">
-        <div className="card-body">
-          <div className="row g-2 align-items-end">
-            <div className="col-12 col-md-3">
-              <label className="form-label">Fecha de carga</label>
-              <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>
-                {options.fechas_carga.map((value) => (
-                  <option key={value} value={value}>
-                    {formatDate(value)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-3">
-              <label className="form-label">Ejecutivo</label>
-              <select className="form-select" value={filters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
-                <option value="">Todos</option>
-                {options.ejecutivos.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-4 small text-muted">
-              Base: contención Phoenix {formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} | Mes metas/carterizado: {formatDate(metadata.periodo) || "N/D"}
-            </div>
-            <div className="col-12 col-md-2 text-md-end">
-              <button type="button" className="btn btn-sm iv-info-btn" onClick={() => setMetasOpen(true)}>
-                <span aria-hidden="true">ⓘ</span> Metas
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <FilterBar
+        actions={
+          <button type="button" className="pd-btn pd-btn-secondary" onClick={() => setMetasOpen(true)}>
+            <i className="bi bi-info-circle" aria-hidden="true" /> Metas
+          </button>
+        }
+        note={`Base: contención Phoenix ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} · Mes metas/carterizado: ${formatDate(metadata.periodo) || "N/D"}`}
+      >
+        <Field label="Fecha de carga">
+          <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>
+            {options.fechas_carga.map((value) => (
+              <option key={value} value={value}>
+                {formatDate(value)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ejecutivo">
+          <select className="form-select" value={filters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
+            <option value="">Todos</option>
+            {options.ejecutivos.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
       {renderMetasDrawer()}
 
-      <div className="iv-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={view === "resumen"} className={`iv-tab${view === "resumen" ? " active" : ""}`} onClick={() => setView("resumen")}>
-          Resumen
-        </button>
-        <button type="button" role="tab" aria-selected={view === "detalle"} className={`iv-tab${view === "detalle" ? " active" : ""}`} onClick={() => setView("detalle")}>
-          Detalle por fase
-        </button>
-      </div>
-
-      <div className="card shadow-sm iv-tab-card">
-        <div className="card-body table-responsive">
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "resumen", label: "Resumen" },
+            { value: "detalle", label: "Detalle por fase" },
+          ]}
+        />
+        <SectionCard
+          bodyClassName=""
+          footer={
+            <StatusLegend
+              items={[
+                { status: "danger", range: "< 50%", label: "Crítico" },
+                { status: "warning", range: "50% – 79%", label: "Intermedio" },
+                { status: "success", range: "≥ 80%", label: "Óptimo" },
+              ]}
+            />
+          }
+        >
           {loading ? (
-            <div className="text-center py-4">Cargando...</div>
+            <LoadingState />
           ) : !filtrosMedibles.length ? (
-            <div className="alert alert-warning mb-0">
+            <div className="alert alert-warning">
               {formatDate(metadata.periodo).slice(3) || "Este mes"} no tiene casos medibles configurados, por eso no hay cumplimiento que mostrar.
               Se configuran en Panel Administrativo &gt; Itaú &gt; Casos medibles Itaú Vencida.
             </div>
           ) : (
-            renderTable()
+            <div className="pd-table-scroll">{renderTable()}</div>
           )}
-        </div>
-      </div>
-
-      <div className="card shadow-sm mt-3 itau-legend-card">
-        <div className="card-body py-2 small">
-          <strong>Cumplimiento:</strong>
-          <span className="ms-3"><span className="iv-badge iv-badge-bad">&lt; 50%</span> Crítico</span>
-          <span className="ms-3"><span className="iv-badge iv-badge-warn">50% – 79%</span> Intermedio</span>
-          <span className="ms-3"><span className="iv-badge iv-badge-ok">≥ 80%</span> Óptimo</span>
-        </div>
+        </SectionCard>
       </div>
     </div>
   );

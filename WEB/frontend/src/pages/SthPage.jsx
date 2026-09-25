@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { fetchSthDetail, fetchSthFilters, fetchSthGeneral, fetchSthOperationsDetail } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, relativeLegendItems } from "../components/productividad/ui";
 
 const initialFilters = {
   periodo: "",
@@ -60,12 +60,12 @@ function percentile(sortedValues, p) {
 function dotClassByThresholds(value, thresholds) {
   const n = Number(value || 0);
   if (n >= thresholds.p66) {
-    return "gm-dot gm-dot-ok";
+    return "pd-status pd-status-success";
   }
   if (n >= thresholds.p33) {
-    return "gm-dot gm-dot-warn";
+    return "pd-status pd-status-warning";
   }
-  return "gm-dot gm-dot-bad";
+  return "pd-status pd-status-danger";
 }
 
 export default function SthPage() {
@@ -216,242 +216,234 @@ export default function SthPage() {
   const hasOperationsFilters = filters.ejecutivo || operationSearch || Object.values(operationsFilters).some(Boolean);
 
   return (
-    <div className="container-fluid py-4 app-shell sth-page">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h1 className="h3 m-0">STH - KPI Hipotecario</h1>
-          <Link to="/productividad" className="small text-decoration-none">
-            Volver al Home
-          </Link>
-        </div>
-        <div className="btn-group">
-          <button className={`btn btn-${view === "general" ? "warning" : "outline-warning"}`} onClick={() => setView("general")}>
-            Vista General
-          </button>
-          <button className={`btn btn-${view === "desglosada" ? "warning" : "outline-warning"}`} onClick={() => setView("desglosada")}>
-            Vista Desglosada
-          </button>
-          <button className={`btn btn-${view === "detalle" ? "warning" : "outline-warning"}`} onClick={() => setView("detalle")}>
-            Detalle
-          </button>
-        </div>
-      </div>
+    <div className="pd-page">
+      <PageHeader title="Santander Hipotecario" subtitle="KPI hipotecario y productos asociados por ejecutivo y ciclo." />
 
-      <div className="card shadow-sm mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-12 col-md-2">
-              <label className="form-label">Periodo</label>
-              <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
-                {options.periodos.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-3">
-              <label className="form-label">Ejecutivo</label>
-              <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
+      <FilterBar
+        actions={
+          view === "detalle" && (
+            <button type="button" className="pd-btn pd-btn-ghost" onClick={clearOperationsFilters} disabled={!hasOperationsFilters || loading}>
+              <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+            </button>
+          )
+        }
+      >
+        <Field label="Periodo">
+          <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
+            {options.periodos.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ejecutivo">
+          <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
+            <option value="">Todos</option>
+            {options.ejecutivos.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {view === "detalle" && (
+          <>
+            <Field label="Operacion">
+              <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
+            </Field>
+            <Field label="Producto">
+              <select className="form-select" value={operationsFilters.producto} onChange={(e) => onOperationsChange("producto", e.target.value)}>
                 <option value="">Todos</option>
-                {options.ejecutivos.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
+                {options.productos_detalle.map((v) => (
+                  <option key={v} value={v}>{v}</option>
                 ))}
               </select>
-            </div>
-            {view === "detalle" && (
-              <>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Operacion</label>
-                  <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Producto</label>
-                  <select className="form-select" value={operationsFilters.producto} onChange={(e) => onOperationsChange("producto", e.target.value)}>
-                    <option value="">Todos</option>
-                    {options.productos_detalle.map((v) => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Ciclo</label>
-                  <select className="form-select" value={operationsFilters.ciclo} onChange={(e) => onOperationsChange("ciclo", e.target.value)}>
-                    <option value="">Todos</option>
-                    {options.ciclos.map((v) => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Contenido</label>
-                  <select className="form-select" value={operationsFilters.contenido} onChange={(e) => onOperationsChange("contenido", e.target.value)}>
-                    <option value="">Todos</option>
-                    <option value="1">Si</option>
-                    <option value="0">No</option>
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Filas</label>
-                  <select
-                    className="form-select"
-                    value={operationsPageSize}
-                    onChange={(e) => {
-                      setOperationsPageSize(Number(e.target.value));
-                      setOperationsPage(1);
-                    }}
-                  >
-                    <option value={100}>100</option>
-                    <option value={250}>250</option>
-                    <option value={500}>500</option>
-                  </select>
-                </div>
-                <div className="col-12 col-md-auto d-flex align-items-end">
-                  <button className="btn btn-outline-secondary w-100" onClick={clearOperationsFilters} disabled={!hasOperationsFilters || loading}>
-                    Limpiar filtros
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+            </Field>
+            <Field label="Ciclo">
+              <select className="form-select" value={operationsFilters.ciclo} onChange={(e) => onOperationsChange("ciclo", e.target.value)}>
+                <option value="">Todos</option>
+                {options.ciclos.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Contenido">
+              <select className="form-select" value={operationsFilters.contenido} onChange={(e) => onOperationsChange("contenido", e.target.value)}>
+                <option value="">Todos</option>
+                <option value="1">Si</option>
+                <option value="0">No</option>
+              </select>
+            </Field>
+            <Field label="Filas">
+              <select
+                className="form-select"
+                value={operationsPageSize}
+                onChange={(e) => {
+                  setOperationsPageSize(Number(e.target.value));
+                  setOperationsPage(1);
+                }}
+              >
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+                <option value={500}>500</option>
+              </select>
+            </Field>
+          </>
+        )}
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      <div className="card shadow-sm">
-        <div className="card-body table-responsive sth-table-shell">
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "general", label: "Vista General" },
+            { value: "desglosada", label: "Vista Desglosada" },
+            { value: "detalle", label: "Detalle" },
+          ]}
+        />
+        <SectionCard
+          bodyClassName=""
+          footer={
+            loading ? null : view === "detalle" ? (
+              <Pagination
+                summary={`Mostrando ${operationsFrom}-${operationsTo} de ${operationsTotal} operaciones. Pagina ${operationsPage} de ${operationsTotalPages}.`}
+                onPrev={() => setOperationsPage((prev) => Math.max(1, prev - 1))}
+                onNext={() => setOperationsPage((prev) => Math.min(operationsTotalPages, prev + 1))}
+                prevDisabled={operationsPage <= 1 || loading}
+                nextDisabled={operationsPage >= operationsTotalPages || loading}
+              />
+            ) : (
+              <StatusLegend items={relativeLegendItems} />
+            )
+          }
+        >
           {loading ? (
-            <div className="text-center py-4">Cargando...</div>
+            <LoadingState />
           ) : view === "general" ? (
-            <table className="table table-striped table-hover align-middle sth-general-table sth-compact-table">
-              <thead>
-                <tr>
-                  <th>Ejecutivo</th>
-                  {generalHeaders.map((h) => (
-                    <th key={h.key}>{h.label}</th>
-                  ))}
-                  <th>Producto Trabajado</th>
-                  <th>Tramo</th>
-                  <th>Cum Final</th>
-                </tr>
-              </thead>
-              <tbody>
-                {generalRows.map((row, idx) => (
-                  <tr key={`${row.ejecutivo}-${idx}`} className={row.ejecutivo === "Total general" ? "table-primary fw-semibold" : ""}>
-                    <td>{row.ejecutivo}</td>
+            <div className="pd-table-scroll">
+              <table className="pd-table pd-table-compact pd-table-sticky-first">
+                <thead>
+                  <tr>
+                    <th>Ejecutivo</th>
                     {generalHeaders.map((h) => (
-                      <td key={`${row.ejecutivo}-${h.key}`}>{formatPct(row[h.key])}</td>
+                      <th key={h.key} className="pd-num">{h.label}</th>
                     ))}
-                    <td>{row.producto_trabajado ? productLabel[row.producto_trabajado] || row.producto_trabajado : "-"}</td>
-                    <td>{row.tramo_trabajado || "-"}</td>
-                    <td className="fw-semibold">
-                      <span className={dotClassByThresholds(row.cumplimiento_final, generalThresholds)} /> {formatPct(row.cumplimiento_final)}
-                    </td>
+                    <th>Producto Trabajado</th>
+                    <th>Tramo</th>
+                    <th className="pd-num pd-th-key">Cum Final</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {generalRows.map((row, idx) => (
+                    <tr key={`${row.ejecutivo}-${idx}`} className={row.ejecutivo === "Total general" ? "pd-row-total" : undefined}>
+                      <td>{row.ejecutivo}</td>
+                      {generalHeaders.map((h) => (
+                        <td key={`${row.ejecutivo}-${h.key}`} className="pd-num">{formatPct(row[h.key])}</td>
+                      ))}
+                      <td>{row.producto_trabajado ? productLabel[row.producto_trabajado] || row.producto_trabajado : "-"}</td>
+                      <td>{row.tramo_trabajado || "-"}</td>
+                      <td className="pd-num">
+                        <span className={dotClassByThresholds(row.cumplimiento_final, generalThresholds)}>{formatPct(row.cumplimiento_final)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : view === "desglosada" ? (
-            <div className="sth-detail-wrap">
+            <div>
               {detailBlocks.map((block) => (
-                <div className="mb-4" key={block.producto}>
-                  <div className="sth-section-title">{productLabel[block.producto] || block.producto}</div>
-                  <div className="small text-muted mb-1">
-                    Meta: {block.totales_por_ciclo.map((tot) => `${tot.tramo} ${formatPct(tot.meta_contenido_pct)}`).join(" | ")}
+                <section className="pd-subsection" key={block.producto}>
+                  <div className="pd-subsection-head">
+                    <h2 className="pd-section-title">{productLabel[block.producto] || block.producto}</h2>
+                    <span className="pd-small pd-muted">
+                      Meta: {block.totales_por_ciclo.map((tot) => `${tot.tramo} ${formatPct(tot.meta_contenido_pct)}`).join(" · ")}
+                    </span>
                   </div>
-                  <table className="table table-striped table-hover align-middle sth-detail-table sth-compact-table">
-                    <thead>
-                      <tr>
-                        <th rowSpan={2}>Ejecutivo</th>
-                        {block.ciclos.map((ciclo) => (
-                          <th key={`${block.producto}-h-${ciclo}`} colSpan={4} className="text-center">
-                            {block.producto === "tarjeta" ? (Number(ciclo) === 0 ? "Ciclo 0" : "Multiciclo") : `Ciclo ${ciclo}`}
-                          </th>
+                  <div className="pd-table-scroll">
+                    <table className="pd-table pd-table-compact pd-table-sticky-first">
+                      <thead>
+                        <tr>
+                          <th rowSpan={2}>Ejecutivo</th>
+                          {block.ciclos.map((ciclo) => (
+                            <th key={`${block.producto}-h-${ciclo}`} colSpan={4} className="pd-th-group pd-group-start">
+                              {block.producto === "tarjeta" ? (Number(ciclo) === 0 ? "Ciclo 0" : "Multiciclo") : `Ciclo ${ciclo}`}
+                            </th>
+                          ))}
+                          <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+                        </tr>
+                        <tr>
+                          {block.ciclos.map((ciclo) => (
+                            <Fragment key={`${block.producto}-sub-${ciclo}`}>
+                              <th className="pd-num pd-group-start">Deuda Asignada</th>
+                              <th className="pd-num">Saldo Contenido</th>
+                              <th className="pd-num">% Contenido</th>
+                              <th className="pd-num">Cump Meta</th>
+                            </Fragment>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {block.pivot_rows.map((row) => (
+                          <tr key={`${block.producto}-${row.ejecutivo}`}>
+                            <td>{row.ejecutivo}</td>
+                            {block.ciclos.map((ciclo) => {
+                              const item = row.ciclos?.[String(ciclo)];
+                              return (
+                                <Fragment key={`${block.producto}-${row.ejecutivo}-cset-${ciclo}`}>
+                                  <td className="pd-num pd-group-start">{item ? `$${formatMM(item.deuda_asignada)} MM` : ""}</td>
+                                  <td className="pd-num">{item ? `$${formatMM(item.saldo_contenido)} MM` : ""}</td>
+                                  <td className="pd-num">{item ? formatPct(item.porcentaje_contenido) : ""}</td>
+                                  <td className="pd-num">
+                                    {item ? <span className={productDotClass(block.producto, item.cumplimiento_meta)}>{formatPct(item.cumplimiento_meta)}</span> : ""}
+                                  </td>
+                                </Fragment>
+                              );
+                            })}
+                            <td className="pd-num pd-group-start">
+                              <span className={productDotClass(block.producto, row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                            </td>
+                          </tr>
                         ))}
-                        <th rowSpan={2}>Cumplimiento Final</th>
-                      </tr>
-                      <tr>
-                        {block.ciclos.map((ciclo) => (
-                          <Fragment key={`${block.producto}-sub-${ciclo}`}>
-                            <th>Deuda Asignada</th>
-                            <th>Saldo Contenido</th>
-                            <th>% Contenido</th>
-                            <th>Cump Meta</th>
-                          </Fragment>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {block.pivot_rows.map((row) => (
-                        <tr key={`${block.producto}-${row.ejecutivo}`}>
-                          <td>{row.ejecutivo}</td>
+                        <tr className="pd-row-total">
+                          <td>Total general</td>
                           {block.ciclos.map((ciclo) => {
-                            const item = row.ciclos?.[String(ciclo)];
+                            const tot = block.totales_por_ciclo.find((x) => x.ciclo === ciclo);
                             return (
-                              <Fragment key={`${block.producto}-${row.ejecutivo}-cset-${ciclo}`}>
-                                <td>{item ? `$${formatMM(item.deuda_asignada)} MM` : ""}</td>
-                                <td>{item ? `$${formatMM(item.saldo_contenido)} MM` : ""}</td>
-                                <td>{item ? formatPct(item.porcentaje_contenido) : ""}</td>
-                                <td className="fw-semibold">
-                                  {item ? (
-                                    <>
-                                      <span className={productDotClass(block.producto, item.cumplimiento_meta)} /> {formatPct(item.cumplimiento_meta)}
-                                    </>
-                                  ) : (
-                                    ""
-                                  )}
+                              <Fragment key={`${block.producto}-tot-set-${ciclo}`}>
+                                <td className="pd-num pd-group-start">{tot ? `$${formatMM(tot.deuda_asignada)} MM` : ""}</td>
+                                <td className="pd-num">{tot ? `$${formatMM(tot.saldo_contenido)} MM` : ""}</td>
+                                <td className="pd-num">{tot ? formatPct(tot.porcentaje_contenido) : ""}</td>
+                                <td className="pd-num">
+                                  {tot ? <span className={productDotClass(block.producto, tot.cumplimiento_meta)}>{formatPct(tot.cumplimiento_meta)}</span> : ""}
                                 </td>
                               </Fragment>
                             );
                           })}
-                          <td className="fw-semibold">
-                            <span className={productDotClass(block.producto, row.cumplimiento_final)} /> {formatPct(row.cumplimiento_final)}
+                          <td className="pd-num pd-group-start">
+                            <span className={productDotClass(block.producto, block.cumplimiento_final_bloque)}>{formatPct(block.cumplimiento_final_bloque)}</span>
                           </td>
                         </tr>
-                      ))}
-                      <tr className="table-primary fw-semibold">
-                        <td>Total general</td>
-                        {block.ciclos.map((ciclo) => {
-                          const tot = block.totales_por_ciclo.find((x) => x.ciclo === ciclo);
-                          return (
-                            <Fragment key={`${block.producto}-tot-set-${ciclo}`}>
-                              <td>{tot ? `$${formatMM(tot.deuda_asignada)} MM` : ""}</td>
-                              <td>{tot ? `$${formatMM(tot.saldo_contenido)} MM` : ""}</td>
-                              <td>{tot ? formatPct(tot.porcentaje_contenido) : ""}</td>
-                              <td>
-                                {tot ? (
-                                  <>
-                                    <span className={productDotClass(block.producto, tot.cumplimiento_meta)} /> {formatPct(tot.cumplimiento_meta)}
-                                  </>
-                                ) : (
-                                  ""
-                                )}
-                              </td>
-                            </Fragment>
-                          );
-                        })}
-                        <td>
-                          <span className={productDotClass(block.producto, block.cumplimiento_final_bloque)} /> {formatPct(block.cumplimiento_final_bloque)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
               ))}
             </div>
           ) : (
-            <>
-              <table className="table table-striped table-hover align-middle sth-detail-table sth-compact-table">
+            <div className="pd-table-scroll">
+              <table className="pd-table pd-table-compact">
                 <thead>
                   <tr>
                     <th>Ejecutivo</th>
                     <th>Operacion</th>
                     <th>Contenido</th>
                     <th>Ciclo</th>
-                    <th>Deuda</th>
+                    <th className="pd-num">Deuda</th>
                     <th>Producto</th>
                     <th>Usuario Gestion</th>
                     <th>Mejor Gestion</th>
@@ -467,7 +459,7 @@ export default function SthPage() {
                       <td>{row.operacion}</td>
                       <td>{yesNo(row.contenido)}</td>
                       <td>{row.ciclo ?? "-"}</td>
-                      <td>${formatMoney(row.deuda)}</td>
+                      <td className="pd-num">${formatMoney(row.deuda)}</td>
                       <td>{row.producto || "-"}</td>
                       <td>{row.usuario_gestion || "SIN GESTION"}</td>
                       <td>{row.mejor_gestion || "-"}</td>
@@ -476,31 +468,12 @@ export default function SthPage() {
                       <td>{String(row.fecha_compromiso || "").slice(0, 10) || "-"}</td>
                     </tr>
                   ))}
-                  {!operationsRows.length && (
-                    <tr>
-                      <td colSpan={11} className="text-center text-muted py-4">
-                        Sin datos para los filtros seleccionados.
-                      </td>
-                    </tr>
-                  )}
+                  {!operationsRows.length && <EmptyRow colSpan={11} />}
                 </tbody>
               </table>
-              <div className="d-flex flex-column flex-md-row gap-2 justify-content-between align-items-md-center mt-2">
-                <div className="small text-muted">
-                  Mostrando {operationsFrom}-{operationsTo} de {operationsTotal} operaciones. Pagina {operationsPage} de {operationsTotalPages}.
-                </div>
-                <div className="btn-group">
-                  <button className="btn btn-outline-warning" onClick={() => setOperationsPage((prev) => Math.max(1, prev - 1))} disabled={operationsPage <= 1 || loading}>
-                    Anterior
-                  </button>
-                  <button className="btn btn-outline-warning" onClick={() => setOperationsPage((prev) => Math.min(operationsTotalPages, prev + 1))} disabled={operationsPage >= operationsTotalPages || loading}>
-                    Siguiente
-                  </button>
-                </div>
-              </div>
-            </>
+            </div>
           )}
-        </div>
+        </SectionCard>
       </div>
     </div>
   );
