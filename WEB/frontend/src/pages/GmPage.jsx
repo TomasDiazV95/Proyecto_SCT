@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
   periodo: "",
@@ -22,23 +22,15 @@ function formatMoney(value) {
   }).format(Number(value || 0));
 }
 
-function percentile(sortedValues, p) {
-  if (!sortedValues.length) {
-    return 0;
-  }
-  const idx = (sortedValues.length - 1) * p;
-  const lower = Math.floor(idx);
-  const upper = Math.ceil(idx);
-  if (lower === upper) {
-    return sortedValues[lower];
-  }
-  const weight = idx - lower;
-  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+// El periodo se muestra como yyyy-mm; el valor que va al backend no cambia.
+function formatPeriodo(value) {
+  return String(value || "").slice(0, 7);
 }
 
 export default function GmPage() {
   const { user } = useAuth();
   const [view, setView] = useState("productividad");
+  const [bucketTab, setBucketTab] = useState(bucketOrder[0]);
   const [filters, setFilters] = useState(initialFilters);
   const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
@@ -49,6 +41,7 @@ export default function GmPage() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
+  const [metasOpen, setMetasOpen] = useState(false);
   const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
   const hasActiveFilters =
     filters.ejecutivo ||
@@ -81,6 +74,20 @@ export default function GmPage() {
     loadFilters();
   }, []);
 
+  // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los carterizados ese mes.
+  useEffect(() => {
+    if (!filters.periodo) {
+      return;
+    }
+    fetchGmFilters(filters.periodo)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.periodo]);
+
   useEffect(() => {
     async function loadData() {
       if (!filters.periodo) {
@@ -111,64 +118,37 @@ export default function GmPage() {
     loadData();
   }, [filters, detailFilters, view]);
 
+  // Las metas salen de la vista bucket (todo el periodo), asi no dependen del filtro de ejecutivo.
   const metaByBucket = useMemo(() => {
     const map = new Map();
-    rows.forEach((row) => {
+    bucketRows.forEach((row) => {
       if (!map.has(row.bucket)) {
         map.set(row.bucket, row);
       }
     });
     return map;
-  }, [rows]);
+  }, [bucketRows]);
 
-  const totalRow = useMemo(() => {
-    if (!rows.length) {
+  // Vista productividad: una pestaña por bucket, con las filas de los ejecutivos de ese bucket.
+  const bucketTabRows = useMemo(() => rows.filter((row) => row.bucket === bucketTab), [rows, bucketTab]);
+
+  const bucketTotalRow = useMemo(() => {
+    if (!bucketTabRows.length) {
       return null;
     }
-
-    const deuda = rows.reduce((acc, row) => acc + Number(row.deuda_asignada || 0), 0);
-    const saldoContenido = rows.reduce((acc, row) => acc + Number(row.saldo_contenido || 0), 0);
-    const saldoNormalizado = rows.reduce((acc, row) => acc + Number(row.saldo_normalizado || 0), 0);
-    const ponderado = rows.reduce((acc, row) => acc + Number(row.cumplimiento_final || 0) * Number(row.deuda_asignada || 0), 0);
-
+    const deuda = bucketTabRows.reduce((acc, row) => acc + Number(row.deuda_asignada || 0), 0);
+    const saldoContenido = bucketTabRows.reduce((acc, row) => acc + Number(row.saldo_contenido || 0), 0);
+    const saldoNormalizado = bucketTabRows.reduce((acc, row) => acc + Number(row.saldo_normalizado || 0), 0);
+    const ponderado = bucketTabRows.reduce((acc, row) => acc + Number(row.cumplimiento_final || 0) * Number(row.deuda_asignada || 0), 0);
     return {
       ejecutivo: "Total general",
-      bucket: "Todos",
       deuda_asignada: deuda,
       saldo_contenido: saldoContenido,
       porcentaje_contencion: deuda ? (saldoContenido / deuda) * 100 : 0,
       porcentaje_normalizado: deuda ? (saldoNormalizado / deuda) * 100 : 0,
       cumplimiento_final: deuda ? ponderado / deuda : 0,
     };
-  }, [rows]);
-
-  const dynamicThresholds = useMemo(() => {
-    const sourceRows = view === "bucket" ? bucketRows.filter((row) => row.bucket !== "Total general") : rows;
-    const dynamicValues = sourceRows
-      .map((row) => Number(row.cumplimiento_final || 0))
-      .filter((value) => Number.isFinite(value))
-      .sort((a, b) => a - b);
-
-    if (!dynamicValues.length) {
-      return { p33: 0, p66: 0 };
-    }
-
-    return {
-      p33: percentile(dynamicValues, 0.33),
-      p66: percentile(dynamicValues, 0.66),
-    };
-  }, [rows, bucketRows, view]);
-
-  function dynamicComplianceClass(value) {
-    const num = Number(value || 0);
-    if (num >= dynamicThresholds.p66) {
-      return "gm-dot gm-dot-ok";
-    }
-    if (num >= dynamicThresholds.p33) {
-      return "gm-dot gm-dot-warn";
-    }
-    return "gm-dot gm-dot-bad";
-  }
+  }, [bucketTabRows]);
 
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -214,269 +194,278 @@ export default function GmPage() {
     }
   }
 
+  function renderProductividadTable() {
+    const groupClass = (bucketOrder.indexOf(bucketTab) % 2) + 1;
+    const subHeaders = ["Deuda Asignada", "Saldo Contenido", "% Contenido", "% Normalizado", "Cumplimiento de meta"];
+    return (
+      <>
+        <div className="pd-card-toolbar">
+          <span className="pd-label">Bucket</span>
+          <Segmented value={bucketTab} onChange={setBucketTab} options={bucketOrder.map((bucket) => ({ value: bucket, label: bucket }))} />
+        </div>
+        <div className="pd-table-scroll">
+          <table className="pd-table">
+            <thead>
+              <tr>
+                <th rowSpan={2}>Ejecutivo</th>
+                <th colSpan={subHeaders.length} className={`pd-th-group-${groupClass} pd-group-start`}>
+                  Bucket {bucketTab}
+                </th>
+              </tr>
+              <tr>
+                {subHeaders.map((label, idx) => (
+                  <th key={label} className={`pd-num pd-th-sub-${groupClass}${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {phoenixGrupalAlFinal(bucketTabRows).map((row, idx) => (
+                <tr key={`${row.ejecutivo}-${idx}`}>
+                  <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(row.deuda_asignada)} M</td>
+                  <td className="pd-num">${formatMoney(row.saldo_contenido)} M</td>
+                  <td className="pd-num">{formatPct(row.porcentaje_contencion)}</td>
+                  <td className="pd-num">{formatPct(row.porcentaje_normalizado)}</td>
+                  <td className="pd-num">
+                    <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                  </td>
+                </tr>
+              ))}
+              {!bucketTabRows.length && <EmptyRow colSpan={subHeaders.length + 1} text="Sin cartera en este bucket para los filtros seleccionados." />}
+              {bucketTotalRow && (
+                <tr className="pd-row-total">
+                  <td>{bucketTotalRow.ejecutivo}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(bucketTotalRow.deuda_asignada)} M</td>
+                  <td className="pd-num">${formatMoney(bucketTotalRow.saldo_contenido)} M</td>
+                  <td className="pd-num">{formatPct(bucketTotalRow.porcentaje_contencion)}</td>
+                  <td className="pd-num">{formatPct(bucketTotalRow.porcentaje_normalizado)}</td>
+                  <td className="pd-num">
+                    <span className="pd-status pd-status-none">{formatPct(bucketTotalRow.cumplimiento_final)}</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  }
+
   return (
-    <div className="container-fluid py-4 app-shell gm-page">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h1 className="h3 m-0">GM - Productividad</h1>
-          <Link to="/productividad" className="small text-decoration-none">
-            Volver al Home
-          </Link>
-        </div>
-        <div className="btn-group">
-          <button className={`btn btn-${view === "productividad" ? "primary" : "outline-primary"}`} onClick={() => setView("productividad")}>
-            Productividad
-          </button>
-          <button className={`btn btn-${view === "bucket" ? "primary" : "outline-primary"}`} onClick={() => setView("bucket")}>
-            Bucket
-          </button>
-          <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => setView("detalle")}>
-            Detalle
-          </button>
-          {canDownload && view !== "detalle" && (
-            <button className="btn btn-success" onClick={onDownload} disabled={!filters.periodo || downloading}>
-              {downloading ? "Descargando..." : "Descargar Excel"}
+    <div className="pd-page">
+      <PageHeader
+        title="General Motors"
+        subtitle="Seguimiento y cumplimiento de GM por bucket de mora."
+        actions={
+          canDownload && view !== "detalle" && (
+            <button type="button" className="pd-btn pd-btn-secondary" onClick={onDownload} disabled={!filters.periodo || downloading}>
+              <i className="bi bi-download" aria-hidden="true" /> {downloading ? "Descargando..." : "Descargar Excel"}
             </button>
-          )}
-        </div>
-      </div>
+          )
+        }
+      />
 
-      <div className="card shadow-sm mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-12 col-md-2">
-              <label className="form-label">Periodo</label>
-              <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
-                {options.periodos.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-3">
-              <label className="form-label">Ejecutivo</label>
-              <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
+      <FilterBar
+        actions={
+          <>
+            <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
+              <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+            </button>
+            {view !== "detalle" && <MetasButton onClick={() => setMetasOpen(true)} />}
+          </>
+        }
+        note={view === "bucket" ? "La vista bucket consolida todos los ejecutivos del periodo." : null}
+      >
+        <Field label="Periodo">
+          <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
+            {options.periodos.map((v) => (
+              <option key={v} value={v}>
+                {formatPeriodo(v)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ejecutivo">
+          <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
+            <option value="">Todos</option>
+            {options.ejecutivos.map((v) => (
+              <option key={v} value={v}>
+                {String(v).toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {view === "detalle" && (
+          <>
+            <Field label="Operacion">
+              <input className="form-control" value={detailFilters.op} onChange={(e) => onDetailChange("op", e.target.value)} placeholder="Buscar OP" />
+            </Field>
+            <Field label="Bucket">
+              <select className="form-select" value={detailFilters.bucket} onChange={(e) => onDetailChange("bucket", e.target.value)}>
                 <option value="">Todos</option>
-                {options.ejecutivos.map((v) => (
+                {bucketOrder.map((v) => (
                   <option key={v} value={v}>
                     {v}
                   </option>
                 ))}
               </select>
-            </div>
-            {view === "detalle" && (
-              <>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Operacion</label>
-                  <input className="form-control" value={detailFilters.op} onChange={(e) => onDetailChange("op", e.target.value)} placeholder="Buscar OP" />
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Bucket</label>
-                  <select className="form-select" value={detailFilters.bucket} onChange={(e) => onDetailChange("bucket", e.target.value)}>
-                    <option value="">Todos</option>
-                    {bucketOrder.map((v) => (
-                      <option key={v} value={v}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Contenido</label>
-                  <select className="form-select" value={detailFilters.contenido} onChange={(e) => onDetailChange("contenido", e.target.value)}>
-                    <option value="">Todos</option>
-                    <option value="1">Si</option>
-                    <option value="0">No</option>
-                  </select>
-                </div>
-                <div className="col-12 col-md-2">
-                  <label className="form-label">Normalizado</label>
-                  <select className="form-select" value={detailFilters.normalizado} onChange={(e) => onDetailChange("normalizado", e.target.value)}>
-                    <option value="">Todos</option>
-                    <option value="1">Si</option>
-                    <option value="0">No</option>
-                  </select>
-                </div>
-              </>
-            )}
-            {view === "bucket" && <div className="col-12 col-md-4 small text-muted d-flex align-items-end">La vista bucket consolida todos los ejecutivos del periodo.</div>}
-            <div className="col-12 col-md-auto d-flex align-items-end">
-              <button className="btn btn-outline-secondary w-100" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
-                Limpiar filtros
-              </button>
-            </div>            
-          </div>
-        </div>
-      </div>
-
-      {view !== "detalle" && (
-        <div className="card shadow-sm mb-3 gm-meta-card">
-          <div className="card-body table-responsive p-0">
-            <table className="table mb-0 gm-meta-table">
-              <thead>
-                <tr>
-                  <th rowSpan={2}>Bucket</th>
-                  <th colSpan={2}>Metas</th>
-                  <th colSpan={2}>Ponderador</th>
-                </tr>
-                <tr>
-                  <th>% contencion</th>
-                  <th>% normalizacion</th>
-                  <th>% contencion</th>
-                  <th>% normalizacion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bucketOrder.map((bucket) => {
-                  const meta = metaByBucket.get(bucket);
-                  return (
-                    <tr key={bucket}>
-                      <td>{bucket}</td>
-                      <td>{formatPct(meta?.meta_contencion_pct)}</td>
-                      <td>{formatPct(meta?.meta_normalizacion_pct)}</td>
-                      <td>{formatPct(meta?.ponderador_contencion_pct)}</td>
-                      <td>{formatPct(meta?.ponderador_normalizacion_pct)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+            </Field>
+            <Field label="Contenido">
+              <select className="form-select" value={detailFilters.contenido} onChange={(e) => onDetailChange("contenido", e.target.value)}>
+                <option value="">Todos</option>
+                <option value="1">Si</option>
+                <option value="0">No</option>
+              </select>
+            </Field>
+            <Field label="Normalizado">
+              <select className="form-select" value={detailFilters.normalizado} onChange={(e) => onDetailChange("normalizado", e.target.value)}>
+                <option value="">Todos</option>
+                <option value="1">Si</option>
+                <option value="0">No</option>
+              </select>
+            </Field>
+          </>
+        )}
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      <div className="card shadow-sm">
-        <div className="card-body table-responsive">
+      <MetasDrawer open={metasOpen} onClose={() => setMetasOpen(false)} subtitle={`Vigentes para ${formatPeriodo(filters.periodo) || "N/D"}`}>
+        {metaByBucket.size ? (
+          <div className="iv-drawer-grid iv-drawer-grid-single">
+            {bucketOrder.map((bucket, idx) => {
+              const meta = metaByBucket.get(bucket);
+              return (
+                <MetasBlock key={bucket} title={`Bucket ${bucket}`} accent={idx % 2 === 0 ? "consumo" : "hipot"}>
+                  <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+                    <thead>
+                      <tr>
+                        <th>Variable</th>
+                        <th className="pd-num">Meta</th>
+                        <th className="pd-num">Pondera</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Contención</td>
+                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_contencion_pct)}</td>
+                        <td className="pd-num">{formatPct(meta?.ponderador_contencion_pct)}</td>
+                      </tr>
+                      <tr>
+                        <td>Normalización</td>
+                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_normalizacion_pct)}</td>
+                        <td className="pd-num">{formatPct(meta?.ponderador_normalizacion_pct)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </MetasBlock>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="alert alert-light border">No hay metas cargadas para este mes.</div>
+        )}
+      </MetasDrawer>
+
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "productividad", label: "Productividad" },
+            { value: "bucket", label: "Bucket" },
+            { value: "detalle", label: "Detalle" },
+          ]}
+        />
+        <SectionCard
+          exportName={exportFileName("GM", view === "productividad" ? `bucket ${bucketTab}` : view, formatPeriodo(filters.periodo))}
+          bodyClassName=""
+          footer={
+            view !== "detalle" && (
+              <StatusLegend items={cumplimientoLegendItems} />
+            )
+          }
+        >
           {loading ? (
-            <div className="text-center py-4">Cargando...</div>
+            <LoadingState />
           ) : view === "productividad" ? (
-            <table className="table table-striped table-hover align-middle gm-data-table">
-              <thead>
-                <tr>
-                  <th>Ejecutivos</th>
-                  <th>Bucket</th>
-                  <th>Deuda Asignada</th>
-                  <th>Saldo Contenido</th>
-                  <th>% Contenido</th>
-                  <th>% Normalizado</th>
-                  <th>Cumplimiento de meta</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={`${row.ejecutivo}-${row.bucket}-${idx}`}>
-                    <td>{row.ejecutivo}</td>
-                    <td>{row.bucket}</td>
-                    <td>${formatMoney(row.deuda_asignada)} M</td>
-                    <td>${formatMoney(row.saldo_contenido)} M</td>
-                    <td>{formatPct(row.porcentaje_contencion)}</td>
-                    <td>{formatPct(row.porcentaje_normalizado)}</td>
-                    <td className="fw-semibold">
-                      <span className={dynamicComplianceClass(row.cumplimiento_final)} /> {formatPct(row.cumplimiento_final)}
-                    </td>
-                  </tr>
-                ))}
-                {totalRow && (
-                  <tr className="table-primary fw-semibold">
-                    <td>{totalRow.ejecutivo}</td>
-                    <td>{totalRow.bucket}</td>
-                    <td>${formatMoney(totalRow.deuda_asignada)} M</td>
-                    <td>${formatMoney(totalRow.saldo_contenido)} M</td>
-                    <td>{formatPct(totalRow.porcentaje_contencion)}</td>
-                    <td>{formatPct(totalRow.porcentaje_normalizado)}</td>
-                    <td>
-                      <span className={dynamicComplianceClass(totalRow.cumplimiento_final)} /> {formatPct(totalRow.cumplimiento_final)}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+            renderProductividadTable()
           ) : view === "bucket" ? (
-            <table className="table table-striped table-hover align-middle gm-data-table">
-              <thead>
-                <tr>
-                  <th>Bucket</th>
-                  <th>Deuda Asignada</th>
-                  <th>Saldo Contenido</th>
-                  <th>% Contenido</th>
-                  <th>% Normalizado</th>
-                  <th>Meta Cont.</th>
-                  <th>Meta Norm.</th>
-                  <th>Cumplimiento de meta</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bucketRows.map((row, idx) => (
-                  <tr key={`${row.bucket}-${idx}`} className={row.bucket === "Total general" ? "table-primary fw-semibold" : ""}>
-                    <td>{row.bucket}</td>
-                    <td>${formatMoney(row.deuda_asignada)} M</td>
-                    <td>${formatMoney(row.saldo_contenido)} M</td>
-                    <td>{formatPct(row.porcentaje_contencion)}</td>
-                    <td>{formatPct(row.porcentaje_normalizado)}</td>
-                    <td>{row.bucket === "Total general" ? "-" : formatPct(row.meta_contencion_pct)}</td>
-                    <td>{row.bucket === "Total general" ? "-" : formatPct(row.meta_normalizacion_pct)}</td>
-                    <td className="fw-semibold">
-                      <span className={dynamicComplianceClass(row.cumplimiento_final)} /> {formatPct(row.cumplimiento_final)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <table className="table table-striped table-hover align-middle gm-data-table">
-              <thead>
-                <tr>
-                  <th>Operacion</th>
-                  <th>Bucket</th>
-                  <th>Dias Mora</th>
-                  <th>Deuda</th>
-                  <th>
-                    <button className="btn btn-link btn-sm p-0 text-white fw-semibold text-decoration-none" type="button" onClick={toggleDetailSort}>
-                      Peso % {detailSortDir === "desc" ? "DESC" : "ASC"}
-                    </button>
-                  </th>
-                  <th>Cuota</th>
-                  <th>Ejecutivo</th>
-                  <th>Contenido</th>
-                  <th>Normalizado</th>
-                  <th>Telefono Gestion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedDetailRows.map((row, idx) => (
-                  <tr key={`${row.op}-${idx}`}>
-                    <td>{row.op}</td>
-                    <td>{row.bucket}</td>
-                    <td>{row.dias_de_mora}</td>
-                    <td>${formatMoney(row.deuda)}</td>
-                    <td>{formatPct(row.peso_bucket_pct)}</td>
-                    <td>${formatMoney(row.cuota)}</td>
-                    <td>{row.ejecutivo}</td>
-                    <td>{Number(row.contenido || 0) === 1 ? "Si" : "No"}</td>
-                    <td>{Number(row.normalizado || 0) === 1 ? "Si" : "No"}</td>
-                    <td>{row.telefono_gestion}</td>
-                  </tr>
-                ))}
-                {!sortedDetailRows.length && (
+            <div className="pd-table-scroll">
+              <table className="pd-table">
+                <thead>
                   <tr>
-                    <td colSpan={10} className="text-center text-muted py-4">
-                      Sin datos para los filtros seleccionados.
-                    </td>
+                    <th>Bucket</th>
+                    <th className="pd-num">Deuda Asignada</th>
+                    <th className="pd-num">Saldo Contenido</th>
+                    <th className="pd-num">% Contenido</th>
+                    <th className="pd-num">% Normalizado</th>
+                    <th className="pd-num">Meta Cont.</th>
+                    <th className="pd-num">Meta Norm.</th>
+                    <th className="pd-num pd-th-key">Cumplimiento de meta</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {bucketRows.map((row, idx) => (
+                    <tr key={`${row.bucket}-${idx}`} className={row.bucket === "Total general" ? "pd-row-total" : undefined}>
+                      <td>{row.bucket}</td>
+                      <td className="pd-num">${formatMoney(row.deuda_asignada)} M</td>
+                      <td className="pd-num">${formatMoney(row.saldo_contenido)} M</td>
+                      <td className="pd-num">{formatPct(row.porcentaje_contencion)}</td>
+                      <td className="pd-num">{formatPct(row.porcentaje_normalizado)}</td>
+                      <td className="pd-num">{row.bucket === "Total general" ? "-" : formatPct(row.meta_contencion_pct)}</td>
+                      <td className="pd-num">{row.bucket === "Total general" ? "-" : formatPct(row.meta_normalizacion_pct)}</td>
+                      <td className="pd-num">
+                        <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="pd-table-scroll">
+              <table className="pd-table">
+                <thead>
+                  <tr>
+                    <th>Operacion</th>
+                    <th>Bucket</th>
+                    <th className="pd-num">Dias Mora</th>
+                    <th className="pd-num">Deuda</th>
+                    <th className="pd-num">
+                      <button className="pd-th-sort" type="button" onClick={toggleDetailSort} title={detailSortDir === "desc" ? "Orden descendente" : "Orden ascendente"}>
+                        Peso % <i className={`bi ${detailSortDir === "desc" ? "bi-sort-down" : "bi-sort-up"}`} aria-hidden="true" />
+                      </button>
+                    </th>
+                    <th className="pd-num">Cuota</th>
+                    <th>Ejecutivo</th>
+                    <th>Contenido</th>
+                    <th>Normalizado</th>
+                    <th>Telefono Gestion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedDetailRows.map((row, idx) => (
+                    <tr key={`${row.op}-${idx}`}>
+                      <td>{row.op}</td>
+                      <td>{row.bucket}</td>
+                      <td className="pd-num">{row.dias_de_mora}</td>
+                      <td className="pd-num">${formatMoney(row.deuda)}</td>
+                      <td className="pd-num">{formatPct(row.peso_bucket_pct)}</td>
+                      <td className="pd-num">${formatMoney(row.cuota)}</td>
+                      <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                      <td>{Number(row.contenido || 0) === 1 ? "Si" : "No"}</td>
+                      <td>{Number(row.normalizado || 0) === 1 ? "Si" : "No"}</td>
+                      <td>{row.telefono_gestion}</td>
+                    </tr>
+                  ))}
+                  {!sortedDetailRows.length && <EmptyRow colSpan={10} />}
+                </tbody>
+              </table>
+            </div>
           )}
-        </div>
+        </SectionCard>
       </div>
-      {view !== "detalle" && (
-        <div className="mt-1 small text-muted">
-          Umbrales dinamicos: Rojo &lt; {formatPct(dynamicThresholds.p33)} | Amarillo &gt;= {formatPct(dynamicThresholds.p33)} y &lt; {formatPct(dynamicThresholds.p66)} | Verde &gt;= {formatPct(dynamicThresholds.p66)}
-        </div>
-      )}
     </div>
   );
 }

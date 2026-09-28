@@ -257,7 +257,36 @@ def _build_detail_for_product(
     }
 
 
-def get_filter_values() -> dict:
+def get_metas(filters: dict) -> list[dict]:
+    """Metas activas del periodo (dbo.sth_metas_mensuales) por producto y tramo, en el orden de la pagina."""
+    periodo = _period_start(filters.get("periodo"))
+    sql = """
+    SELECT
+        LTRIM(RTRIM(producto)) AS producto,
+        LTRIM(RTRIM(tramo)) AS tramo,
+        CAST(meta_contenido_pct AS float) AS meta_contenido_pct,
+        CAST(ponderador_nivel_1_pct AS float) AS ponderador_nivel_1_pct
+    FROM dbo.sth_metas_mensuales
+    WHERE periodo = ?
+      AND activo = 1
+    """
+    orden_producto = {config["nombre_meta"]: GENERAL_PRODUCT_ORDER[key] for key, config in PRODUCT_CONFIG.items()}
+    orden_tramo = {"Ciclo 0": 0, **TRAMO_ORDER}
+    rows = [
+        {
+            "periodo": periodo,
+            "producto": row.get("producto") or "",
+            "tramo": row.get("tramo") or "",
+            "meta_contenido_pct": row.get("meta_contenido_pct"),
+            "ponderador_nivel_1_pct": row.get("ponderador_nivel_1_pct"),
+        }
+        for row in run_query(sql, (periodo,))
+    ]
+    rows.sort(key=lambda r: (orden_producto.get(r["producto"], 99), orden_tramo.get(r["tramo"], 99), r["tramo"]))
+    return rows
+
+
+def get_filter_values(periodo: str | None = None) -> dict:
     sql_periodos = """
     SELECT DISTINCT CONVERT(char(10), DATEFROMPARTS(YEAR(fecha_carga), MONTH(fecha_carga), 1), 126) AS periodo
     FROM dbo.tmp_bench_STH
@@ -266,12 +295,16 @@ def get_filter_values() -> dict:
     """
     periodos = [r["periodo"] for r in run_query(sql_periodos) if r.get("periodo")]
 
-    sql_ejecutivos = """
+    # Con periodo, solo los ejecutivos carterizados ese mes (los que tienen datos en las vistas).
+    periodo_sql = "WHERE CONVERT(date, mes_carterizado) = ?" if periodo else ""
+    sql_ejecutivos = f"""
     SELECT DISTINCT ISNULL(NULLIF(LTRIM(RTRIM(ejecutivo)), ''), 'Grupal') AS ejecutivo
     FROM dbo.tmp_carterizado_STH
+    {periodo_sql}
     ORDER BY ejecutivo
     """
-    ejecutivos = [r["ejecutivo"] for r in run_query(sql_ejecutivos) if r.get("ejecutivo")]
+    params = (_period_start(periodo),) if periodo else ()
+    ejecutivos = [r["ejecutivo"] for r in run_query(sql_ejecutivos, params) if r.get("ejecutivo")]
 
     productos_detalle = sorted({config["producto_cliente"] for config in PRODUCT_CONFIG.values()})
 
@@ -378,20 +411,15 @@ def get_detail_view(filters: dict) -> list[dict]:
             ciclos = [int(c) for c in row["ciclos"].keys()]
             return min(ciclos) if ciclos else 99
 
-        if product == "hipotecario":
-            pivot_rows.sort(
-                key=lambda x: (
-                    _min_ciclo(x),
-                    str(x["ejecutivo"] or "")
-                )
-            )
+        # Grupal siempre al final del bloque.
+        def _es_grupal(row):
+            return 1 if str(row["ejecutivo"]).strip().lower() == "grupal" else 0
+
+        if product in ("hipotecario", "pyme"):
+            # Escalera: primero los ejecutivos del ciclo 1, luego ciclo 2, etc.
+            pivot_rows.sort(key=lambda x: (_es_grupal(x), _min_ciclo(x), str(x["ejecutivo"] or "")))
         else:
-            pivot_rows.sort(
-                key=lambda x: (
-                    0 if str(x["ejecutivo"]).strip().lower() == "grupal" else 1,
-                    str(x["ejecutivo"] or "")
-                )
-            )
+            pivot_rows.sort(key=lambda x: (_es_grupal(x), str(x["ejecutivo"] or "")))
 
         deuda_total_final = 0.0
         suma_final_ponderada = 0.0
@@ -854,7 +882,8 @@ def get_general_view(filters: dict) -> list[dict]:
         product = block["producto"]
         for row in block["rows"]:
             ejecutivo = row["ejecutivo"]
-            if str(ejecutivo).strip().lower() == "grupal":
+            # Grupal se muestra en la vista general solo asociado a TC (tarjeta).
+            if str(ejecutivo).strip().lower() == "grupal" and product != "tarjeta":
                 continue
             current = by_exec.setdefault(
                 ejecutivo,

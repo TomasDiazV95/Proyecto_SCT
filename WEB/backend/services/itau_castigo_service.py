@@ -70,7 +70,7 @@ def _base_filters(filters: dict, alias: str = "d") -> tuple[str, list]:
     return " AND " + " AND ".join(clauses), params
 
 
-def get_filter_values() -> dict:
+def get_filter_values(fecha_carga: str | None = None) -> dict:
     fechas_carga = [
         r["fecha_carga"]
         for r in run_query(
@@ -87,15 +87,17 @@ def get_filter_values() -> dict:
     ejecutivos = [
         r["ejecutivo"]
         for r in run_query(
-            """
+            f"""
             SELECT DISTINCT LTRIM(RTRIM(ISNULL(c.ejecutivo, 'PHOENIX'))) AS ejecutivo
             FROM dbo.recup_itau_castigo base
             LEFT JOIN dbo.tmp_carterizado_ITAU_CASTIGO c
                 ON base.RUT = c.rut
                AND c.mes_carterizado = DATEFROMPARTS(YEAR(base.fecha_carga), MONTH(base.fecha_carga), 1)
             WHERE LTRIM(RTRIM(ISNULL(c.ejecutivo, 'PHOENIX'))) <> ''
+              {"AND base.fecha_carga = ?" if fecha_carga else ""}
             ORDER BY ejecutivo
-            """
+            """,
+            (_parse_fecha_carga(fecha_carga),) if fecha_carga else (),
         )
         if r.get("ejecutivo")
     ]

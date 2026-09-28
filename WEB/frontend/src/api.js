@@ -57,8 +57,8 @@ function withQuery(url, params = {}) {
   return qs ? `${url}?${qs}` : url;
 }
 
-export async function fetchFilters() {
-  const res = await apiFetch(`${API_BASE}/api/sc-tardia/filtros`);
+export async function fetchFilters(periodo = "", zona = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/filtros`, { periodo, zona }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros");
   }
@@ -78,6 +78,15 @@ export async function fetchCycle(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/ciclo`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por ciclo");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchScTardiaMetas(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/metas`, { periodo: filters.periodo }));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar las metas");
   }
   const body = await res.json();
   return body.data || [];
@@ -145,8 +154,8 @@ export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
   const filename = match?.[1] || `la_araucana_detalle_${periodo}.xlsx`;
   return { blob: await res.blob(), filename };
 }
-export async function fetchScTempranaFilters() {
-  const res = await apiFetch(`${API_BASE}/api/sc-temprana/filtros`);
+export async function fetchScTempranaFilters(periodo = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/filtros`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de SC Temprana");
   }
@@ -229,8 +238,8 @@ export async function fetchKpiDiarioCycle(filters) {
   return body.data || [];
 }
 
-export async function fetchGmFilters() {
-  const res = await apiFetch(`${API_BASE}/api/gm/filtros`);
+export async function fetchGmFilters(periodo = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/filtros`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de GM");
   }
@@ -255,8 +264,8 @@ export async function fetchGmGeneral(filters) {
   return body.data || [];
 }
 
-export async function fetchBitFilters() {
-  const res = await apiFetch(`${API_BASE}/api/bit/filtros`);
+export async function fetchBitFilters(periodo = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/filtros`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de BIT");
   }
@@ -287,8 +296,8 @@ export async function fetchBitDetalle(filters) {
   return res.json();
 }
 
-export async function fetchBitCastigoFilters() {
-  const res = await apiFetch(`${API_BASE}/api/bit-castigo/filtros`);
+export async function fetchBitCastigoFilters(periodo = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/filtros`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de BIT Castigo");
   }
@@ -312,8 +321,8 @@ export async function fetchBitCastigoGeneral(filters) {
 //   return body;
 // }
 
-export async function fetchItauCastigoFilters() {
-  const res = await apiFetch(`${API_BASE}/api/itau-castigo/filtros`);
+export async function fetchItauCastigoFilters(fecha_carga = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/filtros`, { fecha_carga }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de Itaú Castigo");
   }
@@ -336,8 +345,8 @@ export async function fetchItauCastigoProducto(filters) {
   return res.json();
 }
 
-export async function fetchItauVencidaFilters() {
-  const res = await apiFetch(`${API_BASE}/api/itau-vencida/filtros`);
+export async function fetchItauVencidaFilters(fecha_carga = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/filtros`, { fecha_carga }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de Itaú Vencida");
   }
@@ -416,8 +425,8 @@ export async function downloadGmMonthlyExcel(periodo) {
   return { blob, filename };
 }
 
-export async function fetchSthFilters() {
-  const res = await apiFetch(`${API_BASE}/api/sth/filtros`);
+export async function fetchSthFilters(periodo = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/filtros`, { periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros de STH");
   }
@@ -437,6 +446,15 @@ export async function fetchSthDetail(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/sth/productividad/desglosada`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista desglosada de STH");
+  }
+  const body = await res.json();
+  return body.data || [];
+}
+
+export async function fetchSthMetas(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/metas`, { periodo: filters.periodo }));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar las metas de STH");
   }
   const body = await res.json();
   return body.data || [];

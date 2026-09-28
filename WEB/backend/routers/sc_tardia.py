@@ -3,16 +3,27 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from auth.dependencies import require_module
 
 from schemas import ApiEnvelope, FiltersResponse
-from services.sc_tardia_service import get_cycle_view, get_filter_values, get_general_view
+from services.sc_tardia_service import get_cycle_view, get_filter_values, get_general_view, get_metas
 
 
 router = APIRouter(dependencies=[Depends(require_module("sc-tardia"))])
 
 
 @router.get("/filtros", response_model=FiltersResponse)
-def filtros() -> FiltersResponse:
+def filtros(
+    periodo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
+) -> FiltersResponse:
     try:
-        return FiltersResponse(**get_filter_values())
+        return FiltersResponse(**get_filter_values(periodo, zona))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/metas", response_model=ApiEnvelope)
+def metas(periodo: str | None = Query(default=None)) -> ApiEnvelope:
+    try:
+        return ApiEnvelope(data=get_metas({"periodo": periodo}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth.dependencies import require_module
 from schemas import ApiEnvelope
-from services.sth_service import get_detail_view, get_filter_values, get_general_view, get_operations_detail_view
+from services.sth_service import get_detail_view, get_filter_values, get_general_view, get_metas, get_operations_detail_view
 
 
 router = APIRouter(dependencies=[Depends(require_module("sth"))])
@@ -14,9 +14,17 @@ def health() -> dict:
 
 
 @router.get("/filtros")
-def filtros() -> dict:
+def filtros(periodo: str | None = Query(default=None)) -> dict:
     try:
-        return get_filter_values()
+        return get_filter_values(periodo)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/metas", response_model=ApiEnvelope)
+def metas(periodo: str | None = Query(default=None)) -> ApiEnvelope:
+    try:
+        return ApiEnvelope(data=get_metas({"periodo": periodo}))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

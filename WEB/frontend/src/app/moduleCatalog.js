@@ -130,16 +130,25 @@ export const modulePanels = [
   {
     code: "administrativas",
     title: "Panel Administrativo",
-    description: "Formularios y procesos administrativos internos.",
+    description: "Descargas de archivos de clientes y configuraciones internas.",
     path: "/administrativas",
     accent: "info",
     modules: [
       {
         code: "administrativas",
-        title: "Itaú",
-        description: "Vista administrativa para procesos asociados a Itaú.",
+        title: "Itaú Vencida",
+        description: "Descarga cuotas, asignación y cuotas pagadas, y define los casos medibles del mes.",
         path: "/administrativas/itau",
-        buttonLabel: "Abrir Itaú",
+        buttonLabel: "Abrir Itaú Vencida",
+      },
+      {
+        code: "gestiones-diarias-sct",
+        title: "Gestiones Diarias SCT",
+        description: "Carga, resumen y detalle de gestiones diarias Santander Consumer Terreno.",
+        path: "/gestiones-diarias-sct",
+        buttonLabel: "Ver Gestiones SCT",
+        // Solo lo ve quien tiene este modulo asignado (o acceso global), aunque tenga el panel.
+        requiresOwnAccess: true,
       },
     ],
   },

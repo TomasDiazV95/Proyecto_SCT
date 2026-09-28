@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { addItauMedibles, deleteItauMedible, fetchItauMedibles } from "../../api";
+import { LoadingState, SectionCard } from "../../components/productividad/ui";
 
 const COLUMNAS = [
   { value: "DETALLE_MARCA", label: "Detalle marca" },
@@ -108,7 +109,7 @@ export default function MediblesItauCard() {
   }
 
   async function onDelete(filtro) {
-    if (!window.confirm(`¿Eliminar "${valorLabel(filtro.columna, filtro.valor)}" (${columnaLabel(filtro.columna)}) de ${periodo}?`)) {
+    if (!window.confirm(`¿Quitar "${valorLabel(filtro.columna, filtro.valor)}" (${columnaLabel(filtro.columna)}) de los casos medibles de ${periodo}?`)) {
       return;
     }
     setSaving(true);
@@ -153,132 +154,124 @@ export default function MediblesItauCard() {
   })).filter((grupo) => grupo.filtros.length);
 
   return (
-    <div className="card shadow-sm module-card">
-      <div className="card-body p-4">
-        <div className="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
-          <div>
-            <h2 className="h5 mb-1">Casos medibles Itaú Vencida</h2>
-            <p className="text-muted mb-0">
-              Solo los casos que tengan los valores agregados aquí cuentan para el cumplimiento del periodo. Lo que no esté agregado queda como no medible.
-            </p>
-          </div>
-          <div>
-            <label className="form-label mb-1" htmlFor="medibles-periodo">Periodo</label>
-            <input
-              id="medibles-periodo"
-              type="month"
-              className="form-control"
-              value={periodo}
-              onChange={(event) => {
-                setPeriodo(event.target.value);
-                setForm((prev) => ({ ...prev, valores: [] }));
-              }}
-            />
-          </div>
-        </div>
+    <SectionCard
+      title="Casos medibles"
+      description="Solo los casos con los valores agregados aquí cuentan para el cumplimiento del mes. El resto queda como no medible."
+      actions={
+        <label className="pd-field pd-medibles-periodo">
+          <span className="pd-label">Periodo</span>
+          <input
+            type="month"
+            className="form-control"
+            value={periodo}
+            onChange={(event) => {
+              setPeriodo(event.target.value);
+              setForm((prev) => ({ ...prev, valores: [] }));
+            }}
+          />
+        </label>
+      }
+    >
+      {error && <div className="alert alert-danger">{error}</div>}
+      {aviso && <div className="alert alert-info">{aviso}</div>}
 
-        {error && <div className="alert alert-danger py-2">{error}</div>}
-        {aviso && <div className="alert alert-info py-2">{aviso}</div>}
-
-        <form className="row g-2 align-items-end mb-4" onSubmit={onAdd}>
-          <div className="col-12 col-md-3">
-            <label className="form-label mb-1">Columna</label>
-            <select
-              className="form-select"
-              value={form.columna}
-              onChange={(event) => {
-                setForm({ columna: event.target.value, valores: [] });
-                setValoresOpen(false);
-              }}
+      <form className="pd-medibles-form" onSubmit={onAdd}>
+        <label className="pd-field">
+          <span className="pd-label">Columna</span>
+          <select
+            className="form-select"
+            value={form.columna}
+            onChange={(event) => {
+              setForm({ columna: event.target.value, valores: [] });
+              setValoresOpen(false);
+            }}
+          >
+            {COLUMNAS.map((item) => (
+              <option key={item.value} value={item.value}>{item.label}</option>
+            ))}
+          </select>
+        </label>
+        <div className="pd-field">
+          <span className="pd-label" id="medibles-valores-label">Valores</span>
+          <div className="position-relative" ref={valoresRef}>
+            <button
+              type="button"
+              className="form-select text-start text-truncate"
+              disabled={loading || !sugerencias.length}
+              aria-expanded={valoresOpen}
+              aria-labelledby="medibles-valores-label"
+              onClick={() => setValoresOpen((open) => !open)}
             >
-              {COLUMNAS.map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="col-12 col-md-7">
-            <label className="form-label mb-1">Valores</label>
-            <div className="position-relative" ref={valoresRef}>
-              <button
-                type="button"
-                className="form-select text-start text-truncate"
-                disabled={loading || !sugerencias.length}
-                aria-expanded={valoresOpen}
-                onClick={() => setValoresOpen((open) => !open)}
-              >
-                {resumenSeleccion}
-              </button>
-              {valoresOpen && (
-                <div className="medibles-multi-panel shadow">
-                  <label className="medibles-multi-option medibles-multi-all">
+              {resumenSeleccion}
+            </button>
+            {valoresOpen && (
+              <div className="medibles-multi-panel shadow">
+                <label className="medibles-multi-option medibles-multi-all">
+                  <input
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={todosSeleccionados}
+                    onChange={() => setForm((prev) => ({ ...prev, valores: todosSeleccionados ? [] : [...sugerencias] }))}
+                  />
+                  Seleccionar todos
+                </label>
+                {sugerencias.map((valor) => (
+                  <label key={valor} className="medibles-multi-option">
                     <input
                       type="checkbox"
                       className="form-check-input"
-                      checked={todosSeleccionados}
-                      onChange={() => setForm((prev) => ({ ...prev, valores: todosSeleccionados ? [] : [...sugerencias] }))}
+                      checked={form.valores.includes(valor)}
+                      onChange={() => toggleValor(valor)}
                     />
-                    Seleccionar todos
+                    {valorLabel(form.columna, valor)}
                   </label>
-                  {sugerencias.map((valor) => (
-                    <label key={valor} className="medibles-multi-option">
-                      <input
-                        type="checkbox"
-                        className="form-check-input"
-                        checked={form.valores.includes(valor)}
-                        onChange={() => toggleValor(valor)}
-                      />
-                      {valorLabel(form.columna, valor)}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="col-12 col-md-2 d-grid">
-            <button type="submit" className="btn btn-info" disabled={saving || loading || !form.valores.length}>
-              {saving ? "Guardando..." : form.valores.length > 1 ? `Agregar (${form.valores.length})` : "Agregar"}
-            </button>
-          </div>
-        </form>
+        </div>
+        <button type="submit" className="pd-btn pd-btn-primary" disabled={saving || loading || !form.valores.length}>
+          <i className="bi bi-plus-lg" aria-hidden="true" /> {saving ? "Guardando..." : form.valores.length > 1 ? `Agregar ${form.valores.length}` : "Agregar"}
+        </button>
+      </form>
 
-        {loading ? (
-          <div className="text-muted">Cargando...</div>
-        ) : grupos.length ? (
-          <div className="table-responsive">
-            <table className="table table-sm align-middle mb-0">
-              <thead>
-                <tr>
-                  <th>Columna</th>
-                  <th>Valor medible</th>
-                  <th className="text-end" />
-                </tr>
-              </thead>
-              <tbody>
-                {grupos.flatMap((grupo) =>
-                  grupo.filtros.map((filtro) => (
-                    <tr key={`${filtro.columna}-${filtro.valor}`}>
-                      <td>{grupo.label}</td>
-                      <td>{valorLabel(filtro.columna, filtro.valor)}</td>
-                      <td className="text-end">
-                        <button type="button" className="btn btn-sm btn-outline-danger" disabled={saving} onClick={() => onDelete(filtro)}>
-                          Eliminar
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-            <div className="small text-muted mt-2">
-              Si agregas valores en más de una columna, el caso debe cumplir todas (por ejemplo, un canal y un segmento de la lista).
-            </div>
-          </div>
-        ) : (
-          <div className="alert alert-warning mb-0">
-            {periodo} no tiene casos medibles configurados: no se calcula cumplimiento hasta agregar al menos un valor.
-          </div>
-        )}
-      </div>
-    </div>
+      {loading ? (
+        <LoadingState text="Cargando casos medibles..." />
+      ) : grupos.length ? (
+        <>
+          <dl className="pd-medibles-groups">
+            {grupos.map((grupo) => (
+              <div className="pd-medibles-group" key={grupo.value}>
+                <dt>{grupo.label}</dt>
+                <dd>
+                  {grupo.filtros.map((filtro) => (
+                    <span className="pd-medible-chip" key={`${filtro.columna}-${filtro.valor}`}>
+                      {valorLabel(filtro.columna, filtro.valor)}
+                      <button
+                        type="button"
+                        className="pd-medible-remove"
+                        disabled={saving}
+                        onClick={() => onDelete(filtro)}
+                        aria-label={`Quitar ${valorLabel(filtro.columna, filtro.valor)}`}
+                        title="Quitar"
+                      >
+                        <i className="bi bi-x" aria-hidden="true" />
+                      </button>
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            ))}
+          </dl>
+          <p className="pd-small pd-muted mt-3 mb-0">
+            Si agregas valores en más de una columna, el caso debe cumplir todas. Por ejemplo, un canal y un segmento de la lista.
+          </p>
+        </>
+      ) : (
+        <div className="alert alert-warning mb-0">
+          {periodo} no tiene casos medibles: el cumplimiento de Itaú Vencida no se calcula hasta que agregues al menos un valor.
+        </div>
+      )}
+    </SectionCard>
   );
 }

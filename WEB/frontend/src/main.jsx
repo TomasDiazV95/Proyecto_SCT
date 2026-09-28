@@ -5,6 +5,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "./styles.css";
+import "./productividad.css";
 import App from "./App";
 
 ReactDOM.createRoot(document.getElementById("root")).render(

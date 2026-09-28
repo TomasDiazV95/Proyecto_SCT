@@ -2,6 +2,7 @@ import { Link, Navigate } from "react-router-dom";
 import { modulePanels } from "../app/moduleCatalog";
 import { useAuth } from "../auth/AuthContext";
 import { canAccessPanel, getVisibleModules } from "../auth/permissions";
+import { SectionCard } from "../components/productividad/ui";
 
 export default function PanelPage({ panelCode, emptyTitle = "Modulo en preparacion", emptyDescription = "Este panel quedo reservado para una siguiente etapa." }) {
   const { user } = useAuth();
@@ -14,38 +15,35 @@ export default function PanelPage({ panelCode, emptyTitle = "Modulo en preparaci
   const modules = getVisibleModules(user, panel);
 
   return (
-    <div className="container py-5 app-shell">
-      <div className={`card shadow-sm module-panel module-panel-${panel.accent} mb-4`}>
-        <div className="card-body p-4">
-          <Link to="/" className="small text-decoration-none">Volver al Home</Link>
-          <h1 className="h3 mt-2 mb-2">{panel.title}</h1>
-          <p className="text-muted mb-0">{panel.description}</p>
+    <div className="pd-page">
+      <header className="pd-header">
+        <div>
+          <nav className="pd-breadcrumb" aria-label="Ruta">
+            <Link to="/">Inicio</Link>
+            <span aria-hidden="true">/</span>
+            <span>{panel.title}</span>
+          </nav>
+          <h1 className="pd-title">{panel.title}</h1>
+          <p className="pd-subtitle">{panel.description}</p>
         </div>
-      </div>
+      </header>
 
       {modules.length ? (
-        <div className="row g-3">
+        <div className="pd-module-grid">
           {modules.map((module) => (
-            <div className="col-12 col-md-6 col-xl-4" key={module.path}>
-              <div className="card shadow-sm h-100 module-card">
-                <div className="card-body d-flex flex-column">
-                  <h2 className="h5">{module.title}</h2>
-                  <p className="text-muted flex-grow-1">{module.description}</p>
-                  <Link to={module.path} className={`btn btn-${panel.accent}`}>
-                    {module.buttonLabel}
-                  </Link>
-                </div>
-              </div>
-            </div>
+            <Link to={module.path} className="pd-card pd-module-card" key={module.path}>
+              <h2 className="pd-section-title">{module.title}</h2>
+              <p className="pd-section-desc">{module.description}</p>
+              <span className="pd-module-link">
+                {module.buttonLabel} <i className="bi bi-arrow-right" aria-hidden="true" />
+              </span>
+            </Link>
           ))}
         </div>
       ) : (
-        <div className="card shadow-sm">
-          <div className="card-body p-4">
-            <h2 className="h5">{emptyTitle}</h2>
-            <p className="text-muted mb-0">{emptyDescription}</p>
-          </div>
-        </div>
+        <SectionCard title={emptyTitle}>
+          <p className="pd-muted m-0">{emptyDescription}</p>
+        </SectionCard>
       )}
     </div>
   );

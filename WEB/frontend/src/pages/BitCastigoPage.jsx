@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { fetchBitCastigoFilters, fetchBitCastigoGeneral } from "../api";
+import { Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 
 function formatMoney(value) {
@@ -19,30 +19,9 @@ function capCumplMeta(value) {
 }
 
 
-function percentil(sortedValues, p) {
-  if (!sortedValues.length) {
-    return 0;
-  }
-  const idx = (sortedValues.length - 1) * p;
-  const lower = Math.floor(idx);
-  const upper = Math.ceil(idx);
-  if (lower === upper) {
-    return sortedValues[lower];
-  }
-  const weight = idx - lower;
-  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
-}
-
-
-function dotClassByThresholds(value, thresholds) {
-  const num = Number(value || 0);
-  if (num >= thresholds.p66) {
-    return "gm-dot gm-dot-ok";
-  }
-  if (num >= thresholds.p33) {
-    return "gm-dot gm-dot-warn";
-  }
-  return "gm-dot gm-dot-bad";
+// Cumplimiento viene en fraccion (1 = 100%); el semaforo comun trabaja en escala 0-100.
+function cumplimientoFraccionClass(value) {
+  return cumplimientoClass(value === null || value === undefined ? null : Number(value) * 100);
 }
 
 
@@ -52,6 +31,8 @@ export default function BitCastigoPage() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null);
   const [contencionFile, setContencionFile] = useState("");
+  const [meta, setMeta] = useState(null);
+  const [metasOpen, setMetasOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -68,6 +49,20 @@ export default function BitCastigoPage() {
     loadFilters();
   }, []);
 
+  // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
+  useEffect(() => {
+    if (!filters.periodo) {
+      return;
+    }
+    fetchBitCastigoFilters(filters.periodo)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.periodo]);
+
   useEffect(() => {
     if (!filters.periodo) {
       return;
@@ -81,6 +76,7 @@ export default function BitCastigoPage() {
         setRows(data.rows || []);
         setTotal(data.total || null);
         setContencionFile(data.contencion_file || "");
+        setMeta(data.meta ?? null);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -94,17 +90,6 @@ export default function BitCastigoPage() {
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
-
-  const thresholds = useMemo(() => {
-    const values = rows
-      .map((row) => capCumplMeta(row.pct_cumpl_meta || 0))
-      .filter((value) => Number.isFinite(value))
-      .sort((a, b) => a - b);
-    return {
-      p33: percentil(values, 0.33),
-      p66: percentil(values, 0.66),
-    };
-  }, [rows]);
 
   const totalRow = useMemo(() => {
     if (!total) {
@@ -124,109 +109,114 @@ export default function BitCastigoPage() {
   }, [rows, total]);
 
   return (
-    <div className="container-fluid py-4 app-shell gm-page">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h1 className="h3 m-0">BIT Castigo - Seguimiento</h1>
-          <Link to="/productividad" className="small text-decoration-none">
-            Volver al Home
-          </Link>
-        </div>
-      </div>
+    <div className="pd-page">
+      <PageHeader title="Banco Internacional Castigo" subtitle="Seguimiento y cumplimiento de Banco Internacional, cartera castigo." />
 
-      <div className="card shadow-sm mb-3">
-        <div className="card-body">
-          <div className="row g-2">
-            <div className="col-12 col-md-2">
-              <label className="form-label">Periodo</label>
-              <select className="form-select" value={filters.periodo} onChange={(e) => onFilter("periodo", e.target.value)}>
-                {options.periodos.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-3">
-              <label className="form-label">Ejecutivo</label>
-              <select className="form-select" value={filters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
-                <option value="">Todos</option>
-                {options.ejecutivos.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      </div>
+      <FilterBar actions={<MetasButton onClick={() => setMetasOpen(true)} />}>
+        <Field label="Periodo">
+          <select className="form-select" value={filters.periodo} onChange={(e) => onFilter("periodo", e.target.value)}>
+            {options.periodos.map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Ejecutivo">
+          <select className="form-select" value={filters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
+            <option value="">Todos</option>
+            {options.ejecutivos.map((value) => (
+              <option key={value} value={value}>
+                {String(value).toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </Field>
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      <div className="card shadow-sm">
-        <div className="card-body table-responsive">
-          {loading ? (
-            <div className="text-center py-4">Cargando...</div>
-          ) : (
-            <table className="table table-striped table-hover align-middle gm-data-table">
-              <colgroup>
-                {Array.from({ length: 4 }).map((_, idx) => (
-                  <col key={`bit-castigo-col-${idx}`} style={{ width: "25%" }} />
-                ))}
-              </colgroup>
+      <MetasDrawer open={metasOpen} onClose={() => setMetasOpen(false)} subtitle={`Vigentes para ${filters.periodo || "N/D"}`}>
+        {meta ? (
+          <div className="iv-drawer-grid iv-drawer-grid-single">
+            <MetasBlock title="Recupero Castigo">
+              <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+                <thead>
+                  <tr>
+                    <th>Variable</th>
+                    <th className="pd-num">Meta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Recupero castigo</td>
+                    <td className="pd-num pd-cell-strong">${formatMoney(meta)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </MetasBlock>
+          </div>
+        ) : (
+          <div className="alert alert-light border">No hay metas cargadas para este mes.</div>
+        )}
+        
+      </MetasDrawer>
+
+      <SectionCard
+        exportName={exportFileName("BIT-Castigo", filters.periodo)}
+        bodyClassName=""
+        footer={
+          <>
+            <StatusLegend items={cumplimientoLegendItems} />
+            <span>Archivo: {contencionFile || "N/D"}</span>
+          </>
+        }
+      >
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <div className="pd-table-scroll">
+            <table className="pd-table">
               <thead>
                 <tr>
-                  <th>Ejecutivo</th>
-                  <th className="text-center">Mto Inicial</th>
-                  <th className="text-center">Recupero</th>
-                  <th className="text-center">% Cumplimiento meta</th>
+                  <th rowSpan={2}>Ejecutivo</th>
+                  <th colSpan={3} className="pd-th-group-1 pd-group-start">Recupero Castigo</th>
+                  <th rowSpan={2} className="pd-num pd-th-key pd-group-start">% Cumplimiento meta</th>
+                </tr>
+                <tr>
+                  <th className="pd-num pd-th-sub-1 pd-group-start">Mto Inicial</th>
+                  <th className="pd-num pd-th-sub-1">Recupero</th>
+                  <th className="pd-num pd-th-sub-1">% Recupero</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
+                {phoenixGrupalAlFinal(rows).map((row, idx) => (
                   <tr key={`bit-castigo-${row.ejecutivo}-${idx}`}>
-                    <td>{row.ejecutivo}</td>
-                    <td className="text-center">${formatMoney(row.monto_inicial)}</td>
-                    <td className="text-center">${formatMoney(row.monto_contenido)}</td>
-                    <td className="fw-semibold text-center bit-meta-cell">
-                      <span className="bit-meta-indicator" role="presentation">
-                        <span className={dotClassByThresholds(row.pct_cumpl_meta, thresholds)} />
-                        <span>{formatPct(capCumplMeta(row.pct_cumpl_meta))}</span>
-                      </span>
+                    <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                    <td className="pd-num pd-group-start">${formatMoney(row.monto_inicial)}</td>
+                    <td className="pd-num">${formatMoney(row.monto_contenido)}</td>
+                    <td className="pd-num">{formatPct(row.pct_contencion)}</td>
+                    <td className="pd-num pd-group-start">
+                      <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatPct(capCumplMeta(row.pct_cumpl_meta))}</span>
                     </td>
                   </tr>
                 ))}
                 {totalRow && (
-                  <tr className="fw-semibold table-primary">
+                  <tr className="pd-row-total">
                     <td>{totalRow.ejecutivo}</td>
-                    <td className="text-center">${formatMoney(totalRow.monto_inicial)}</td>
-                    <td className="text-center">${formatMoney(totalRow.monto_contenido)}</td>
-                    <td className="fw-semibold text-center bit-meta-cell">
-                      <span className="bit-meta-indicator bit-meta-indicator-total" role="presentation">
-                        <span className="gm-dot" />
-                        <span>{formatPct(totalRow.pct_cumpl_meta)}</span>
-                      </span>
+                    <td className="pd-num pd-group-start">${formatMoney(totalRow.monto_inicial)}</td>
+                    <td className="pd-num">${formatMoney(totalRow.monto_contenido)}</td>
+                    <td className="pd-num">{formatPct(totalRow.pct_contencion)}</td>
+                    <td className="pd-num pd-group-start">
+                      <span className="pd-status pd-status-none">{formatPct(totalRow.pct_cumpl_meta)}</span>
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
-          )}
-        </div>
-      </div>
-
-      <div className="card shadow-sm mt-3">
-        <div className="card-body py-2">
-          <div className="small text-muted mb-1">Archivo: {contencionFile || "N/D"}</div>
-          <div className="small">
-            <strong>Significado de colores:</strong>
-            <span className="ms-3"><span className="gm-dot gm-dot-bad" /> Bajo</span>
-            <span className="ms-3"><span className="gm-dot gm-dot-warn" /> Esperado</span>
-            <span className="ms-3"><span className="gm-dot gm-dot-ok" /> Sobre lo esperado</span>
           </div>
-        </div>
-      </div>
+        )}
+      </SectionCard>
     </div>
   );
 }

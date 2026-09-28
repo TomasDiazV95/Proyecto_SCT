@@ -52,7 +52,7 @@ def _bucket_index(bucket: str) -> int:
         return 99
 
 
-def get_filter_values() -> dict:
+def get_filter_values(periodo: str | None = None) -> dict:
     sql_periodos = """
     SELECT DISTINCT CONVERT(char(10), DATEFROMPARTS(YEAR(fecha_carga), MONTH(fecha_carga), 1), 126) AS periodo
     FROM dbo.tmp_asig_GM
@@ -61,13 +61,17 @@ def get_filter_values() -> dict:
     """
     periodos = [r["periodo"] for r in run_query(sql_periodos) if r.get("periodo")]
 
-    sql_ejecutivos = """
+    # Con periodo, solo los ejecutivos carterizados ese mes (los que tienen datos en las vistas).
+    periodo_sql = "AND mes_carterizado = ?" if periodo else ""
+    sql_ejecutivos = f"""
     SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS ejecutivo
     FROM dbo.tmp_carterizado_GM
     WHERE ejecutivo IS NOT NULL AND LTRIM(RTRIM(ejecutivo)) <> ''
+      {periodo_sql}
     ORDER BY ejecutivo
     """
-    ejecutivos = [r["ejecutivo"] for r in run_query(sql_ejecutivos) if r.get("ejecutivo")]
+    params = (_period_start(periodo),) if periodo else ()
+    ejecutivos = [r["ejecutivo"] for r in run_query(sql_ejecutivos, params) if r.get("ejecutivo")]
 
     return {
         "periodos": periodos,

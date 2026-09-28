@@ -11,6 +11,13 @@ WEB/automation/logs/
 sql/create_dashboard_view.sql
 archivos/
 !.env.example
+/Logs
+/sql
+
+# Skills descargadas para agentes (npx skills add): se instalan en cada equipo, no se versionan
+/.agents/
+/.claude/skills/
+skills-lock.json
 
 # Datos locales / pruebas
 data/Prompt V4.txt
