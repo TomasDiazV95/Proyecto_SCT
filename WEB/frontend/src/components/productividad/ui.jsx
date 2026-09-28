@@ -1,4 +1,6 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { toBlob } from "html-to-image";
 
 // Componentes visuales compartidos por los modulos del Panel de Productividad.
 // Solo presentacion: no cargan datos ni aplican reglas de negocio.
@@ -71,16 +73,107 @@ export function Segmented({ value, onChange, options }) {
   );
 }
 
-export function SectionCard({ title, description, actions, children, footer, bodyClassName = "pd-card-body", className = "" }) {
+// Captura la tarjeta completa como PNG (tabla entera aunque tenga scroll, con su leyenda).
+// Los elementos con la clase pd-no-export (los propios botones) quedan fuera de la imagen.
+async function captureCard(node) {
+  node.classList.add("pd-exporting");
+  try {
+    return await toBlob(node, {
+      pixelRatio: 2,
+      cacheBust: true,
+      backgroundColor: window.getComputedStyle(node).backgroundColor || "#ffffff",
+      filter: (element) => !element.classList?.contains("pd-no-export"),
+    });
+  } finally {
+    node.classList.remove("pd-exporting");
+  }
+}
+
+function ExportButtons({ targetRef, fileName }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  function flash(text) {
+    setMessage(text);
+    window.setTimeout(() => setMessage(""), 2500);
+  }
+
+  async function run(action) {
+    if (!targetRef.current || busy) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const blob = await captureCard(targetRef.current);
+      if (!blob) {
+        throw new Error("sin imagen");
+      }
+      await action(blob);
+    } catch (err) {
+      flash(action === copy ? "No se pudo copiar; usa Descargar PNG" : "No se pudo generar la imagen");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy(blob) {
+    // El portapapeles de imagenes solo funciona en https o localhost.
+    if (!navigator.clipboard || typeof window.ClipboardItem === "undefined") {
+      throw new Error("portapapeles no disponible");
+    }
+    await navigator.clipboard.write([new window.ClipboardItem({ "image/png": blob })]);
+    flash("Imagen copiada");
+  }
+
+  async function download(blob) {
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${fileName}.png`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
   return (
-    <section className={`pd-card ${className}`.trim()}>
-      {(title || actions) && (
-        <div className="pd-card-header">
+    <div className="pd-export-actions pd-no-export">
+      {message && <span className="pd-small pd-muted">{message}</span>}
+      <button type="button" className="pd-btn pd-btn-ghost pd-btn-sm" onClick={() => run(copy)} disabled={busy} title="Copiar la tabla como imagen">
+        <i className="bi bi-clipboard-check" aria-hidden="true" /> Copiar imagen
+      </button>
+      <button type="button" className="pd-btn pd-btn-ghost pd-btn-sm" onClick={() => run(download)} disabled={busy} title="Descargar la tabla como PNG">
+        <i className="bi bi-image" aria-hidden="true" /> Descargar PNG
+      </button>
+    </div>
+  );
+}
+
+// Nombre de archivo para exportar: une las partes con "_" y deja solo caracteres seguros.
+export function exportFileName(...parts) {
+  return parts
+    .filter((part) => part !== null && part !== undefined && String(part).trim() !== "")
+    .map((part) => String(part).trim().normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/[^A-Za-z0-9+-]+/g, "-"))
+    .join("_");
+}
+
+// exportName: si se indica, la tarjeta muestra los botones Copiar imagen / Descargar PNG
+// y se usa como nombre del archivo (sin extension).
+export function SectionCard({ title, description, actions, children, footer, bodyClassName = "pd-card-body", className = "", exportName }) {
+  const cardRef = useRef(null);
+  const hasHeading = Boolean(title || actions);
+  return (
+    <section ref={cardRef} className={`pd-card ${className}`.trim()}>
+      {(hasHeading || exportName) && (
+        <div className={`pd-card-header${hasHeading ? "" : " pd-card-header-tools pd-no-export"}`}>
           <div>
             {title && <h2 className="pd-section-title">{title}</h2>}
             {description && <p className="pd-section-desc">{description}</p>}
           </div>
-          {actions}
+          <div className="pd-card-header-actions">
+            {actions}
+            {exportName && <ExportButtons targetRef={cardRef} fileName={exportName} />}
+          </div>
         </div>
       )}
       {bodyClassName ? <div className={bodyClassName}>{children}</div> : children}
@@ -117,10 +210,50 @@ export function StatusLegend({ title = "Cumplimiento", items }) {
   );
 }
 
-export const relativeLegendItems = [
-  { status: "danger", label: "Bajo" },
-  { status: "warning", label: "Esperado" },
-  { status: "success", label: "Sobre lo esperado" },
+// PHOENIX y GRUPAL no son ejecutivos reales (cartera sin asignar / grupal): en las tablas van siempre al final.
+export function isPhoenixOGrupal(nombre) {
+  const valor = String(nombre || "").trim().toUpperCase();
+  return valor === "PHOENIX" || valor === "GRUPAL";
+}
+
+// Deja PHOENIX y GRUPAL al final sin alterar el orden del resto de las filas.
+export function phoenixGrupalAlFinal(rows, getNombre = (row) => row.ejecutivo) {
+  const lista = rows || [];
+  return [...lista.filter((row) => !isPhoenixOGrupal(getNombre(row))), ...lista.filter((row) => isPhoenixOGrupal(getNombre(row)))];
+}
+
+// Semaforo de cumplimiento de meta (carteras con meta). Recibe el % en escala 0-100 (100 = meta cumplida).
+export function cumplimientoStatus(pct) {
+  if (pct === null || pct === undefined || !Number.isFinite(Number(pct))) {
+    return "neutral";
+  }
+  const num = Number(pct);
+  if (num >= 100) {
+    return "success";
+  }
+  if (num >= 80) {
+    return "warning";
+  }
+  return "danger";
+}
+
+export function cumplimientoClass(pct) {
+  return `pd-status pd-status-${cumplimientoStatus(pct)}`;
+}
+
+// Mismo formato que la leyenda de aporte (punto + nombre). Rangos: < 80% / 80% - 99,9% / >= 100%.
+export const cumplimientoLegendItems = [
+  { status: "danger", label: "Crítico" },
+  { status: "warning", label: "En seguimiento" },
+  { status: "success", label: "Cumplido" },
+];
+
+// Carteras de aporte (La Araucana, SC Temprana): el % es la parte del recupero total que aporta cada ejecutivo,
+// no hay meta de 100%, asi que el color compara a los ejecutivos entre si (tercios: p33 / p66).
+export const aporteLegendItems = [
+  { status: "danger", label: "Aporte bajo" },
+  { status: "warning", label: "Aporte medio" },
+  { status: "success", label: "Aporte alto" },
 ];
 
 export function LoadingState({ text = "Cargando..." }) {
@@ -137,6 +270,62 @@ export function EmptyRow({ colSpan, text = "Sin datos para los filtros seleccion
     <tr>
       <td colSpan={colSpan} className="pd-empty">{text}</td>
     </tr>
+  );
+}
+
+export function MetasButton({ onClick }) {
+  return (
+    <button type="button" className="pd-btn pd-btn-secondary" onClick={onClick}>
+      <i className="bi bi-info-circle" aria-hidden="true" /> Metas
+    </button>
+  );
+}
+
+// Panel lateral de metas (mismo formato que Itau Vencida). Se cierra con Escape o clic fuera.
+export function MetasDrawer({ open, onClose, title = "Metas del mes", subtitle, wide = false, children }) {
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
+  return (
+    <>
+      <div className="pd-drawer-backdrop" onClick={onClose} />
+      <aside className={`pd-drawer${wide ? " pd-drawer-wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="pd-metas-drawer-title">
+        <div className="pd-drawer-header">
+          <div>
+            <h2 id="pd-metas-drawer-title" className="pd-section-title">{title}</h2>
+            {subtitle && <p className="pd-section-desc">{subtitle}</p>}
+          </div>
+          <button type="button" className="btn-close" aria-label="Cerrar" onClick={onClose} />
+        </div>
+        <div className="pd-drawer-body">{children}</div>
+      </aside>
+    </>
+  );
+}
+
+// Bloque con encabezado de color dentro del panel de metas.
+export function MetasBlock({ title, note, accent = "consumo", children }) {
+  return (
+    <div className={`iv-drawer-block iv-accent-${accent}`}>
+      <div className="iv-drawer-block-head">
+        <span>{title}</span>
+        {note && <span className="iv-drawer-peso">{note}</span>}
+      </div>
+      {children}
+    </div>
   );
 }
 

@@ -19,6 +19,16 @@ BLOCK_ORDER = [
 ]
 
 
+METAS_ORDER = [
+    "Contención C3",
+    "Normalización C3",
+    "Cont Suscept CV",
+    "Contención C5",
+    "Contención C6",
+    "Contención Pre Castigo",
+]
+
+
 def _zona_sql(column: str) -> str:
     """Unifica la zona: la carga CASTIGO trae 'CENTRO-NORTE', 'CENTRO-SUR', 'METROPOLITANA'
     y STC trae 'ZONA NORTE CENTRO', 'ZONA CENTRO SUR', 'ZONA METROPOLITANA'."""
@@ -233,7 +243,7 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
                 WHEN bloque = 'C3' THEN 'Contención C3'
                 WHEN bloque = 'SUSCEPTIBLE CV' THEN 'Cont Suscept CV'
                 WHEN bloque = 'C5' THEN 'Contención C5'
-                WHEN bloque = 'C6' THEN 'Salidas CV C6'
+                WHEN bloque = 'C6' THEN 'Contención C6'
                 WHEN bloque = 'PRE CASTIGO' THEN 'Contención Pre Castigo'
                 ELSE NULL
             END AS variable_meta_cont,
@@ -254,7 +264,12 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             r.contenido,
             CASE WHEN meta_norm.meta_valor IS NULL THEN NULL ELSE ROUND(r.deuda_asignada * meta_norm.meta_valor / 100.0, 0) END AS monto_meta_norm,
             r.normalizado,
-            r.cantidad_casos
+            r.cantidad_casos,
+            -- Ponderadores de la tabla de metas: nivel 2 pesa cada bloque dentro de mora tardia,
+            -- nivel 3 pesa contencion vs normalizacion dentro de C3.
+            CAST(meta_cont.ponderador_nivel_2_pct AS float) AS pond_n2,
+            CAST(meta_cont.ponderador_nivel_3_pct AS float) AS pond_n3_cont,
+            CAST(meta_norm.ponderador_nivel_3_pct AS float) AS pond_n3_norm
         FROM resultado_stc_base r
         LEFT JOIN metas meta_cont
             ON meta_cont.variable = r.variable_meta_cont
@@ -311,7 +326,10 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             r.contenido,
             CAST(NULL AS NUMERIC(18, 2)) AS monto_meta_norm,
             CAST(NULL AS NUMERIC(18, 2)) AS normalizado,
-            r.cantidad_casos
+            r.cantidad_casos,
+            CAST(NULL AS float) AS pond_n2,
+            CAST(NULL AS float) AS pond_n3_cont,
+            CAST(NULL AS float) AS pond_n3_norm
         FROM resultado_castigo_base r
         CROSS JOIN metas_castigo mc
     ),
@@ -351,7 +369,10 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             r.contenido,
             CAST(NULL AS NUMERIC(18, 2)) AS monto_meta_norm,
             CAST(NULL AS NUMERIC(18, 2)) AS normalizado,
-            r.cantidad_casos
+            r.cantidad_casos,
+            CAST(NULL AS float) AS pond_n2,
+            CAST(NULL AS float) AS pond_n3_cont,
+            CAST(NULL AS float) AS pond_n3_norm
         FROM resultado_castigo_consolidado_base r
         CROSS JOIN metas_castigo mc
     ),
@@ -375,7 +396,10 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             rf.contenido,
             rf.monto_meta_norm,
             rf.normalizado,
-            rf.cantidad_casos
+            rf.cantidad_casos,
+            rf.pond_n2,
+            rf.pond_n3_cont,
+            rf.pond_n3_norm
         FROM resultado_final rf
         CROSS JOIN periodo_meta pm
         WHERE EXISTS (
@@ -402,7 +426,10 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
         CAST(ROUND(contenido, 0) AS BIGINT) AS contenido,
         CAST(ROUND(monto_meta_norm, 0) AS BIGINT) AS monto_meta_norm,
         CAST(ROUND(normalizado, 0) AS BIGINT) AS normalizado,
-        cantidad_casos
+        cantidad_casos,
+        pond_n2,
+        pond_n3_cont,
+        pond_n3_norm
     FROM resultado_filtrado
     {extra_where}
     ORDER BY
@@ -467,6 +494,9 @@ def _rows_from_query(filters: dict) -> list[dict]:
                 "monto_meta_norm": float(row.get("monto_meta_norm") or 0),
                 "normalizado": float(row.get("normalizado") or 0),
                 "cantidad_casos": int(row.get("cantidad_casos") or 0),
+                "pond_n2": row.get("pond_n2"),
+                "pond_n3_cont": row.get("pond_n3_cont"),
+                "pond_n3_norm": row.get("pond_n3_norm"),
                 "bloques_activos": active_blocks.get(_executive_key(row.get("ejecutivo")), []),
                 "ponderadores_nivel_1": level_1_weights,
             }
@@ -484,7 +514,40 @@ def get_general_view(filters: dict) -> list[dict]:
     return _rows_from_query(filters)
 
 
-def get_filter_values() -> dict:
+def get_metas(filters: dict) -> list[dict]:
+    """Metas activas del mes de la fecha consultada (dbo.stc_metas_mensuales), para el panel de metas."""
+    periodo = _period_date(filters.get("periodo"))
+    sql = """
+    SELECT
+        LTRIM(RTRIM(variable)) AS variable,
+        CAST(meta_valor AS float) AS meta_valor,
+        LTRIM(RTRIM(meta_tipo)) AS meta_tipo,
+        CAST(ponderador_nivel_1_pct AS float) AS ponderador_nivel_1_pct,
+        CAST(ponderador_nivel_2_pct AS float) AS ponderador_nivel_2_pct,
+        CAST(ponderador_nivel_3_pct AS float) AS ponderador_nivel_3_pct
+    FROM dbo.stc_metas_mensuales
+    WHERE periodo = DATEFROMPARTS(YEAR(CAST(? AS DATE)), MONTH(CAST(? AS DATE)), 1)
+      AND activo = 1
+    """
+    rows = [
+        {
+            "periodo": periodo,
+            "variable": row.get("variable") or "",
+            "meta_valor": row.get("meta_valor"),
+            "meta_tipo": row.get("meta_tipo") or "",
+            "ponderador_nivel_1_pct": row.get("ponderador_nivel_1_pct"),
+            "ponderador_nivel_2_pct": row.get("ponderador_nivel_2_pct"),
+            "ponderador_nivel_3_pct": row.get("ponderador_nivel_3_pct"),
+        }
+        for row in run_query(sql, (periodo, periodo))
+    ]
+    # Mismo orden que la tabla de metas del negocio; las variables no listadas (castigo) van al final.
+    orden = {variable: idx for idx, variable in enumerate(METAS_ORDER)}
+    rows.sort(key=lambda r: (orden.get(r["variable"], len(orden)), r["variable"]))
+    return rows
+
+
+def get_filter_values(periodo: str | None = None, zona: str | None = None) -> dict:
     sql_periodos = """
     SELECT DISTINCT CONVERT(char(10), fecha, 126) AS valor
     FROM dbo.vw_stc_sabana_avance
@@ -497,17 +560,23 @@ def get_filter_values() -> dict:
     WHERE zona IS NOT NULL AND LTRIM(RTRIM(zona)) <> ''
     ORDER BY valor
     """
-    sql_ejecutivos = """
-    SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS valor
-    FROM dbo.vw_stc_sabana_avance
-    WHERE ejecutivo IS NOT NULL AND LTRIM(RTRIM(ejecutivo)) <> ''
-    ORDER BY valor
-    """
+    if periodo:
+        # Con fecha de consulta: exactamente los ejecutivos que aparecen en la tabla (misma fecha y zona).
+        rows = _rows_from_query({"periodo": periodo, "zona": zona})
+        ejecutivos = sorted({row["ejecutivo"] for row in rows if row.get("ejecutivo")})
+    else:
+        sql_ejecutivos = """
+        SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS valor
+        FROM dbo.vw_stc_sabana_avance
+        WHERE ejecutivo IS NOT NULL AND LTRIM(RTRIM(ejecutivo)) <> ''
+        ORDER BY valor
+        """
+        ejecutivos = [r["valor"] for r in run_query(sql_ejecutivos) if r.get("valor")]
 
     return {
         "periodos": [r["valor"] for r in run_query(sql_periodos) if r.get("valor")],
         "tramos": BLOCK_ORDER,
         "aperturas": [],
-        "ejecutivos": [r["valor"] for r in run_query(sql_ejecutivos) if r.get("valor")],
+        "ejecutivos": ejecutivos,
         "zonas": [r["valor"] for r in run_query(sql_zonas) if r.get("valor")],
     }

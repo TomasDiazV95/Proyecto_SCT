@@ -12,3 +12,4 @@ sql/create_dashboard_view.sql
 archivos/
 !.env.example
 /Logs
+/sql

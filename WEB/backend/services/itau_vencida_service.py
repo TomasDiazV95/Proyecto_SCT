@@ -161,7 +161,7 @@ def _base_cte(periodo: str, fecha_carga: str, filtros: list[dict]) -> tuple[str,
     return BASE_CTE.replace("/*MEDIBLES*/", medibles_sql), [periodo, fecha_carga, GESTOR_PHOENIX, *medibles_params]
 
 
-def get_filter_values() -> dict:
+def get_filter_values(fecha_carga: str | None = None) -> dict:
     fechas_carga = [
         r["fecha_carga"]
         for r in run_query(
@@ -179,7 +179,7 @@ def get_filter_values() -> dict:
 
     ejecutivos: list[str] = []
     if fechas_carga:
-        fecha_carga = fechas_carga[0]
+        fecha_carga = fecha_carga[:10] if fecha_carga else fechas_carga[0]
         periodo = _periodo_from_fecha(fecha_carga)
         cte_sql, cte_params = _base_cte(periodo, fecha_carga, _load_filtros_medibles(periodo))
         ejecutivos = [

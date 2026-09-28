@@ -324,7 +324,7 @@ def _base_where(filters: dict) -> tuple[str, list]:
     return " AND ".join(clauses), params
 
 
-def get_filter_values() -> dict:
+def get_filter_values(periodo: str | None = None) -> dict:
     cast = _castigo_config()
     cast_periodo = cast["periodo_col"]
     periodos = [
@@ -348,9 +348,11 @@ def get_filter_values() -> dict:
         FROM bit_castigo_data
         WHERE ejecutivo IS NOT NULL
           AND LTRIM(RTRIM(ejecutivo)) <> ''
+          {"AND periodo = ?" if periodo else ""}
         ORDER BY v
         """
-        ejecutivos = [row["v"] for row in run_query(sql) if row.get("v")]
+        params = (_resolve_period(periodo),) if periodo else ()
+        ejecutivos = [row["v"] for row in run_query(sql, params) if row.get("v")]
     except Exception:
         # Si el cruce con carterizado o dotacion falla por columnas distintas
         # entre ambientes, no bloqueamos la carga inicial de la pantalla.
@@ -420,6 +422,8 @@ def get_general(filters: dict) -> dict:
     return {
         "periodo": periodo,
         "contencion_file": _get_source_file(periodo),
+        # Meta de recupero del periodo (tramo CASTIGO en tmp_BIT_metas), en pesos.
+        "meta": meta_periodo or None,
         "rows": rows,
         "total": {
             "ejecutivo": "Total general",

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchBitCastigoFilters, fetchBitCastigoGeneral } from "../api";
-import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, relativeLegendItems } from "../components/productividad/ui";
+import { Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 
 function formatMoney(value) {
@@ -19,30 +19,9 @@ function capCumplMeta(value) {
 }
 
 
-function percentil(sortedValues, p) {
-  if (!sortedValues.length) {
-    return 0;
-  }
-  const idx = (sortedValues.length - 1) * p;
-  const lower = Math.floor(idx);
-  const upper = Math.ceil(idx);
-  if (lower === upper) {
-    return sortedValues[lower];
-  }
-  const weight = idx - lower;
-  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
-}
-
-
-function dotClassByThresholds(value, thresholds) {
-  const num = Number(value || 0);
-  if (num >= thresholds.p66) {
-    return "pd-status pd-status-success";
-  }
-  if (num >= thresholds.p33) {
-    return "pd-status pd-status-warning";
-  }
-  return "pd-status pd-status-danger";
+// Cumplimiento viene en fraccion (1 = 100%); el semaforo comun trabaja en escala 0-100.
+function cumplimientoFraccionClass(value) {
+  return cumplimientoClass(value === null || value === undefined ? null : Number(value) * 100);
 }
 
 
@@ -52,6 +31,8 @@ export default function BitCastigoPage() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null);
   const [contencionFile, setContencionFile] = useState("");
+  const [meta, setMeta] = useState(null);
+  const [metasOpen, setMetasOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -68,6 +49,20 @@ export default function BitCastigoPage() {
     loadFilters();
   }, []);
 
+  // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
+  useEffect(() => {
+    if (!filters.periodo) {
+      return;
+    }
+    fetchBitCastigoFilters(filters.periodo)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.periodo]);
+
   useEffect(() => {
     if (!filters.periodo) {
       return;
@@ -81,6 +76,7 @@ export default function BitCastigoPage() {
         setRows(data.rows || []);
         setTotal(data.total || null);
         setContencionFile(data.contencion_file || "");
+        setMeta(data.meta ?? null);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -94,17 +90,6 @@ export default function BitCastigoPage() {
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
-
-  const thresholds = useMemo(() => {
-    const values = rows
-      .map((row) => capCumplMeta(row.pct_cumpl_meta || 0))
-      .filter((value) => Number.isFinite(value))
-      .sort((a, b) => a - b);
-    return {
-      p33: percentil(values, 0.33),
-      p66: percentil(values, 0.66),
-    };
-  }, [rows]);
 
   const totalRow = useMemo(() => {
     if (!total) {
@@ -125,9 +110,9 @@ export default function BitCastigoPage() {
 
   return (
     <div className="pd-page">
-      <PageHeader title="BIT Castigo" subtitle="Seguimiento y cumplimiento de Banco Internacional, cartera castigo." />
+      <PageHeader title="Banco Internacional Castigo" subtitle="Seguimiento y cumplimiento de Banco Internacional, cartera castigo." />
 
-      <FilterBar>
+      <FilterBar actions={<MetasButton onClick={() => setMetasOpen(true)} />}>
         <Field label="Periodo">
           <select className="form-select" value={filters.periodo} onChange={(e) => onFilter("periodo", e.target.value)}>
             {options.periodos.map((value) => (
@@ -142,7 +127,7 @@ export default function BitCastigoPage() {
             <option value="">Todos</option>
             {options.ejecutivos.map((value) => (
               <option key={value} value={value}>
-                {value}
+                {String(value).toUpperCase()}
               </option>
             ))}
           </select>
@@ -151,11 +136,38 @@ export default function BitCastigoPage() {
 
       {error && <div className="alert alert-danger">{error}</div>}
 
+      <MetasDrawer open={metasOpen} onClose={() => setMetasOpen(false)} subtitle={`Vigentes para ${filters.periodo || "N/D"}`}>
+        {meta ? (
+          <div className="iv-drawer-grid iv-drawer-grid-single">
+            <MetasBlock title="Recupero Castigo">
+              <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+                <thead>
+                  <tr>
+                    <th>Variable</th>
+                    <th className="pd-num">Meta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Recupero castigo</td>
+                    <td className="pd-num pd-cell-strong">${formatMoney(meta)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </MetasBlock>
+          </div>
+        ) : (
+          <div className="alert alert-light border">No hay metas cargadas para este mes.</div>
+        )}
+        
+      </MetasDrawer>
+
       <SectionCard
+        exportName={exportFileName("BIT-Castigo", filters.periodo)}
         bodyClassName=""
         footer={
           <>
-            <StatusLegend items={relativeLegendItems} />
+            <StatusLegend items={cumplimientoLegendItems} />
             <span>Archivo: {contencionFile || "N/D"}</span>
           </>
         }
@@ -165,36 +177,37 @@ export default function BitCastigoPage() {
         ) : (
           <div className="pd-table-scroll">
             <table className="pd-table">
-              <colgroup>
-                {Array.from({ length: 4 }).map((_, idx) => (
-                  <col key={`bit-castigo-col-${idx}`} style={{ width: "25%" }} />
-                ))}
-              </colgroup>
               <thead>
                 <tr>
-                  <th>Ejecutivo</th>
-                  <th className="pd-num">Mto Inicial</th>
-                  <th className="pd-num">Recupero</th>
-                  <th className="pd-num pd-th-key">% Cumplimiento meta</th>
+                  <th rowSpan={2}>Ejecutivo</th>
+                  <th colSpan={3} className="pd-th-group-1 pd-group-start">Recupero Castigo</th>
+                  <th rowSpan={2} className="pd-num pd-th-key pd-group-start">% Cumplimiento meta</th>
+                </tr>
+                <tr>
+                  <th className="pd-num pd-th-sub-1 pd-group-start">Mto Inicial</th>
+                  <th className="pd-num pd-th-sub-1">Recupero</th>
+                  <th className="pd-num pd-th-sub-1">% Recupero</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
+                {phoenixGrupalAlFinal(rows).map((row, idx) => (
                   <tr key={`bit-castigo-${row.ejecutivo}-${idx}`}>
-                    <td>{row.ejecutivo}</td>
-                    <td className="pd-num">${formatMoney(row.monto_inicial)}</td>
+                    <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                    <td className="pd-num pd-group-start">${formatMoney(row.monto_inicial)}</td>
                     <td className="pd-num">${formatMoney(row.monto_contenido)}</td>
-                    <td className="pd-num">
-                      <span className={dotClassByThresholds(row.pct_cumpl_meta, thresholds)}>{formatPct(capCumplMeta(row.pct_cumpl_meta))}</span>
+                    <td className="pd-num">{formatPct(row.pct_contencion)}</td>
+                    <td className="pd-num pd-group-start">
+                      <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatPct(capCumplMeta(row.pct_cumpl_meta))}</span>
                     </td>
                   </tr>
                 ))}
                 {totalRow && (
                   <tr className="pd-row-total">
                     <td>{totalRow.ejecutivo}</td>
-                    <td className="pd-num">${formatMoney(totalRow.monto_inicial)}</td>
+                    <td className="pd-num pd-group-start">${formatMoney(totalRow.monto_inicial)}</td>
                     <td className="pd-num">${formatMoney(totalRow.monto_contenido)}</td>
-                    <td className="pd-num">
+                    <td className="pd-num">{formatPct(totalRow.pct_contencion)}</td>
+                    <td className="pd-num pd-group-start">
                       <span className="pd-status pd-status-none">{formatPct(totalRow.pct_cumpl_meta)}</span>
                     </td>
                   </tr>

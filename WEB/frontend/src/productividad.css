@@ -31,6 +31,8 @@
   --pd-group-2: #2563eb;
   --pd-group-2-soft: #eff6ff;
   --pd-group-2-text: #1d4ed8;
+  /* Columna de apoyo (ej. Casos): solido como los grupos, pero neutro */
+  --pd-group-neutral: #475569;
 
   /* Estados de cumplimiento */
   --pd-success: #16a34a;
@@ -159,6 +161,31 @@
 
 .pd-card-body {
   padding: var(--pd-space-4);
+}
+
+.pd-card-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--pd-space-2);
+}
+
+/* Cabecera que solo tiene los botones de exportar: compacta y alineada a la derecha. */
+.pd-card-header-tools {
+  justify-content: flex-end;
+  padding: var(--pd-space-2) var(--pd-space-4);
+}
+
+.pd-export-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--pd-space-2);
+}
+
+/* Mientras se genera la imagen, la tabla se muestra completa (sin el alto maximo con scroll). */
+.pd-exporting .pd-table-scroll {
+  max-height: none;
+  overflow: visible;
 }
 
 .pd-card-footer {
@@ -767,14 +794,35 @@
   color: var(--pd-text);
 }
 
+/* Regla general del panel: todo el contenido de las tablas (encabezados y valores)
+   va centrado horizontal y verticalmente. */
 .pd-table th,
 .pd-table td {
   padding: var(--pd-space-2) var(--pd-space-3);
   border-bottom: 1px solid var(--pd-border);
   background: var(--pd-surface);
-  text-align: left;
+  text-align: center;
   vertical-align: middle;
   white-space: nowrap;
+}
+
+/* Tablas con encabezado de dos niveles (bloques de color con subcolumnas):
+   ancho fijo repartido en partes iguales, asi las subcolumnas de cada bloque miden lo mismo
+   y todas las tablas con esta estructura comparten proporciones. Se detectan solas (thead con 2 filas). */
+.pd-table:has(> thead > tr + tr) {
+  table-layout: fixed;
+}
+
+/* La primera columna (Ejecutivo) es la unica mas ancha, igual en todas las tablas. */
+.pd-table:has(> thead > tr + tr) > thead > tr:first-child > th:first-child {
+  width: 16%;
+}
+
+/* Con ancho fijo, el contenido hace salto de linea en vez de salirse de la celda. */
+.pd-table:has(> thead > tr + tr) th,
+.pd-table:has(> thead > tr + tr) td {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .pd-table th:first-child,
@@ -807,6 +855,13 @@
 .pd-table thead th.pd-th-key {
   background: var(--pd-primary);
   border-bottom-color: var(--pd-primary);
+  color: #ffffff;
+}
+
+/* Encabezado neutro: columnas de apoyo (ej. Casos) que no compiten con los grupos principales */
+.pd-table thead th.pd-th-neutral {
+  background: var(--pd-group-neutral);
+  border-bottom-color: var(--pd-group-neutral);
   color: #ffffff;
 }
 
@@ -863,7 +918,7 @@
 }
 
 .pd-table .pd-num {
-  text-align: right;
+  text-align: center;
 }
 
 .pd-table .pd-center {
@@ -910,6 +965,12 @@
   font-weight: 600;
 }
 
+/* Nombre de ejecutivo: mayuscula y negrita solo en pantalla, el dato no cambia */
+.pd-table .pd-cell-ejecutivo {
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
 .pd-table .pd-cell-muted {
   font-size: var(--pd-fs-small);
   color: var(--pd-text-subtle);
@@ -925,6 +986,12 @@
   padding: var(--pd-space-6) var(--pd-space-4);
   text-align: center;
   color: var(--pd-text-muted);
+}
+
+/* Tablas que deben caber en el ancho de la tarjeta sin scroll horizontal:
+   los encabezados hacen salto de linea y solo los valores quedan en una linea. */
+.pd-table-fit thead th {
+  white-space: normal;
 }
 
 /* Tablas anchas: celdas compactas y primera columna fija */
@@ -1056,6 +1123,10 @@
   animation: pd-slide 0.2s ease-out;
 }
 
+.pd-drawer-wide {
+  width: min(640px, 100vw);
+}
+
 .pd-drawer-header {
   display: flex;
   justify-content: space-between;
@@ -1096,10 +1167,25 @@
   gap: var(--pd-space-3);
 }
 
+.iv-drawer-grid-single {
+  grid-template-columns: 1fr;
+}
+
 .iv-drawer-block {
   border: 1px solid var(--pd-border);
   border-radius: var(--pd-radius-sm);
   overflow: hidden;
+}
+
+/* Las tablas del panel de metas se ajustan al ancho del bloque: el texto hace salto de linea
+   y solo los numeros quedan en una linea, asi no aparece scroll horizontal. */
+.iv-drawer-block .pd-table th,
+.iv-drawer-block .pd-table td {
+  white-space: normal;
+}
+
+.iv-drawer-block .pd-table .pd-num {
+  white-space: nowrap;
 }
 
 .iv-drawer-block-head {

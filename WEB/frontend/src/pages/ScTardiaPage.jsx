@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchCycle, fetchFilters } from "../api";
-import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend } from "../components/productividad/ui";
+import { fetchCycle, fetchFilters, fetchGeneral, fetchScTardiaMetas } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoLegendItems, cumplimientoStatus, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
   periodo: "",
@@ -9,6 +9,14 @@ const initialFilters = {
 };
 
 const blockOrder = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO", "F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
+const generalMoraBlocks = [
+  { block: "C3", label: "C3" },
+  { block: "SUSCEPTIBLE CV", label: "Susc. CV" },
+  { block: "C5", label: "C5" },
+  { block: "C6", label: "C6" },
+  { block: "PRE CASTIGO", label: "Pre Castigo" },
+];
+const generalComplianceBlocks = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO"];
 const castigoBlocks = ["F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
 
 const blockMeta = {
@@ -42,28 +50,21 @@ function cappedPct(numerator, denominator) {
   return capPct(safePct(numerator, denominator));
 }
 
+// C3 combina contencion y normalizacion con los ponderadores nivel 3 de la tabla de metas.
 function rowCompliance(row) {
   const cont = cappedPct(row.contenido, row.monto_meta_cont);
   const norm = cappedPct(row.normalizado, row.monto_meta_norm);
-  if (row.bloque === "C3" && num(row.monto_meta_norm) > 0) {
-    return capPct((cont * 0.4) + (norm * 0.6));
+  const pesoCont = num(row.pond_n3_cont);
+  const pesoNorm = num(row.pond_n3_norm);
+  if (row.bloque === "C3" && num(row.monto_meta_norm) > 0 && pesoCont + pesoNorm > 0) {
+    return capPct(((cont * pesoCont) + (norm * pesoNorm)) / (pesoCont + pesoNorm));
   }
   return capPct(cont);
 }
 
+// Semaforo comun de cumplimiento: < 80% critico, 80% - 99,9% en seguimiento, >= 100% cumplido.
 function statusOf(value) {
-  const pct = num(value);
-  if (pct >= 100) return "success";
-  if (pct >= 70) return "warning";
-  if (pct === 0) return "neutral";
-  return "danger";
-}
-
-function statusLabel(status) {
-  if (status === "success") return "Sobre meta";
-  if (status === "warning") return "En riesgo";
-  if (status === "neutral") return "Sin avance";
-  return "Bajo meta";
+  return cumplimientoStatus(num(value));
 }
 
 function metricClass(value) {
@@ -94,13 +95,15 @@ function sortBlocks(a, b) {
 }
 
 export default function ScTardiaPage() {
+  const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
   const [options, setOptions] = useState({ periodos: [], zonas: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
   const [selectedBlock, setSelectedBlock] = useState("C3");
-  const [statusFilters, setStatusFilters] = useState({ success: true, warning: true, danger: true, neutral: true });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [metasOpen, setMetasOpen] = useState(false);
+  const [metas, setMetas] = useState([]);
 
   useEffect(() => {
     async function loadFilters() {
@@ -119,13 +122,27 @@ export default function ScTardiaPage() {
     loadFilters();
   }, []);
 
+  // El filtro de ejecutivo ofrece solo los que aparecen en la tabla para la fecha y zona elegidas.
+  useEffect(() => {
+    if (!filters.periodo) {
+      return;
+    }
+    fetchFilters(filters.periodo, filters.zona)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.periodo, filters.zona]);
+
   useEffect(() => {
     async function loadData() {
       if (!filters.periodo) return;
       setLoading(true);
       setError("");
       try {
-        const data = await fetchCycle(filters);
+        const data = view === "general" ? await fetchGeneral(filters) : await fetchCycle(filters);
         setRows(data || []);
       } catch (err) {
         setError(err.message);
@@ -134,7 +151,62 @@ export default function ScTardiaPage() {
       }
     }
     loadData();
-  }, [filters]);
+  }, [filters, view]);
+
+  // Las metas se cargan al abrir el panel, para el mes de la fecha consultada.
+  useEffect(() => {
+    if (!metasOpen || !filters.periodo) return;
+    fetchScTardiaMetas(filters)
+      .then(setMetas)
+      .catch((err) => setError(err.message));
+  }, [metasOpen, filters.periodo]);
+
+  function renderMetasDrawer() {
+    const tipos = Array.from(new Set(metas.map((meta) => meta.meta_tipo)));
+    return (
+      <MetasDrawer open={metasOpen} onClose={() => setMetasOpen(false)} wide subtitle={`Vigentes para ${filters.periodo ? filters.periodo.slice(0, 7) : "N/D"}`}>
+        {tipos.length ? (
+          <div className="iv-drawer-grid iv-drawer-grid-single">
+            {tipos.map((tipo, idx) => {
+              const items = metas.filter((meta) => meta.meta_tipo === tipo);
+              const ponderador = items.find((meta) => meta.ponderador_nivel_1_pct !== null && meta.ponderador_nivel_1_pct !== undefined)?.ponderador_nivel_1_pct;
+              return (
+                <MetasBlock
+                  key={tipo}
+                  title={tipo || "Sin tipo"}
+                  note={ponderador !== undefined ? `Pondera ${formatPct(ponderador, 0)}` : ""}
+                  accent={idx % 2 === 0 ? "consumo" : "hipot"}
+                >
+                  <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+                    <thead>
+                      <tr>
+                        <th>Variable</th>
+                        <th className="pd-num">Meta</th>
+                        <th className="pd-num">Pond. N2</th>
+                        <th className="pd-num">Pond. N3</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((meta) => (
+                        <tr key={meta.variable}>
+                          <td>{meta.variable}</td>
+                          <td className="pd-num pd-cell-strong">{meta.meta_valor === null ? "-" : formatPct(meta.meta_valor, 2)}</td>
+                          <td className="pd-num">{meta.ponderador_nivel_2_pct === null ? "-" : formatPct(meta.ponderador_nivel_2_pct, 0)}</td>
+                          <td className="pd-num">{meta.ponderador_nivel_3_pct === null ? "-" : formatPct(meta.ponderador_nivel_3_pct, 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </MetasBlock>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="alert alert-light border">No hay metas cargadas para este mes.</div>
+        )}
+      </MetasDrawer>
+    );
+  }
 
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -142,7 +214,6 @@ export default function ScTardiaPage() {
 
   function clearFilters() {
     setFilters((prev) => ({ ...prev, zona: "", ejecutivo: "" }));
-    setStatusFilters({ success: true, warning: true, danger: true, neutral: true });
   }
 
   const allRows = rows || [];
@@ -172,7 +243,80 @@ export default function ScTardiaPage() {
     [allRows]
   );
 
-  const visibleMetricRows = useMemo(() => rowsWithMetrics.filter((row) => statusFilters[row.estado]), [rowsWithMetrics, statusFilters]);
+  // Ponderador nivel 2 de cada bloque de mora tardia (es el mismo para todos los ejecutivos del mes).
+  const pesoNivel2 = useMemo(() => {
+    const pesos = {};
+    allRows.forEach((row) => {
+      if (row.pond_n2 !== null && row.pond_n2 !== undefined) {
+        pesos[row.bloque] = num(row.pond_n2);
+      }
+    });
+    return pesos;
+  }, [allRows]);
+
+  const executiveRows = useMemo(() => {
+    const grouped = new Map();
+    rowsWithMetrics.forEach((row) => {
+      const current = grouped.get(row.ejecutivo) || {
+        ejecutivo: row.ejecutivo,
+        casos_asignados: 0,
+        sumas: {},
+        bloques_activos: new Set(),
+        ponderadores_nivel_1: { PTC: 0, STOCK: 0 },
+      };
+      current.casos_asignados += num(row.cantidad_casos);
+      const suma = current.sumas[row.bloque] || {
+        bloque: row.bloque,
+        contenido: 0,
+        monto_meta_cont: 0,
+        normalizado: 0,
+        monto_meta_norm: 0,
+        pond_n3_cont: row.pond_n3_cont,
+        pond_n3_norm: row.pond_n3_norm,
+      };
+      suma.contenido += num(row.contenido);
+      suma.monto_meta_cont += num(row.monto_meta_cont);
+      suma.normalizado += num(row.normalizado);
+      suma.monto_meta_norm += num(row.monto_meta_norm);
+      current.sumas[row.bloque] = suma;
+      (row.bloques_activos || []).forEach((block) => current.bloques_activos.add(block));
+      current.ponderadores_nivel_1 = row.ponderadores_nivel_1 || current.ponderadores_nivel_1;
+      grouped.set(row.ejecutivo, current);
+    });
+
+    return Array.from(grouped.values())
+      .map(({ sumas, ...rest }) => ({
+        ...rest,
+        bloques: Object.fromEntries(Object.values(sumas).map((suma) => [suma.bloque, rowCompliance(suma)])),
+      }))
+      .map((item) => {
+        const activeMoraBlocks = generalComplianceBlocks.filter((block) => item.bloques_activos.has(block) || item.bloques[block] !== undefined);
+        const hasMoraTardia = activeMoraBlocks.length > 0;
+        const hasCastigo = item.bloques_activos.has("TOTAL F1 - F4") || item.bloques["TOTAL F1 - F4"] !== undefined;
+        // Mora tardia = promedio de los bloques activos ponderado por nivel 2 (se re-normaliza sobre los activos).
+        const pesoTotal = activeMoraBlocks.reduce((acc, block) => acc + num(pesoNivel2[block]), 0);
+        const moraCumplimiento = !hasMoraTardia
+          ? 0
+          : pesoTotal > 0
+            ? activeMoraBlocks.reduce((acc, block) => acc + num(item.bloques[block]) * num(pesoNivel2[block]), 0) / pesoTotal
+            : activeMoraBlocks.reduce((acc, block) => acc + num(item.bloques[block]), 0) / activeMoraBlocks.length;
+        const castigoCumplimiento = num(item.bloques["TOTAL F1 - F4"]);
+        const ptcWeight = num(item.ponderadores_nivel_1?.PTC) / 100;
+        const stockWeight = num(item.ponderadores_nivel_1?.STOCK) / 100;
+        let cumplimiento = 0;
+
+        if (hasMoraTardia && hasCastigo) {
+          cumplimiento = (moraCumplimiento * ptcWeight) + (castigoCumplimiento * stockWeight);
+        } else if (hasMoraTardia) {
+          cumplimiento = moraCumplimiento;
+        } else if (hasCastigo) {
+          cumplimiento = castigoCumplimiento;
+        }
+
+        return { ...item, cumplimiento_operativo: capPct(cumplimiento) };
+      })
+      .sort((a, b) => b.cumplimiento_operativo - a.cumplimiento_operativo);
+  }, [rowsWithMetrics, pesoNivel2]);
 
   const blockSummary = useMemo(() => {
     return availableBlocks.map((block) => {
@@ -210,19 +354,91 @@ export default function ScTardiaPage() {
   const selectedBlockTotal = selectedBlockSums
     ? { ...selectedBlockSums, pct_contencion: cappedPct(selectedBlockSums.contenido, selectedBlockSums.monto_meta_cont) }
     : null;
+  // Ponderador nivel 1 (mora tardia vs castigo) desde la tabla de metas, para los encabezados.
+  const pesosNivel1 = allRows[0]?.ponderadores_nivel_1 || {};
+  const pesoMoraLabel = pesosNivel1.PCT !== undefined ? `pondera ${formatPct(pesosNivel1.PCT, 0)}` : "";
+  const pesoCastigoLabel = pesosNivel1.STOCK !== undefined ? `pondera ${formatPct(pesosNivel1.STOCK, 0)}` : "";
+
+  const viewTabs = (
+    <ViewTabs
+      value={view}
+      onChange={setView}
+      options={[
+        { value: "general", label: "Vista general", icon: "bi-grid" },
+        { value: "ciclo", label: "Por ciclo", icon: "bi-layers" },
+      ]}
+    />
+  );
+
+  function renderGeneralTable() {
+    return (
+      <table className="pd-table">
+        <thead>
+          <tr>
+            <th rowSpan={2}>Ejecutivo</th>
+            <th rowSpan={2} className="pd-num pd-th-neutral">Casos</th>
+            <th colSpan={generalMoraBlocks.length} className="pd-th-group-1 pd-group-start">
+              Mora Tardía <span className="pd-th-note">{pesoMoraLabel}</span>
+            </th>
+            <th className="pd-th-group-2 pd-group-start">
+              Castigo <span className="pd-th-note">{pesoCastigoLabel}</span>
+            </th>
+            <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+          </tr>
+          <tr>
+            {generalMoraBlocks.map(({ block, label }, idx) => (
+              <th key={block} className={`pd-num pd-th-sub-1${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
+            ))}
+            <th className="pd-num pd-th-sub-2 pd-group-start">Total F1 - F3</th>
+          </tr>
+        </thead>
+        <tbody>
+          {phoenixGrupalAlFinal(executiveRows).map((row) => (
+            <tr key={row.ejecutivo}>
+              <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+              <td className="pd-num">{row.casos_asignados.toLocaleString("es-CL")}</td>
+              {generalMoraBlocks.map(({ block }, idx) => (
+                <td key={`${row.ejecutivo}-${block}`} className={`pd-num${idx === 0 ? " pd-group-start" : ""}`}>
+                  {row.bloques[block] === undefined ? (
+                    <span className="pd-cell-muted">—</span>
+                  ) : (
+                    <span className={metricClass(row.bloques[block])}>{formatPct(row.bloques[block], 1)}</span>
+                  )}
+                </td>
+              ))}
+              <td className="pd-num pd-group-start">
+                {row.bloques["TOTAL F1 - F4"] === undefined ? (
+                  <span className="pd-cell-muted">—</span>
+                ) : (
+                  <span className={metricClass(row.bloques["TOTAL F1 - F4"])}>{formatPct(row.bloques["TOTAL F1 - F4"], 1)}</span>
+                )}
+              </td>
+              <td className="pd-num pd-group-start">
+                <span className={metricClass(row.cumplimiento_operativo)}>{formatPct(row.cumplimiento_operativo)}</span>
+              </td>
+            </tr>
+          ))}
+          {!executiveRows.length && <EmptyRow colSpan={generalMoraBlocks.length + 4} />}
+        </tbody>
+      </table>
+    );
+  }
+
   const selectedMeta = blockMeta[selectedBlock] || { title: selectedBlock, subtitle: "Detalle de bloque", icon: "bi-layers" };
 
   return (
     <div className="pd-page">
-      <PageHeader title="SC Tardía" subtitle="Seguimiento de metas y cumplimiento operativo por ejecutivo, ciclo y reporte." />
+      <PageHeader title="Santander Consumer Tardía" subtitle="Seguimiento de metas y cumplimiento operativo por ejecutivo, ciclo y reporte." />
 
       <FilterBar
         actions={
-          <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters}>
-            <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
-          </button>
+          <>
+            <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters}>
+              <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+            </button>
+            <MetasButton onClick={() => setMetasOpen(true)} />
+          </>
         }
-        note="La fecha seleccionada se usa como fecha de consulta de la sábana y define el mes de metas."
       >
         <Field label="Fecha consulta">
           <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
@@ -238,36 +454,33 @@ export default function ScTardiaPage() {
         <Field label="Ejecutivo">
           <select className="form-select" value={filters.ejecutivo} onChange={(e) => onChange("ejecutivo", e.target.value)}>
             <option value="">Todos los ejecutivos</option>
-            {options.ejecutivos.map((value) => <option key={value} value={value}>{value}</option>)}
+            {options.ejecutivos.map((value) => <option key={value} value={value}>{String(value).toUpperCase()}</option>)}
           </select>
         </Field>
-        <div className="pd-field pd-field-wide">
-          <span className="pd-label">Estado de cumplimiento</span>
-          <div className="pd-chip-group">
-            {statusOptions.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className="pd-chip"
-                aria-pressed={statusFilters[key]}
-                onClick={() => setStatusFilters((prev) => ({ ...prev, [key]: !prev[key] }))}
-              >
-                <span className={`pd-dot pd-dot-${key}`} />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
       </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      {loading ? (
-        <div className="pd-card"><LoadingState /></div>
+      {renderMetasDrawer()}
+
+      {view === "general" ? (
+        <div className="pd-tabbed">
+          {viewTabs}
+          <SectionCard exportName={exportFileName("SC-Tardia", "general", filters.periodo)} bodyClassName="" footer={<StatusLegend items={cumplimientoLegendItems} />}>
+            {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderGeneralTable()}</div>}
+          </SectionCard>
+        </div>
+      ) : loading ? (
         <>
+          {viewTabs}
+          <div className="pd-card"><LoadingState /></div>
+        </>
+      ) : (
+        <>
+          {viewTabs}
           <div className="pd-select-grid">
             {blockOrder.map((block) => {
-              const summary = blockSummary.find((item) => item.block === block) || { block, cumplimiento: 0, deuda: 0, rows: 0, status: "neutral" };
+              const summary = blockSummary.find((item) => item.block === block) || { block, cumplimiento: 0, deuda: 0, rows: 0, status: statusOf(0) };
               const meta = blockMeta[block] || { title: block, subtitle: "Detalle", icon: "bi-layers" };
               return (
                 <button key={block} type="button" className={`pd-select-card${selectedBlock === block ? " active" : ""}`} aria-pressed={selectedBlock === block} onClick={() => setSelectedBlock(block)}>
@@ -283,11 +496,11 @@ export default function ScTardiaPage() {
           </div>
 
           <SectionCard
+            exportName={exportFileName("SC-Tardia", selectedBlock, filters.periodo)}
             title={selectedMeta.title}
-            description={`Detalle del ciclo · ${selectedMeta.subtitle}`}
-            actions={<span className="pd-pill"><i className="bi bi-calendar3" aria-hidden="true" />Fecha consulta: {filters.periodo}</span>}
+            description={`${view === "general" ? "Resumen general" : "Detalle del ciclo"} · ${selectedMeta.subtitle}`}
             bodyClassName=""
-            footer={<StatusLegend items={statusLegendItems} />}
+            footer={<StatusLegend items={cumplimientoLegendItems} />}
           >
             <div className="pd-table-scroll">
               <table className="pd-table">
@@ -306,9 +519,9 @@ export default function ScTardiaPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedBlockRows.map((row, index) => (
+                  {phoenixGrupalAlFinal(selectedBlockRows).map((row, index) => (
                     <tr key={`${row.reporte}-${row.bloque}-${row.ejecutivo}-${index}`}>
-                      <td className="pd-cell-strong">{row.ejecutivo}</td>
+                      <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                       <td className="pd-num">{formatMoney(row.deuda_asignada)}</td>
                       <td className="pd-num">{formatMoney(row.monto_meta_cont)}</td>
                       <td className="pd-num">{formatMoney(row.contenido)}</td>
@@ -340,27 +553,4 @@ export default function ScTardiaPage() {
     </div>
   );
 }
-
-const statusOptions = [
-  ["success", "Sobre meta"],
-  ["warning", "En riesgo"],
-  ["danger", "Bajo meta"],
-  ["neutral", "Sin avance"],
-];
-
-/*
-const statusLegendItems = [
-  { status: "success", range: "≥ 100%", label: "Sobre meta" },
-  { status: "warning", range: "70% – 99%", label: "En riesgo" },
-  { status: "danger", range: "< 70%", label: "Bajo meta" },
-  { status: "neutral", range: "0%", label: "Sin avance" },
-];
-
-      <div className="pd-small pd-muted mt-1">Meta: {formatMoneyShort(item.meta)} · Contenido: {formatMoneyShort(item.contenido)}</div>
-    </div>
-  );
-}
-
-*/
-
 

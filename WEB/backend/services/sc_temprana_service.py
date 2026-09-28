@@ -6,7 +6,7 @@ from database import run_query
 
 
 USER_TO_NAME = {
-    "EMUNOZ": "Elizabet Munoz",
+    "EMUNOZ": "Elizabet Muñoz",
     "LROJAS": "Lissette Rojas",
     "MINOSTROZA": "Marilin Inostroza",
     "CVERA": "Carolina Vera",
@@ -53,7 +53,7 @@ def _safe_div(num: float, den: float) -> float:
     return (num / den) * 100.0
 
 
-def get_filter_values() -> dict:
+def get_filter_values(periodo: str | None = None) -> dict:
     sql_periodos = """
     SELECT DISTINCT CONVERT(char(10), fld_fecha, 126) AS periodo
     FROM dbo.tmp_bench_temp_STC
@@ -63,6 +63,10 @@ def get_filter_values() -> dict:
     periodos = [r["periodo"] for r in run_query(sql_periodos) if r.get("periodo")]
 
     ejecutivos = [USER_TO_NAME[u] for u in USER_ORDER]
+    if periodo:
+        # Solo los ejecutivos con cartera en la vista del periodo, en el mismo orden de siempre.
+        con_datos = {row.get("ejecutivo") for row in get_cycle_view({"periodo": periodo})}
+        ejecutivos = [nombre for nombre in ejecutivos if nombre in con_datos]
 
     return {
         "periodos": periodos,

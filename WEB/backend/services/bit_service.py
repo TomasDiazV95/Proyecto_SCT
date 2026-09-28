@@ -169,15 +169,51 @@ def _safe_div(num: float, den: float) -> float:
     return num / den
 
 
-def _safe_avg(values: list[float]) -> float:
-    clean = [float(value) for value in values if value is not None]
-    if not clean:
-        return 0.0
-    return sum(clean) / len(clean)
-
-
 def _cap_cumpl_meta(value: float) -> float:
     return min(float(value or 0), 1.3)
+
+
+TRAMOS = ("30-90", "90+")
+PONDERACION_DEFAULT = 0.5
+
+
+def _load_metas_tramo(periodo: str) -> list[dict]:
+    """Meta y ponderacion por tramo del periodo. La ponderacion sale de dbo.tmp_BIT_metas
+    (columna ponderacion, fraccion 0.5 = 50%); si la columna aun no existe o viene vacia se usa 50%."""
+    tiene_ponderacion = bool(run_query("SELECT COL_LENGTH('dbo.tmp_BIT_metas', 'ponderacion') AS c")[0].get("c"))
+    ponderacion_sql = "CAST(ponderacion AS float)" if tiene_ponderacion else "CAST(NULL AS float)"
+    rows = run_query(
+        f"""
+        SELECT tramo, meta, ponderacion
+        FROM (
+            SELECT
+                CASE WHEN tramo IN ('30-89', '30-90') THEN '30-90' ELSE tramo END AS tramo,
+                CAST(meta AS float) AS meta,
+                {ponderacion_sql} AS ponderacion,
+                ROW_NUMBER() OVER (
+                    PARTITION BY CASE WHEN tramo IN ('30-89', '30-90') THEN '30-90' ELSE tramo END
+                    ORDER BY CASE WHEN tramo = '30-90' THEN 1 ELSE 2 END
+                ) AS rn
+            FROM dbo.tmp_BIT_metas
+            WHERE periodo = ?
+        ) src
+        WHERE rn = 1
+        """,
+        (periodo,),
+    )
+    por_tramo = {str(r.get("tramo") or "").strip(): r for r in rows}
+    metas = []
+    for tramo in TRAMOS:
+        row = por_tramo.get(tramo) or {}
+        ponderacion = row.get("ponderacion")
+        metas.append(
+            {
+                "tramo": tramo,
+                "meta": row.get("meta"),
+                "ponderacion": float(ponderacion) if ponderacion is not None else PONDERACION_DEFAULT,
+            }
+        )
+    return metas
 
 
 def _get_contencion_source_file(periodo: str) -> str:
@@ -214,7 +250,7 @@ def _base_where(filters: dict) -> tuple[str, list]:
     return " AND ".join(clauses), params
 
 
-def get_filter_values() -> dict:
+def get_filter_values(periodo: str | None = None) -> dict:
     periodos = [
         r["v"]
         for r in run_query(
@@ -236,8 +272,10 @@ def get_filter_values() -> dict:
             SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS v
             FROM bit_data
             WHERE ejecutivo IS NOT NULL AND LTRIM(RTRIM(ejecutivo)) <> ''
+              {"AND periodo = ?" if periodo else ""}
             ORDER BY v
-            """
+            """,
+            (str(periodo).strip(),) if periodo else (),
         )
         if r.get("v")
     ]
@@ -294,47 +332,54 @@ def get_general(filters: dict) -> dict:
              CASE WHEN tramo = '30-90' THEN 1 WHEN tramo = '90+' THEN 2 ELSE 99 END, tramo
     """
     agg_rows = run_query(sql, tuple(params))
+    metas = _load_metas_tramo(periodo)
+    ponderaciones = {m["tramo"]: m["ponderacion"] for m in metas}
 
-    rows: list[dict] = []
-    total_inicial = 0.0
-    total_contenido = 0.0
-    total_meta = 0.0
-    pct_cumpl_meta_values: list[float] = []
+    def empty_tramos() -> dict:
+        return {tramo: {"monto_inicial": 0.0, "monto_contenido": 0.0, "meta_monto": 0.0} for tramo in TRAMOS}
+
+    por_ejecutivo: dict[str, dict] = {}
+    total = empty_tramos()
     for r in agg_rows:
-        monto_inicial = float(r.get("monto_inicial") or 0)
-        monto_contenido = float(r.get("monto_contenido") or 0)
-        meta_final = float(r.get("meta_final") or 0)
-        pct_contencion = _safe_div(monto_contenido, monto_inicial)
-        pct_cumpl_meta = _cap_cumpl_meta(_safe_div(monto_contenido, meta_final))
-        rows.append(
-            {
-                "ejecutivo": r.get("ejecutivo") or "Phoenix",
-                "tramo": r.get("tramo") or "",
-                "monto_inicial": monto_inicial,
-                "monto_contenido": monto_contenido,
-                "pct_contencion": pct_contencion,
-                "pct_contiene": pct_contencion,
-                "pct_cumpl_meta": pct_cumpl_meta,
-            }
-        )
-        total_inicial += monto_inicial
-        total_contenido += monto_contenido
-        total_meta += meta_final
-        pct_cumpl_meta_values.append(pct_cumpl_meta)
+        tramo = str(r.get("tramo") or "").strip()
+        if tramo not in TRAMOS:
+            continue
+        nombre = r.get("ejecutivo") or "Phoenix"
+        acc = por_ejecutivo.setdefault(nombre, empty_tramos())
+        for target in (acc[tramo], total[tramo]):
+            target["monto_inicial"] += float(r.get("monto_inicial") or 0)
+            target["monto_contenido"] += float(r.get("monto_contenido") or 0)
+            target["meta_monto"] += float(r.get("meta_final") or 0)
 
+    def result(nombre: str, acc: dict) -> dict:
+        tramos_out = {}
+        ponderado = 0.0
+        peso_total = 0.0
+        for tramo in TRAMOS:
+            data = acc[tramo]
+            # Tramo sin meta (o sin cartera) no tiene cumplimiento: su ponderacion se reparte en el otro.
+            cumplimiento = _cap_cumpl_meta(_safe_div(data["monto_contenido"], data["meta_monto"])) if data["meta_monto"] else None
+            tramos_out[tramo] = {
+                **data,
+                "pct_contencion": _safe_div(data["monto_contenido"], data["monto_inicial"]),
+                "cumplimiento": cumplimiento,
+            }
+            if cumplimiento is not None:
+                ponderado += cumplimiento * ponderaciones[tramo]
+                peso_total += ponderaciones[tramo]
+        return {
+            "ejecutivo": nombre,
+            "tramos": tramos_out,
+            "cumplimiento": _safe_div(ponderado, peso_total) if peso_total else None,
+        }
+
+    orden = sorted(por_ejecutivo, key=lambda nombre: (nombre == "Phoenix", nombre))
     return {
         "periodo": periodo,
         "contencion_file": _get_contencion_source_file(periodo),
-        "rows": rows,
-        "total": {
-            "ejecutivo": "Total general",
-            "tramo": "",
-            "monto_inicial": total_inicial,
-            "monto_contenido": total_contenido,
-            "pct_contencion": _safe_div(total_contenido, total_inicial),
-            "pct_contiene": _safe_div(total_contenido, total_inicial),
-            "pct_cumpl_meta": _safe_avg(pct_cumpl_meta_values),
-        },
+        "metas": metas,
+        "rows": [result(nombre, por_ejecutivo[nombre]) for nombre in orden],
+        "total": result("Total general", total),
     }
 
 
@@ -356,17 +401,13 @@ def get_tramos(filters: dict) -> dict:
     """
     agg_rows = run_query(sql, tuple(params))
 
+    # La vista tramo muestra cada tramo por separado: sin ponderacion ni total general.
     rows: list[dict] = []
-    total_inicial = 0.0
-    total_contenido = 0.0
-    total_meta = 0.0
-    pct_cumpl_meta_values: list[float] = []
     for r in agg_rows:
         monto_inicial = float(r.get("monto_inicial") or 0)
         monto_contenido = float(r.get("monto_contenido") or 0)
         meta_final = float(r.get("meta_final") or 0)
         pct_contencion = _safe_div(monto_contenido, monto_inicial)
-        pct_cumpl_meta = _cap_cumpl_meta(_safe_div(monto_contenido, meta_final))
         rows.append(
             {
                 "tramo": r.get("tramo") or "",
@@ -374,26 +415,14 @@ def get_tramos(filters: dict) -> dict:
                 "monto_contenido": monto_contenido,
                 "pct_contencion": pct_contencion,
                 "pct_contiene": pct_contencion,
-                "pct_cumpl_meta": pct_cumpl_meta,
+                "pct_cumpl_meta": _cap_cumpl_meta(_safe_div(monto_contenido, meta_final)),
             }
         )
-        total_inicial += monto_inicial
-        total_contenido += monto_contenido
-        total_meta += meta_final
-        pct_cumpl_meta_values.append(pct_cumpl_meta)
 
     return {
         "periodo": periodo,
         "contencion_file": _get_contencion_source_file(periodo),
         "rows": rows,
-        "total": {
-            "tramo": "Total general",
-            "monto_inicial": total_inicial,
-            "monto_contenido": total_contenido,
-            "pct_contencion": _safe_div(total_contenido, total_inicial),
-            "pct_contiene": _safe_div(total_contenido, total_inicial),
-            "pct_cumpl_meta": _safe_avg(pct_cumpl_meta_values),
-        },
     }
 
 

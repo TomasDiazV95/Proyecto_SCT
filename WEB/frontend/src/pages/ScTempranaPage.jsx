@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters, fetchScTempranaGeneral } from "../api";
-import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, relativeLegendItems } from "../components/productividad/ui";
+import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
   periodo: "",
@@ -83,7 +83,6 @@ export default function ScTempranaPage() {
   const [filters, setFilters] = useState(initialFilters);
   const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [], usuarios_gestion: [] });
-  const [generalRows, setGeneralRows] = useState([]);
   const [cycleRows, setCycleRows] = useState([]);
   const [detailRows, setDetailRows] = useState([]);
   const [detailTotal, setDetailTotal] = useState(0);
@@ -131,6 +130,20 @@ export default function ScTempranaPage() {
     loadFilters();
   }, []);
 
+  // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
+  useEffect(() => {
+    if (!filters.periodo) {
+      return;
+    }
+    fetchScTempranaFilters(filters.periodo)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.periodo]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setDetailFilters((prev) => ({ ...prev, operacion: operationSearch.trim() }));
@@ -153,9 +166,7 @@ export default function ScTempranaPage() {
           setDetailRows(detail.data || []);
           setDetailTotal(Number(detail.total || 0));
         } else {
-          const [general, cycle] = await Promise.all([fetchScTempranaGeneral(filters), fetchScTempranaCycle(filters)]);
-          setGeneralRows(general);
-          setCycleRows(cycle);
+          setCycleRows(await fetchScTempranaCycle(filters));
         }
       } catch (err) {
         setError(err.message);
@@ -227,7 +238,7 @@ export default function ScTempranaPage() {
 
   return (
     <div className="pd-page">
-      <PageHeader title="SC Temprana" subtitle="Productividad y cumplimiento de cartera temprana." />
+      <PageHeader title="Santander Consumer Temprana" subtitle="Productividad y cumplimiento de cartera temprana." />
 
       <FilterBar
         actions={
@@ -251,7 +262,7 @@ export default function ScTempranaPage() {
               <option value="">Todos</option>
               {options.ejecutivos.map((v) => (
                 <option key={v} value={v}>
-                  {v}
+                  {String(v).toUpperCase()}
                 </option>
               ))}
             </select>
@@ -319,16 +330,16 @@ export default function ScTempranaPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "general", label: "General" },
             { value: "ejecutivos", label: "Ejecutivos" },
             { value: "detalle", label: "Detalle" },
           ]}
         />
         <SectionCard
+          exportName={exportFileName("SC-Temprana", view === "ejecutivos" ? executiveSubview : view, filters.periodo)}
           bodyClassName=""
           footer={
             loading ? null : view === "ejecutivos" ? (
-              <StatusLegend items={relativeLegendItems} />
+              <StatusLegend title="Aporte" items={aporteLegendItems} />
             ) : view === "detalle" ? (
               <Pagination
                 summary={`Mostrando ${detailFrom}-${detailTo} de ${detailTotal} operaciones. Pagina ${detailPage} de ${detailTotalPages}.`}
@@ -342,8 +353,6 @@ export default function ScTempranaPage() {
         >
           {loading ? (
             <LoadingState />
-          ) : view === "general" ? (
-            <div className="pd-state">Sin informacion disponible para vista general.</div>
           ) : view === "ejecutivos" ? (
             <>
               {hasC3 && (
@@ -364,20 +373,25 @@ export default function ScTempranaPage() {
                   <table className="pd-table">
                     <thead>
                       <tr>
-                        <th>Ejecutiva</th>
-                        <th className="pd-num">Deuda Asignada</th>
-                        <th className="pd-num">Monto Cont</th>
-                        <th className="pd-num">% Cont</th>
-                        <th className="pd-num pd-th-key">% cumplimiento</th>
+                        <th rowSpan={2}>Ejecutiva</th>
+                        <th colSpan={4} className="pd-th-group-1 pd-group-start">
+                          Tramo C3
+                        </th>
+                      </tr>
+                      <tr>
+                        <th className="pd-num pd-th-sub-1 pd-group-start">Deuda Asignada</th>
+                        <th className="pd-num pd-th-sub-1">Monto Cont</th>
+                        <th className="pd-num pd-th-sub-1">% Cont</th>
+                        <th className="pd-num pd-th-sub-1">% cumplimiento</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {cycleDataRows
+                      {phoenixGrupalAlFinal(cycleDataRows)
                         .filter((row) => Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0)
                         .map((row) => (
                           <tr key={`${row.ejecutivo}-c3`}>
-                            <td>{row.ejecutivo}</td>
-                            <td className="pd-num">{formatMoney(row.c3_deuda_asignada)}</td>
+                            <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                            <td className="pd-num pd-group-start">{formatMoney(row.c3_deuda_asignada)}</td>
                             <td className="pd-num">{formatMoney(row.c3_monto_cont)}</td>
                             <td className="pd-num">{formatPct(row.c3_porc_contenido)}</td>
                             <td className="pd-num">
@@ -388,7 +402,7 @@ export default function ScTempranaPage() {
                       {cycleTotalRow && (
                         <tr className="pd-row-total">
                           <td>{cycleTotalRow.ejecutivo}</td>
-                          <td className="pd-num">{formatMoney(cycleTotalRow.c3_deuda_asignada)}</td>
+                          <td className="pd-num pd-group-start">{formatMoney(cycleTotalRow.c3_deuda_asignada)}</td>
                           <td className="pd-num">{formatMoney(cycleTotalRow.c3_monto_cont)}</td>
                           <td className="pd-num">{formatPct(cycleTotalRow.c3_porc_contenido)}</td>
                           <td className="pd-num">
@@ -422,9 +436,9 @@ export default function ScTempranaPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {cycleDataRows.map((row) => (
+                      {phoenixGrupalAlFinal(cycleDataRows).map((row) => (
                         <tr key={row.ejecutivo}>
-                          <td>{row.ejecutivo}</td>
+                          <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                           <td className="pd-num pd-group-start">{formatMoney(row.c1_deuda_asignada)}</td>
                           <td className="pd-num">{formatMoney(row.c1_monto_cont)}</td>
                           <td className="pd-num">{formatPct(row.c1_porc_contenido)}</td>

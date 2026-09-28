@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
-import { fetchItauCastigoFilters, fetchItauCastigoGeneral, fetchItauCastigoProducto } from "../api";
-import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, relativeLegendItems } from "../components/productividad/ui";
+import { fetchItauCastigoFilters, fetchItauCastigoGeneral } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 
 function formatMoney(value) {
@@ -26,42 +26,21 @@ function formatDate(value) {
 }
 
 
-function percentile(sortedValues, p) {
-  if (!sortedValues.length) {
-    return 0;
-  }
-  const idx = (sortedValues.length - 1) * p;
-  const lower = Math.floor(idx);
-  const upper = Math.ceil(idx);
-  if (lower === upper) {
-    return sortedValues[lower];
-  }
-  const weight = idx - lower;
-  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
-}
-
-
-function dotClass(value, thresholds) {
-  const num = Number(value || 0);
-  if (num >= thresholds.p66) {
-    return "pd-status pd-status-success";
-  }
-  if (num >= thresholds.p33) {
-    return "pd-status pd-status-warning";
-  }
-  return "pd-status pd-status-danger";
+// Cumplimiento viene en fraccion (1 = 100%); el semaforo comun trabaja en escala 0-100.
+function cumplimientoFraccionClass(value) {
+  return cumplimientoClass(value === null || value === undefined ? null : Number(value) * 100);
 }
 
 
 export default function ItauCastigoPage() {
-  const [view, setView] = useState("general");
+  const [productoTab, setProductoTab] = useState("Phoenix");
   const [filters, setFilters] = useState({ fecha_carga: "", ejecutivo: "" });
   const [options, setOptions] = useState({ fechas_carga: [], ejecutivos: [], productos: [] });
   const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(null);
   const [metadata, setMetadata] = useState({ fecha_carga: "", periodo: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [metasOpen, setMetasOpen] = useState(false);
   const { user, logout } = useAuth();
   
   useEffect(() => {
@@ -77,6 +56,20 @@ export default function ItauCastigoPage() {
     loadFilters();
   }, []);
 
+  // Al cambiar la fecha de carga, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
+  useEffect(() => {
+    if (!filters.fecha_carga) {
+      return;
+    }
+    fetchItauCastigoFilters(filters.fecha_carga)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.fecha_carga]);
+
   useEffect(() => {
     if (!filters.fecha_carga) {
       return;
@@ -86,9 +79,8 @@ export default function ItauCastigoPage() {
       setLoading(true);
       setError("");
       try {
-        const data = view === "general" ? await fetchItauCastigoGeneral(filters) : await fetchItauCastigoProducto(filters);
+        const data = await fetchItauCastigoGeneral(filters);
         setRows(data.rows || []);
-        setTotal(data.total || null);
         setMetadata({ fecha_carga: data.fecha_carga || filters.fecha_carga, periodo: data.periodo || "" });
       } catch (err) {
         setError(err.message);
@@ -98,23 +90,40 @@ export default function ItauCastigoPage() {
     }
 
     loadData();
-  }, [view, filters]);
+  }, [filters]);
 
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
 
-  const thresholds = useMemo(() => {
-    const values = rows
-      .map((row) => (view === "general" ? Number(row.cumplimiento || 0) : Math.max(Number(row.pct_recupero_phoenix || 0), Number(row.pct_recupero_phoenix_mcv || 0))))
-      .filter((value) => Number.isFinite(value))
-      .sort((a, b) => a - b);
+  // Pestañas Phoenix / Phoenix MCV: cada ejecutivo cae en la del cobrador donde tiene mas casos (cobrador_vista).
+  const productoTabs = [
+    { value: "Phoenix", label: "Phoenix" },
+    { value: "Phoenix MCV", label: "Phoenix MCV" },
+  ];
 
+  const tabRows = useMemo(
+    () => rows.filter((row) => String(row.cobrador_vista || "").trim().toUpperCase() === productoTab.toUpperCase()),
+    [rows, productoTab]
+  );
+
+  // Total de la pestaña: se suma primero y se divide despues, igual que el total del backend (tope 130%).
+  const tabTotal = useMemo(() => {
+    if (!tabRows.length) {
+      return null;
+    }
+    const deuda = tabRows.reduce((acc, row) => acc + Number(row.deuda_total || 0), 0);
+    const recupero = tabRows.reduce((acc, row) => acc + Number(row.recupero_total || 0), 0);
+    const meta = tabRows.reduce((acc, row) => acc + Number(row.meta_recupero || 0), 0);
     return {
-      p33: percentile(values, 0.33),
-      p66: percentile(values, 0.66),
+      ejecutivo: "Total general",
+      deuda_total: deuda,
+      recupero_total: recupero,
+      pct_efectividad: deuda ? recupero / deuda : 0,
+      meta_recupero: meta,
+      cumplimiento: meta ? Math.min(recupero / meta, 1.3) : 0,
     };
-  }, [rows, view]);
+  }, [tabRows]);
 
   const generalMetas = useMemo(() => {
     const metas = new Map();
@@ -130,129 +139,89 @@ export default function ItauCastigoPage() {
     return Array.from(metas.values()).sort((a, b) => a.cobrador_vista.localeCompare(b.cobrador_vista));
   }, [rows]);
 
-  function renderGeneralMetas() {
-    if (view !== "general" || !generalMetas.length) {
-      return null;
-    }
-
+  function renderMetasDrawer() {
     return (
-      <SectionCard title="Meta recuperación" className="pd-card-narrow" bodyClassName="">
-        <div className="pd-table-scroll">
-          <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
-            <thead>
-              <tr>
-                <th>Cobrador</th>
-                <th className="pd-num">Meta Recupero</th>
-              </tr>
-            </thead>
-            <tbody>
-              {generalMetas.map((row) => (
-                <tr key={row.cobrador_vista}>
-                  <td>{row.cobrador_vista}</td>
-                  <td className="pd-num">${formatMoney(row.meta_recupero)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </SectionCard>
+      <MetasDrawer open={metasOpen} onClose={() => setMetasOpen(false)} subtitle={`Vigentes para ${formatDate(metadata.periodo) || "N/D"}`}>
+        {generalMetas.length ? (
+          <div className="iv-drawer-grid iv-drawer-grid-single">
+            <MetasBlock title="Recupero Castigo">
+              <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+                <thead>
+                  <tr>
+                    <th>Cobrador</th>
+                    <th className="pd-num">Meta Recupero</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {generalMetas.map((row) => (
+                    <tr key={row.cobrador_vista}>
+                      <td>{row.cobrador_vista}</td>
+                      <td className="pd-num pd-cell-strong">${formatMoney(row.meta_recupero)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </MetasBlock>
+          </div>
+        ) : (
+          <div className="alert alert-light border">No hay metas cargadas para este mes.</div>
+        )}
+      </MetasDrawer>
     );
   }
 
   function renderGeneralTable() {
+    const groupClass = productoTab === "Phoenix" ? 1 : 2;
     return (
-      <table className="pd-table">
-        <thead>
-          <tr>
-            <th>Ejecutivo</th>
-            <th>Cobrador Vista</th>
-            <th className="pd-num">Total Deuda</th>
-            <th className="pd-num">Recupero Total</th>
-            <th className="pd-num">% Efectividad</th>
-            <th className="pd-num pd-th-key">Cumplimiento</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={`itau-general-${row.ejecutivo}-${idx}`}>
-              <td>{row.ejecutivo}</td>
-              <td>{row.cobrador_vista || "-"}</td>
-              <td className="pd-num">${formatMoney(row.deuda_total)}</td>
-              <td className="pd-num">${formatMoney(row.recupero_total)}</td>
-              <td className="pd-num">{formatPct(row.pct_efectividad)}</td>
-              <td className="pd-num">
-                <span className={dotClass(row.cumplimiento, thresholds)}>{formatPct(row.cumplimiento)}</span>
-              </td>
-            </tr>
-          ))}
-          {total && (
-            <tr className="pd-row-total">
-              <td>{total.ejecutivo}</td>
-              <td>{total.cobrador_vista || ""}</td>
-              <td className="pd-num">${formatMoney(total.deuda_total)}</td>
-              <td className="pd-num">${formatMoney(total.recupero_total)}</td>
-              <td className="pd-num">{formatPct(total.pct_efectividad)}</td>
-              <td className="pd-num">
-                <span className="pd-status pd-status-none">{formatPct(total.cumplimiento)}</span>
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    );
-  }
-
-  function renderProductoTable() {
-    return (
-      <table className="pd-table">
-        <thead>
-          <tr>
-            <th rowSpan={2}>Ejecutivo</th>
-            <th colSpan={3} className="pd-th-group-1 pd-group-start">Phoenix</th>
-            <th colSpan={3} className="pd-th-group-2 pd-group-start">Phoenix MCV</th>
-          </tr>
-          <tr>
-            <th className="pd-num pd-th-sub-1 pd-group-start">Deuda</th>
-            <th className="pd-num pd-th-sub-1">Recupero</th>
-            <th className="pd-num pd-th-sub-1">% Recupero</th>
-            <th className="pd-num pd-th-sub-2 pd-group-start">Deuda</th>
-            <th className="pd-num pd-th-sub-2">Recupero</th>
-            <th className="pd-num pd-th-sub-2">% Recupero</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={`itau-producto-${row.ejecutivo}-${idx}`}>
-              <td>{row.ejecutivo}</td>
-              <td className="pd-num pd-group-start">${formatMoney(row.deuda_phoenix)}</td>
-              <td className="pd-num">${formatMoney(row.recupero_phoenix)}</td>
-              <td className="pd-num">
-                <span className={dotClass(row.pct_recupero_phoenix, thresholds)}>{formatPct(row.pct_recupero_phoenix)}</span>
-              </td>
-              <td className="pd-num pd-group-start">${formatMoney(row.deuda_phoenix_mcv)}</td>
-              <td className="pd-num">${formatMoney(row.recupero_phoenix_mcv)}</td>
-              <td className="pd-num">
-                <span className={dotClass(row.pct_recupero_phoenix_mcv, thresholds)}>{formatPct(row.pct_recupero_phoenix_mcv)}</span>
-              </td>
-            </tr>
-          ))}
-          {total && (
-            <tr className="pd-row-total">
-              <td>{total.ejecutivo}</td>
-              <td className="pd-num pd-group-start">${formatMoney(total.deuda_phoenix)}</td>
-              <td className="pd-num">${formatMoney(total.recupero_phoenix)}</td>
-              <td className="pd-num">
-                <span className="pd-status pd-status-none">{formatPct(total.pct_recupero_phoenix)}</span>
-              </td>
-              <td className="pd-num pd-group-start">${formatMoney(total.deuda_phoenix_mcv)}</td>
-              <td className="pd-num">${formatMoney(total.recupero_phoenix_mcv)}</td>
-              <td className="pd-num">
-                <span className="pd-status pd-status-none">{formatPct(total.pct_recupero_phoenix_mcv)}</span>
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <>
+        <div className="pd-card-toolbar">
+          <span className="pd-label">Producto</span>
+          <Segmented value={productoTab} onChange={setProductoTab} options={productoTabs} />
+        </div>
+        <div className="pd-table-scroll">
+          <table className="pd-table">
+            <thead>
+              <tr>
+                <th rowSpan={2}>Ejecutivo</th>
+                <th colSpan={4} className={`pd-th-group-${groupClass} pd-group-start`}>{productoTab}</th>
+                <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento</th>
+              </tr>
+              <tr>
+                {["Total Deuda", "Recupero Total", "% Efectividad", "Meta $"].map((label, idx) => (
+                  <th key={label} className={`pd-num pd-th-sub-${groupClass}${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {phoenixGrupalAlFinal(tabRows).map((row, idx) => (
+                <tr key={`itau-general-${row.ejecutivo}-${idx}`}>
+                  <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(row.deuda_total)}</td>
+                  <td className="pd-num">${formatMoney(row.recupero_total)}</td>
+                  <td className="pd-num">{formatPct(row.pct_efectividad)}</td>
+                  <td className="pd-num">${formatMoney(row.meta_recupero)}</td>
+                  <td className="pd-num pd-group-start">
+                    <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
+                  </td>
+                </tr>
+              ))}
+              {!tabRows.length && <EmptyRow colSpan={6} text={`Sin ejecutivos en ${productoTab} para los filtros seleccionados.`} />}
+              {tabTotal && (
+                <tr className="pd-row-total">
+                  <td>{tabTotal.ejecutivo}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(tabTotal.deuda_total)}</td>
+                  <td className="pd-num">${formatMoney(tabTotal.recupero_total)}</td>
+                  <td className="pd-num">{formatPct(tabTotal.pct_efectividad)}</td>
+                  <td className="pd-num">${formatMoney(tabTotal.meta_recupero)}</td>
+                  <td className="pd-num pd-group-start">
+                    <span className="pd-status pd-status-none">{formatPct(tabTotal.cumplimiento)}</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </>
     );
   }
 
@@ -268,7 +237,9 @@ export default function ItauCastigoPage() {
         }
       />
 
-      <FilterBar note={`Base: ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} · Mes metas/carterizado: ${formatDate(metadata.periodo) || "N/D"}`}>
+      <FilterBar
+        actions={<MetasButton onClick={() => setMetasOpen(true)} />}
+        note={`Base: ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} · Mes metas/carterizado: ${formatDate(metadata.periodo) || "N/D"}`}>
         <Field label="Fecha de carga">
           <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>
             {options.fechas_carga.map((value) => (
@@ -283,7 +254,7 @@ export default function ItauCastigoPage() {
             <option value="">Todos</option>
             {options.ejecutivos.map((value) => (
               <option key={value} value={value}>
-                {value}
+                {String(value).toUpperCase()}
               </option>
             ))}
           </select>
@@ -292,21 +263,11 @@ export default function ItauCastigoPage() {
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      {!loading && renderGeneralMetas()}
+      {renderMetasDrawer()}
 
-      <div className="pd-tabbed">
-        <ViewTabs
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "general", label: "Vista General" },
-            { value: "producto", label: "Vista Producto" },
-          ]}
-        />
-        <SectionCard bodyClassName="" footer={<StatusLegend items={relativeLegendItems} />}>
-          {loading ? <LoadingState /> : <div className="pd-table-scroll">{view === "general" ? renderGeneralTable() : renderProductoTable()}</div>}
-        </SectionCard>
-      </div>
+      <SectionCard exportName={exportFileName("Itau-Castigo", productoTab, filters.fecha_carga)} bodyClassName="" footer={<StatusLegend items={cumplimientoLegendItems} />}>
+        {loading ? <LoadingState /> : renderGeneralTable()}
+      </SectionCard>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { fetchSthDetail, fetchSthFilters, fetchSthGeneral, fetchSthOperationsDetail } from "../api";
-import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, relativeLegendItems } from "../components/productividad/ui";
+import { fetchSthDetail, fetchSthFilters, fetchSthGeneral, fetchSthMetas, fetchSthOperationsDetail } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
   periodo: "",
@@ -43,29 +43,9 @@ function yesNo(value) {
   return Number(value || 0) === 1 ? "Si" : "No";
 }
 
-function percentile(sortedValues, p) {
-  if (!sortedValues.length) {
-    return 0;
-  }
-  const idx = (sortedValues.length - 1) * p;
-  const lower = Math.floor(idx);
-  const upper = Math.ceil(idx);
-  if (lower === upper) {
-    return sortedValues[lower];
-  }
-  const weight = idx - lower;
-  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
-}
-
-function dotClassByThresholds(value, thresholds) {
-  const n = Number(value || 0);
-  if (n >= thresholds.p66) {
-    return "pd-status pd-status-success";
-  }
-  if (n >= thresholds.p33) {
-    return "pd-status pd-status-warning";
-  }
-  return "pd-status pd-status-danger";
+// El periodo se muestra como yyyy-mm; el valor que va al backend no cambia.
+function formatPeriodo(value) {
+  return String(value || "").slice(0, 7);
 }
 
 export default function SthPage() {
@@ -82,6 +62,8 @@ export default function SthPage() {
   const [operationsPageSize, setOperationsPageSize] = useState(100);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [metasOpen, setMetasOpen] = useState(false);
+  const [metas, setMetas] = useState([]);
 
   useEffect(() => {
     async function loadFilters() {
@@ -98,6 +80,20 @@ export default function SthPage() {
     }
     loadFilters();
   }, []);
+
+  // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los carterizados ese mes.
+  useEffect(() => {
+    if (!filters.periodo) {
+      return;
+    }
+    fetchSthFilters(filters.periodo)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.periodo]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -149,48 +145,55 @@ export default function SthPage() {
     []
   );
 
-  const thresholdsByProduct = useMemo(() => {
-    const out = {};
-    detailBlocks.forEach((block) => {
-      const values = [];
-      (block.pivot_rows || []).forEach((row) => {
-        if (String(row.ejecutivo || "").trim().toLowerCase() === "grupal") {
-          return;
-        }
-        values.push(Number(row.cumplimiento_final || 0));
-        (block.ciclos || []).forEach((ciclo) => {
-          const item = row.ciclos?.[String(ciclo)];
-          if (item) {
-            values.push(Number(item.cumplimiento_meta || 0));
-          }
-        });
-      });
-      const sorted = values.filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
-      out[block.producto] = {
-        p33: percentile(sorted, 0.33),
-        p66: percentile(sorted, 0.66),
-      };
-    });
-    return out;
-  }, [detailBlocks]);
+  // La vista general no muestra la fila "Total general" que envia el backend.
+  const generalDataRows = useMemo(() => generalRows.filter((row) => row.ejecutivo !== "Total general"), [generalRows]);
 
-  const generalThresholds = useMemo(() => {
-    const values = (generalRows || [])
-      .filter((row) => row.ejecutivo !== "Total general")
-      .filter((row) => String(row.ejecutivo || "").trim().toLowerCase() !== "grupal")
-      .map((row) => Number(row.cumplimiento_final || 0))
-      .filter((v) => Number.isFinite(v))
-      .sort((a, b) => a - b);
+    // Las metas se cargan al abrir el panel, para el periodo seleccionado.
+  useEffect(() => {
+    if (!metasOpen || !filters.periodo) {
+      return;
+    }
+    fetchSthMetas(filters)
+      .then(setMetas)
+      .catch((err) => setError(err.message));
+  }, [metasOpen, filters.periodo]);
 
-    return {
-      p33: percentile(values, 0.33),
-      p66: percentile(values, 0.66),
-    };
-  }, [generalRows]);
-
-  function productDotClass(producto, value) {
-    const thresholds = thresholdsByProduct[producto] || { p33: 0, p66: 0 };
-    return dotClassByThresholds(value, thresholds);
+  function renderMetasDrawer() {
+    const productos = Array.from(new Set(metas.map((meta) => meta.producto)));
+    return (
+      <MetasDrawer open={metasOpen} onClose={() => setMetasOpen(false)} subtitle={`Vigentes para ${formatPeriodo(filters.periodo) || "N/D"}`}>
+        {productos.length ? (
+          <div className="iv-drawer-grid">
+            {productos.map((producto, idx) => (
+              <MetasBlock key={producto} title={producto} accent={idx % 2 === 0 ? "consumo" : "hipot"}>
+                <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+                  <thead>
+                    <tr>
+                      <th>Tramo</th>
+                      <th className="pd-num">Meta</th>
+                      <th className="pd-num">Pondera</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metas
+                      .filter((meta) => meta.producto === producto)
+                      .map((meta) => (
+                        <tr key={`${producto}-${meta.tramo}`}>
+                          <td>{meta.tramo}</td>
+                          <td className="pd-num pd-cell-strong">{formatPct(meta.meta_contenido_pct)}</td>
+                          <td className="pd-num">{formatPct(meta.ponderador_nivel_1_pct)}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </MetasBlock>
+            ))}
+          </div>
+        ) : (
+          <div className="alert alert-light border">No hay metas cargadas para este mes.</div>
+        )}
+      </MetasDrawer>
+    );
   }
 
   function onChange(name, value) {
@@ -221,18 +224,21 @@ export default function SthPage() {
 
       <FilterBar
         actions={
-          view === "detalle" && (
-            <button type="button" className="pd-btn pd-btn-ghost" onClick={clearOperationsFilters} disabled={!hasOperationsFilters || loading}>
-              <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
-            </button>
-          )
+          <>
+            {view === "detalle" && (
+              <button type="button" className="pd-btn pd-btn-ghost" onClick={clearOperationsFilters} disabled={!hasOperationsFilters || loading}>
+                <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+              </button>
+            )}
+            <MetasButton onClick={() => setMetasOpen(true)} />
+          </>
         }
       >
         <Field label="Periodo">
           <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
             {options.periodos.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {formatPeriodo(v)}
               </option>
             ))}
           </select>
@@ -242,7 +248,7 @@ export default function SthPage() {
             <option value="">Todos</option>
             {options.ejecutivos.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {String(v).toUpperCase()}
               </option>
             ))}
           </select>
@@ -295,6 +301,8 @@ export default function SthPage() {
 
       {error && <div className="alert alert-danger">{error}</div>}
 
+      {renderMetasDrawer()}
+
       <div className="pd-tabbed">
         <ViewTabs
           value={view}
@@ -306,6 +314,7 @@ export default function SthPage() {
           ]}
         />
         <SectionCard
+          exportName={exportFileName("STH", view, formatPeriodo(filters.periodo))}
           bodyClassName=""
           footer={
             loading ? null : view === "detalle" ? (
@@ -317,7 +326,7 @@ export default function SthPage() {
                 nextDisabled={operationsPage >= operationsTotalPages || loading}
               />
             ) : (
-              <StatusLegend items={relativeLegendItems} />
+              <StatusLegend items={cumplimientoLegendItems} />
             )
           }
         >
@@ -325,32 +334,45 @@ export default function SthPage() {
             <LoadingState />
           ) : view === "general" ? (
             <div className="pd-table-scroll">
-              <table className="pd-table pd-table-compact pd-table-sticky-first">
+              <table className="pd-table">
                 <thead>
                   <tr>
-                    <th>Ejecutivo</th>
-                    {generalHeaders.map((h) => (
-                      <th key={h.key} className="pd-num">{h.label}</th>
+                    <th rowSpan={2}>Ejecutivo</th>
+                    <th colSpan={generalHeaders.length} className="pd-th-group-1 pd-group-start">Cumplimiento por producto</th>
+                    <th colSpan={2} className="pd-th-group-2 pd-group-start">Producto trabajado</th>
+                    <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+                  </tr>
+                  <tr>
+                    {generalHeaders.map((h, idx) => (
+                      <th key={h.key} className={`pd-num pd-th-sub-1${idx === 0 ? " pd-group-start" : ""}`}>{productLabel[h.key]}</th>
                     ))}
-                    <th>Producto Trabajado</th>
-                    <th>Tramo</th>
-                    <th className="pd-num pd-th-key">Cum Final</th>
+                    <th className="pd-th-sub-2 pd-group-start">Producto</th>
+                    <th className="pd-th-sub-2">Tramo</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {generalRows.map((row, idx) => (
-                    <tr key={`${row.ejecutivo}-${idx}`} className={row.ejecutivo === "Total general" ? "pd-row-total" : undefined}>
-                      <td>{row.ejecutivo}</td>
-                      {generalHeaders.map((h) => (
-                        <td key={`${row.ejecutivo}-${h.key}`} className="pd-num">{formatPct(row[h.key])}</td>
-                      ))}
-                      <td>{row.producto_trabajado ? productLabel[row.producto_trabajado] || row.producto_trabajado : "-"}</td>
-                      <td>{row.tramo_trabajado || "-"}</td>
-                      <td className="pd-num">
-                        <span className={dotClassByThresholds(row.cumplimiento_final, generalThresholds)}>{formatPct(row.cumplimiento_final)}</span>
-                      </td>
-                    </tr>
-                  ))}
+                  {phoenixGrupalAlFinal(generalDataRows).map((row, idx) => {
+                    return (
+                      <tr key={`${row.ejecutivo}-${idx}`}>
+                        <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                        {generalHeaders.map((h, hIdx) => (
+                          <td key={`${row.ejecutivo}-${h.key}`} className={`pd-num${hIdx === 0 ? " pd-group-start" : ""}`}>
+                            {row[h.key] === null || row[h.key] === undefined ? (
+                              <span className="pd-cell-muted">—</span>
+                            ) : (
+                              <span className={cumplimientoClass(row[h.key])}>{formatPct(row[h.key])}</span>
+                            )}
+                          </td>
+                        ))}
+                        <td className="pd-group-start">{row.producto_trabajado ? productLabel[row.producto_trabajado] || row.producto_trabajado : "-"}</td>
+                        <td>{row.tramo_trabajado || "-"}</td>
+                        <td className="pd-num pd-group-start">
+                          <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {!generalDataRows.length && <EmptyRow colSpan={generalHeaders.length + 4} />}
                 </tbody>
               </table>
             </div>
@@ -365,47 +387,48 @@ export default function SthPage() {
                     </span>
                   </div>
                   <div className="pd-table-scroll">
-                    <table className="pd-table pd-table-compact pd-table-sticky-first">
+                    <table className="pd-table pd-table-compact pd-table-fit">
                       <thead>
                         <tr>
                           <th rowSpan={2}>Ejecutivo</th>
-                          {block.ciclos.map((ciclo) => (
-                            <th key={`${block.producto}-h-${ciclo}`} colSpan={4} className="pd-th-group pd-group-start">
+                          {block.ciclos.map((ciclo, cIdx) => (
+                            <th key={`${block.producto}-h-${ciclo}`} colSpan={3} className={`pd-th-group-${(cIdx % 2) + 1} pd-group-start`}>
                               {block.producto === "tarjeta" ? (Number(ciclo) === 0 ? "Ciclo 0" : "Multiciclo") : `Ciclo ${ciclo}`}
                             </th>
                           ))}
                           <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
                         </tr>
                         <tr>
-                          {block.ciclos.map((ciclo) => (
+                          {block.ciclos.map((ciclo, cIdx) => (
                             <Fragment key={`${block.producto}-sub-${ciclo}`}>
-                              <th className="pd-num pd-group-start">Deuda Asignada</th>
-                              <th className="pd-num">Saldo Contenido</th>
-                              <th className="pd-num">% Contenido</th>
-                              <th className="pd-num">Cump Meta</th>
+                              <th className={`pd-num pd-th-sub-${(cIdx % 2) + 1} pd-group-start`}>Deuda Asignada</th>
+                              <th className={`pd-num pd-th-sub-${(cIdx % 2) + 1}`}>% Contenido</th>
+                              <th className={`pd-num pd-th-sub-${(cIdx % 2) + 1}`}>Cump Meta</th>
                             </Fragment>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {block.pivot_rows.map((row) => (
+                        {phoenixGrupalAlFinal(block.pivot_rows).map((row) => (
                           <tr key={`${block.producto}-${row.ejecutivo}`}>
-                            <td>{row.ejecutivo}</td>
+                            <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                             {block.ciclos.map((ciclo) => {
                               const item = row.ciclos?.[String(ciclo)];
                               return (
                                 <Fragment key={`${block.producto}-${row.ejecutivo}-cset-${ciclo}`}>
                                   <td className="pd-num pd-group-start">{item ? `$${formatMM(item.deuda_asignada)} MM` : ""}</td>
-                                  <td className="pd-num">{item ? `$${formatMM(item.saldo_contenido)} MM` : ""}</td>
-                                  <td className="pd-num">{item ? formatPct(item.porcentaje_contenido) : ""}</td>
                                   <td className="pd-num">
-                                    {item ? <span className={productDotClass(block.producto, item.cumplimiento_meta)}>{formatPct(item.cumplimiento_meta)}</span> : ""}
+                                    {item ? formatPct(item.porcentaje_contenido) : ""}
+                                    {item && <span className="pd-cell-sub">${formatMM(item.saldo_contenido)} MM cont.</span>}
+                                  </td>
+                                  <td className="pd-num">
+                                    {item ? <span className={cumplimientoClass(item.cumplimiento_meta)}>{formatPct(item.cumplimiento_meta)}</span> : ""}
                                   </td>
                                 </Fragment>
                               );
                             })}
                             <td className="pd-num pd-group-start">
-                              <span className={productDotClass(block.producto, row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                              <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
                             </td>
                           </tr>
                         ))}
@@ -416,16 +439,18 @@ export default function SthPage() {
                             return (
                               <Fragment key={`${block.producto}-tot-set-${ciclo}`}>
                                 <td className="pd-num pd-group-start">{tot ? `$${formatMM(tot.deuda_asignada)} MM` : ""}</td>
-                                <td className="pd-num">{tot ? `$${formatMM(tot.saldo_contenido)} MM` : ""}</td>
-                                <td className="pd-num">{tot ? formatPct(tot.porcentaje_contenido) : ""}</td>
                                 <td className="pd-num">
-                                  {tot ? <span className={productDotClass(block.producto, tot.cumplimiento_meta)}>{formatPct(tot.cumplimiento_meta)}</span> : ""}
+                                  {tot ? formatPct(tot.porcentaje_contenido) : ""}
+                                  {tot && <span className="pd-cell-sub">${formatMM(tot.saldo_contenido)} MM cont.</span>}
+                                </td>
+                                <td className="pd-num">
+                                  {tot ? <span className={cumplimientoClass(tot.cumplimiento_meta)}>{formatPct(tot.cumplimiento_meta)}</span> : ""}
                                 </td>
                               </Fragment>
                             );
                           })}
                           <td className="pd-num pd-group-start">
-                            <span className={productDotClass(block.producto, block.cumplimiento_final_bloque)}>{formatPct(block.cumplimiento_final_bloque)}</span>
+                            <span className={cumplimientoClass(block.cumplimiento_final_bloque)}>{formatPct(block.cumplimiento_final_bloque)}</span>
                           </td>
                         </tr>
                       </tbody>
@@ -455,7 +480,7 @@ export default function SthPage() {
                 <tbody>
                   {operationsRows.map((row, idx) => (
                     <tr key={`${row.operacion}-${idx}`}>
-                      <td>{row.ejecutivo}</td>
+                      <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                       <td>{row.operacion}</td>
                       <td>{yesNo(row.contenido)}</td>
                       <td>{row.ciclo ?? "-"}</td>

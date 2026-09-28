@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { fetchItauVencidaFilters, fetchItauVencidaGeneral } from "../api";
-import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs } from "../components/productividad/ui";
+import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 
 function formatMoney(value) {
@@ -29,19 +29,9 @@ function formatDate(value) {
 }
 
 
-// Color semantico solo para cumplimiento: < 50% critico, 50-79% intermedio, >= 80% optimo.
-function cumplimientoClass(value) {
-  if (value === null || value === undefined) {
-    return "pd-status pd-status-neutral";
-  }
-  const num = Number(value);
-  if (num >= 0.8) {
-    return "pd-status pd-status-success";
-  }
-  if (num >= 0.5) {
-    return "pd-status pd-status-warning";
-  }
-  return "pd-status pd-status-danger";
+// Cumplimiento viene en fraccion (1 = 100%); el semaforo comun trabaja en escala 0-100.
+function cumplimientoFraccionClass(value) {
+  return cumplimientoClass(value === null || value === undefined ? null : Number(value) * 100);
 }
 
 
@@ -71,6 +61,20 @@ export default function ItauVencidaPage() {
     }
     loadFilters();
   }, []);
+
+  // Al cambiar la fecha de carga, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
+  useEffect(() => {
+    if (!filters.fecha_carga) {
+      return;
+    }
+    fetchItauVencidaFilters(filters.fecha_carga)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.fecha_carga]);
 
   useEffect(() => {
     if (!filters.fecha_carga) {
@@ -190,7 +194,7 @@ export default function ItauVencidaPage() {
         <aside className="pd-drawer" role="dialog" aria-modal="true" aria-labelledby="iv-drawer-title">
           <div className="pd-drawer-header">
             <div>
-              <h2 id="iv-drawer-title" className="pd-section-title">Metas de contención</h2>
+              <h2 id="iv-drawer-title" className="pd-section-title">Metas del mes</h2>
               <p className="pd-section-desc">Vigentes para {formatDate(metadata.periodo) || "N/D"}</p>
             </div>
             <button type="button" className="btn-close" aria-label="Cerrar" onClick={() => setMetasOpen(false)} />
@@ -219,7 +223,7 @@ export default function ItauVencidaPage() {
         <td className="pd-num">${formatMoney(row[`${producto}_saldo_cont`])}</td>
         <td className="pd-num">${formatMoney(row[`${producto}_meta_monto`])}</td>
         <td className="pd-num">
-          <span className={cumplimientoClass(row[`${producto}_cumplimiento`])}>{formatPct(row[`${producto}_cumplimiento`])}</span>
+          <span className={cumplimientoFraccionClass(row[`${producto}_cumplimiento`])}>{formatPct(row[`${producto}_cumplimiento`])}</span>
         </td>
       </>
     );
@@ -228,11 +232,11 @@ export default function ItauVencidaPage() {
   function renderRow(row, key, isTotal = false) {
     return (
       <tr key={key} className={isTotal ? "pd-row-total" : undefined}>
-        <td>{row.ejecutivo}</td>
+        <td className={isTotal ? undefined : "pd-cell-ejecutivo"}>{row.ejecutivo}</td>
         {renderGroupCells(row, "consumo")}
         {renderGroupCells(row, "hipotecario")}
         <td className="pd-num pd-group-start">
-          <span className={cumplimientoClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
+          <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
         </td>
       </tr>
     );
@@ -256,7 +260,7 @@ export default function ItauVencidaPage() {
           <span className="pd-cell-sub">meta {formatPct(fase[`${producto}_meta_pct`])}</span>
         </td>
         <td className="pd-num">
-          <span className={cumplimientoClass(fase[`${producto}_cumplimiento`])}>{formatPct(fase[`${producto}_cumplimiento`])}</span>
+          <span className={cumplimientoFraccionClass(fase[`${producto}_cumplimiento`])}>{formatPct(fase[`${producto}_cumplimiento`])}</span>
         </td>
       </>
     );
@@ -268,7 +272,7 @@ export default function ItauVencidaPage() {
       ...fases.map((fase, idx) => (
         <tr key={`${keyPrefix}-fase-${fase.fase}`}>
           {idx === 0 && (
-            <td rowSpan={fases.length + 1} className="pd-cell-rowhead">
+            <td rowSpan={fases.length + 1} className={`pd-cell-rowhead${isTotal ? "" : " pd-cell-ejecutivo"}`}>
               {row.ejecutivo}
             </td>
           )}
@@ -279,12 +283,12 @@ export default function ItauVencidaPage() {
         </tr>
       )),
       <tr key={`${keyPrefix}-subtotal`} className={isTotal ? "pd-row-total" : "pd-row-subtotal"}>
-        {!fases.length && <td>{row.ejecutivo}</td>}
+        {!fases.length && <td className={isTotal ? undefined : "pd-cell-ejecutivo"}>{row.ejecutivo}</td>}
         <td className="pd-center pd-cell-strong">Total</td>
         {renderGroupCells(row, "consumo")}
         {renderGroupCells(row, "hipotecario")}
         <td className="pd-num pd-group-start">
-          <span className={cumplimientoClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
+          <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
         </td>
       </tr>,
     ];
@@ -318,7 +322,7 @@ export default function ItauVencidaPage() {
         </thead>
         {detalle ? (
           <>
-            {rows.map((row, idx) => (
+            {phoenixGrupalAlFinal(rows).map((row, idx) => (
               <tbody key={`iv-detalle-${row.ejecutivo}-${idx}`} className="pd-tbody-group">
                 {renderDetalleBloque(row, `iv-detalle-${idx}`)}
               </tbody>
@@ -327,7 +331,7 @@ export default function ItauVencidaPage() {
           </>
         ) : (
           <tbody>
-            {rows.map((row, idx) => renderRow(row, `itau-vencida-${row.ejecutivo}-${idx}`))}
+            {phoenixGrupalAlFinal(rows).map((row, idx) => renderRow(row, `itau-vencida-${row.ejecutivo}-${idx}`))}
             {total && renderRow(total, "itau-vencida-total", true)}
           </tbody>
         )}
@@ -369,7 +373,7 @@ export default function ItauVencidaPage() {
             <option value="">Todos</option>
             {options.ejecutivos.map((value) => (
               <option key={value} value={value}>
-                {value}
+                {String(value).toUpperCase()}
               </option>
             ))}
           </select>
@@ -390,15 +394,10 @@ export default function ItauVencidaPage() {
           ]}
         />
         <SectionCard
+          exportName={exportFileName("Itau-Vencida", view, filters.fecha_carga)}
           bodyClassName=""
           footer={
-            <StatusLegend
-              items={[
-                { status: "danger", range: "< 50%", label: "Crítico" },
-                { status: "warning", range: "50% – 79%", label: "Intermedio" },
-                { status: "success", range: "≥ 80%", label: "Óptimo" },
-              ]}
-            />
+            <StatusLegend items={cumplimientoLegendItems} />
           }
         >
           {loading ? (

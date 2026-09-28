@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters } from "../api";
-import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, relativeLegendItems } from "../components/productividad/ui";
+import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
   periodo: "",
@@ -22,23 +22,15 @@ function formatMoney(value) {
   }).format(Number(value || 0));
 }
 
-function percentile(sortedValues, p) {
-  if (!sortedValues.length) {
-    return 0;
-  }
-  const idx = (sortedValues.length - 1) * p;
-  const lower = Math.floor(idx);
-  const upper = Math.ceil(idx);
-  if (lower === upper) {
-    return sortedValues[lower];
-  }
-  const weight = idx - lower;
-  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+// El periodo se muestra como yyyy-mm; el valor que va al backend no cambia.
+function formatPeriodo(value) {
+  return String(value || "").slice(0, 7);
 }
 
 export default function GmPage() {
   const { user } = useAuth();
   const [view, setView] = useState("productividad");
+  const [bucketTab, setBucketTab] = useState(bucketOrder[0]);
   const [filters, setFilters] = useState(initialFilters);
   const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
@@ -49,6 +41,7 @@ export default function GmPage() {
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
+  const [metasOpen, setMetasOpen] = useState(false);
   const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
   const hasActiveFilters =
     filters.ejecutivo ||
@@ -81,6 +74,20 @@ export default function GmPage() {
     loadFilters();
   }, []);
 
+  // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los carterizados ese mes.
+  useEffect(() => {
+    if (!filters.periodo) {
+      return;
+    }
+    fetchGmFilters(filters.periodo)
+      .then((data) => {
+        const disponibles = data.ejecutivos || [];
+        setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
+        setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
+      })
+      .catch((err) => setError(err.message));
+  }, [filters.periodo]);
+
   useEffect(() => {
     async function loadData() {
       if (!filters.periodo) {
@@ -111,64 +118,37 @@ export default function GmPage() {
     loadData();
   }, [filters, detailFilters, view]);
 
+  // Las metas salen de la vista bucket (todo el periodo), asi no dependen del filtro de ejecutivo.
   const metaByBucket = useMemo(() => {
     const map = new Map();
-    rows.forEach((row) => {
+    bucketRows.forEach((row) => {
       if (!map.has(row.bucket)) {
         map.set(row.bucket, row);
       }
     });
     return map;
-  }, [rows]);
+  }, [bucketRows]);
 
-  const totalRow = useMemo(() => {
-    if (!rows.length) {
+  // Vista productividad: una pestaña por bucket, con las filas de los ejecutivos de ese bucket.
+  const bucketTabRows = useMemo(() => rows.filter((row) => row.bucket === bucketTab), [rows, bucketTab]);
+
+  const bucketTotalRow = useMemo(() => {
+    if (!bucketTabRows.length) {
       return null;
     }
-
-    const deuda = rows.reduce((acc, row) => acc + Number(row.deuda_asignada || 0), 0);
-    const saldoContenido = rows.reduce((acc, row) => acc + Number(row.saldo_contenido || 0), 0);
-    const saldoNormalizado = rows.reduce((acc, row) => acc + Number(row.saldo_normalizado || 0), 0);
-    const ponderado = rows.reduce((acc, row) => acc + Number(row.cumplimiento_final || 0) * Number(row.deuda_asignada || 0), 0);
-
+    const deuda = bucketTabRows.reduce((acc, row) => acc + Number(row.deuda_asignada || 0), 0);
+    const saldoContenido = bucketTabRows.reduce((acc, row) => acc + Number(row.saldo_contenido || 0), 0);
+    const saldoNormalizado = bucketTabRows.reduce((acc, row) => acc + Number(row.saldo_normalizado || 0), 0);
+    const ponderado = bucketTabRows.reduce((acc, row) => acc + Number(row.cumplimiento_final || 0) * Number(row.deuda_asignada || 0), 0);
     return {
       ejecutivo: "Total general",
-      bucket: "Todos",
       deuda_asignada: deuda,
       saldo_contenido: saldoContenido,
       porcentaje_contencion: deuda ? (saldoContenido / deuda) * 100 : 0,
       porcentaje_normalizado: deuda ? (saldoNormalizado / deuda) * 100 : 0,
       cumplimiento_final: deuda ? ponderado / deuda : 0,
     };
-  }, [rows]);
-
-  const dynamicThresholds = useMemo(() => {
-    const sourceRows = view === "bucket" ? bucketRows.filter((row) => row.bucket !== "Total general") : rows;
-    const dynamicValues = sourceRows
-      .map((row) => Number(row.cumplimiento_final || 0))
-      .filter((value) => Number.isFinite(value))
-      .sort((a, b) => a - b);
-
-    if (!dynamicValues.length) {
-      return { p33: 0, p66: 0 };
-    }
-
-    return {
-      p33: percentile(dynamicValues, 0.33),
-      p66: percentile(dynamicValues, 0.66),
-    };
-  }, [rows, bucketRows, view]);
-
-  function dynamicComplianceClass(value) {
-    const num = Number(value || 0);
-    if (num >= dynamicThresholds.p66) {
-      return "pd-status pd-status-success";
-    }
-    if (num >= dynamicThresholds.p33) {
-      return "pd-status pd-status-warning";
-    }
-    return "pd-status pd-status-danger";
-  }
+  }, [bucketTabRows]);
 
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -214,6 +194,63 @@ export default function GmPage() {
     }
   }
 
+  function renderProductividadTable() {
+    const groupClass = (bucketOrder.indexOf(bucketTab) % 2) + 1;
+    const subHeaders = ["Deuda Asignada", "Saldo Contenido", "% Contenido", "% Normalizado", "Cumplimiento de meta"];
+    return (
+      <>
+        <div className="pd-card-toolbar">
+          <span className="pd-label">Bucket</span>
+          <Segmented value={bucketTab} onChange={setBucketTab} options={bucketOrder.map((bucket) => ({ value: bucket, label: bucket }))} />
+        </div>
+        <div className="pd-table-scroll">
+          <table className="pd-table">
+            <thead>
+              <tr>
+                <th rowSpan={2}>Ejecutivo</th>
+                <th colSpan={subHeaders.length} className={`pd-th-group-${groupClass} pd-group-start`}>
+                  Bucket {bucketTab}
+                </th>
+              </tr>
+              <tr>
+                {subHeaders.map((label, idx) => (
+                  <th key={label} className={`pd-num pd-th-sub-${groupClass}${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {phoenixGrupalAlFinal(bucketTabRows).map((row, idx) => (
+                <tr key={`${row.ejecutivo}-${idx}`}>
+                  <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(row.deuda_asignada)} M</td>
+                  <td className="pd-num">${formatMoney(row.saldo_contenido)} M</td>
+                  <td className="pd-num">{formatPct(row.porcentaje_contencion)}</td>
+                  <td className="pd-num">{formatPct(row.porcentaje_normalizado)}</td>
+                  <td className="pd-num">
+                    <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                  </td>
+                </tr>
+              ))}
+              {!bucketTabRows.length && <EmptyRow colSpan={subHeaders.length + 1} text="Sin cartera en este bucket para los filtros seleccionados." />}
+              {bucketTotalRow && (
+                <tr className="pd-row-total">
+                  <td>{bucketTotalRow.ejecutivo}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(bucketTotalRow.deuda_asignada)} M</td>
+                  <td className="pd-num">${formatMoney(bucketTotalRow.saldo_contenido)} M</td>
+                  <td className="pd-num">{formatPct(bucketTotalRow.porcentaje_contencion)}</td>
+                  <td className="pd-num">{formatPct(bucketTotalRow.porcentaje_normalizado)}</td>
+                  <td className="pd-num">
+                    <span className="pd-status pd-status-none">{formatPct(bucketTotalRow.cumplimiento_final)}</span>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  }
+
   return (
     <div className="pd-page">
       <PageHeader
@@ -230,9 +267,12 @@ export default function GmPage() {
 
       <FilterBar
         actions={
-          <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
-            <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
-          </button>
+          <>
+            <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
+              <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+            </button>
+            {view !== "detalle" && <MetasButton onClick={() => setMetasOpen(true)} />}
+          </>
         }
         note={view === "bucket" ? "La vista bucket consolida todos los ejecutivos del periodo." : null}
       >
@@ -240,7 +280,7 @@ export default function GmPage() {
           <select className="form-select" value={filters.periodo} onChange={(e) => onChange("periodo", e.target.value)}>
             {options.periodos.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {formatPeriodo(v)}
               </option>
             ))}
           </select>
@@ -250,7 +290,7 @@ export default function GmPage() {
             <option value="">Todos</option>
             {options.ejecutivos.map((v) => (
               <option key={v} value={v}>
-                {v}
+                {String(v).toUpperCase()}
               </option>
             ))}
           </select>
@@ -288,43 +328,44 @@ export default function GmPage() {
         )}
       </FilterBar>
 
-      {view !== "detalle" && (
-        <SectionCard title="Metas y ponderadores por bucket" className="pd-card-narrow" bodyClassName="">
-          <div className="pd-table-scroll">
-            <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
-              <thead>
-                <tr>
-                  <th rowSpan={2}>Bucket</th>
-                  <th colSpan={2} className="pd-th-group pd-group-start">Metas</th>
-                  <th colSpan={2} className="pd-th-group pd-group-start">Ponderador</th>
-                </tr>
-                <tr>
-                  <th className="pd-num pd-group-start">% contencion</th>
-                  <th className="pd-num">% normalizacion</th>
-                  <th className="pd-num pd-group-start">% contencion</th>
-                  <th className="pd-num">% normalizacion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bucketOrder.map((bucket) => {
-                  const meta = metaByBucket.get(bucket);
-                  return (
-                    <tr key={bucket}>
-                      <td>{bucket}</td>
-                      <td className="pd-num pd-group-start">{formatPct(meta?.meta_contencion_pct)}</td>
-                      <td className="pd-num">{formatPct(meta?.meta_normalizacion_pct)}</td>
-                      <td className="pd-num pd-group-start">{formatPct(meta?.ponderador_contencion_pct)}</td>
-                      <td className="pd-num">{formatPct(meta?.ponderador_normalizacion_pct)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
-      )}
-
       {error && <div className="alert alert-danger">{error}</div>}
+
+      <MetasDrawer open={metasOpen} onClose={() => setMetasOpen(false)} subtitle={`Vigentes para ${formatPeriodo(filters.periodo) || "N/D"}`}>
+        {metaByBucket.size ? (
+          <div className="iv-drawer-grid iv-drawer-grid-single">
+            {bucketOrder.map((bucket, idx) => {
+              const meta = metaByBucket.get(bucket);
+              return (
+                <MetasBlock key={bucket} title={`Bucket ${bucket}`} accent={idx % 2 === 0 ? "consumo" : "hipot"}>
+                  <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
+                    <thead>
+                      <tr>
+                        <th>Variable</th>
+                        <th className="pd-num">Meta</th>
+                        <th className="pd-num">Pondera</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Contención</td>
+                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_contencion_pct)}</td>
+                        <td className="pd-num">{formatPct(meta?.ponderador_contencion_pct)}</td>
+                      </tr>
+                      <tr>
+                        <td>Normalización</td>
+                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_normalizacion_pct)}</td>
+                        <td className="pd-num">{formatPct(meta?.ponderador_normalizacion_pct)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </MetasBlock>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="alert alert-light border">No hay metas cargadas para este mes.</div>
+        )}
+      </MetasDrawer>
 
       <div className="pd-tabbed">
         <ViewTabs
@@ -337,64 +378,18 @@ export default function GmPage() {
           ]}
         />
         <SectionCard
+          exportName={exportFileName("GM", view === "productividad" ? `bucket ${bucketTab}` : view, formatPeriodo(filters.periodo))}
           bodyClassName=""
           footer={
             view !== "detalle" && (
-              <>
-                <StatusLegend items={relativeLegendItems} />
-                <span>
-                  Umbrales dinámicos: bajo &lt; {formatPct(dynamicThresholds.p33)} · esperado &lt; {formatPct(dynamicThresholds.p66)} · sobre lo esperado ≥ {formatPct(dynamicThresholds.p66)}
-                </span>
-              </>
+              <StatusLegend items={cumplimientoLegendItems} />
             )
           }
         >
           {loading ? (
             <LoadingState />
           ) : view === "productividad" ? (
-            <div className="pd-table-scroll">
-              <table className="pd-table">
-                <thead>
-                  <tr>
-                    <th>Ejecutivos</th>
-                    <th>Bucket</th>
-                    <th className="pd-num">Deuda Asignada</th>
-                    <th className="pd-num">Saldo Contenido</th>
-                    <th className="pd-num">% Contenido</th>
-                    <th className="pd-num">% Normalizado</th>
-                    <th className="pd-num pd-th-key">Cumplimiento de meta</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row, idx) => (
-                    <tr key={`${row.ejecutivo}-${row.bucket}-${idx}`}>
-                      <td>{row.ejecutivo}</td>
-                      <td>{row.bucket}</td>
-                      <td className="pd-num">${formatMoney(row.deuda_asignada)} M</td>
-                      <td className="pd-num">${formatMoney(row.saldo_contenido)} M</td>
-                      <td className="pd-num">{formatPct(row.porcentaje_contencion)}</td>
-                      <td className="pd-num">{formatPct(row.porcentaje_normalizado)}</td>
-                      <td className="pd-num">
-                        <span className={dynamicComplianceClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
-                      </td>
-                    </tr>
-                  ))}
-                  {totalRow && (
-                    <tr className="pd-row-total">
-                      <td>{totalRow.ejecutivo}</td>
-                      <td>{totalRow.bucket}</td>
-                      <td className="pd-num">${formatMoney(totalRow.deuda_asignada)} M</td>
-                      <td className="pd-num">${formatMoney(totalRow.saldo_contenido)} M</td>
-                      <td className="pd-num">{formatPct(totalRow.porcentaje_contencion)}</td>
-                      <td className="pd-num">{formatPct(totalRow.porcentaje_normalizado)}</td>
-                      <td className="pd-num">
-                        <span className={dynamicComplianceClass(totalRow.cumplimiento_final)}>{formatPct(totalRow.cumplimiento_final)}</span>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            renderProductividadTable()
           ) : view === "bucket" ? (
             <div className="pd-table-scroll">
               <table className="pd-table">
@@ -421,7 +416,7 @@ export default function GmPage() {
                       <td className="pd-num">{row.bucket === "Total general" ? "-" : formatPct(row.meta_contencion_pct)}</td>
                       <td className="pd-num">{row.bucket === "Total general" ? "-" : formatPct(row.meta_normalizacion_pct)}</td>
                       <td className="pd-num">
-                        <span className={dynamicComplianceClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                        <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
                       </td>
                     </tr>
                   ))}
@@ -458,7 +453,7 @@ export default function GmPage() {
                       <td className="pd-num">${formatMoney(row.deuda)}</td>
                       <td className="pd-num">{formatPct(row.peso_bucket_pct)}</td>
                       <td className="pd-num">${formatMoney(row.cuota)}</td>
-                      <td>{row.ejecutivo}</td>
+                      <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                       <td>{Number(row.contenido || 0) === 1 ? "Si" : "No"}</td>
                       <td>{Number(row.normalizado || 0) === 1 ? "Si" : "No"}</td>
                       <td>{row.telefono_gestion}</td>
