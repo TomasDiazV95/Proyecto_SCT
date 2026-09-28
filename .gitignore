@@ -13,3 +13,8 @@ archivos/
 !.env.example
 /Logs
 /sql
+
+# Skills descargadas para agentes (npx skills add): se instalan en cada equipo, no se versionan
+/.agents/
+/.claude/skills/
+skills-lock.json

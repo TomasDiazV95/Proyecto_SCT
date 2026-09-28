@@ -1,17 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toBlob } from "html-to-image";
 
 // Componentes visuales compartidos por los modulos del Panel de Productividad.
 // Solo presentacion: no cargan datos ni aplican reglas de negocio.
 
-export function PageHeader({ title, subtitle, actions }) {
+// breadcrumb: tramos previos de la ruta [{ label, to }]; por defecto, el Panel de Productividad.
+export function PageHeader({ title, subtitle, actions, breadcrumb = [{ label: "Productividad", to: "/productividad" }] }) {
   return (
     <header className="pd-header">
       <div>
         <nav className="pd-breadcrumb" aria-label="Ruta">
-          <Link to="/productividad">Productividad</Link>
-          <span aria-hidden="true">/</span>
+          {breadcrumb.map((item) => (
+            <React.Fragment key={item.to}>
+              <Link to={item.to}>{item.label}</Link>
+              <span aria-hidden="true">/</span>
+            </React.Fragment>
+          ))}
           <span>{title}</span>
         </nav>
         <h1 className="pd-title">{title}</h1>
@@ -281,8 +286,8 @@ export function MetasButton({ onClick }) {
   );
 }
 
-// Panel lateral de metas (mismo formato que Itau Vencida). Se cierra con Escape o clic fuera.
-export function MetasDrawer({ open, onClose, title = "Metas del mes", subtitle, wide = false, children }) {
+// Panel lateral generico (se cierra con Escape o clic fuera). footer: acciones fijas al pie (ej. Guardar / Cancelar).
+export function Drawer({ open, onClose, title, subtitle, wide = false, footer, children }) {
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -302,18 +307,24 @@ export function MetasDrawer({ open, onClose, title = "Metas del mes", subtitle, 
   return (
     <>
       <div className="pd-drawer-backdrop" onClick={onClose} />
-      <aside className={`pd-drawer${wide ? " pd-drawer-wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="pd-metas-drawer-title">
+      <aside className={`pd-drawer${wide ? " pd-drawer-wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="pd-drawer-title">
         <div className="pd-drawer-header">
           <div>
-            <h2 id="pd-metas-drawer-title" className="pd-section-title">{title}</h2>
+            <h2 id="pd-drawer-title" className="pd-section-title">{title}</h2>
             {subtitle && <p className="pd-section-desc">{subtitle}</p>}
           </div>
           <button type="button" className="btn-close" aria-label="Cerrar" onClick={onClose} />
         </div>
         <div className="pd-drawer-body">{children}</div>
+        {footer && <div className="pd-drawer-footer">{footer}</div>}
       </aside>
     </>
   );
+}
+
+// Panel lateral de metas (mismo formato que Itau Vencida).
+export function MetasDrawer({ title = "Metas del mes", ...props }) {
+  return <Drawer title={title} {...props} />;
 }
 
 // Bloque con encabezado de color dentro del panel de metas.

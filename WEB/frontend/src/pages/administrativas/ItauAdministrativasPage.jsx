@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   downloadItauAsignacionVencida,
   downloadItauCuotasPagadas,
   downloadItauCuotasVencida,
   fetchItauAdministrativasPeriodos,
 } from "../../api";
+import { PageHeader, SectionCard } from "../../components/productividad/ui";
 import { saveDownload } from "../../utils/download";
 import MediblesItauCard from "./MediblesItauCard";
+
+const BREADCRUMB = [
+  { label: "Inicio", to: "/" },
+  { label: "Panel Administrativo", to: "/administrativas" },
+];
 
 function formatPeriodo(periodo) {
   if (!periodo) {
@@ -15,152 +20,127 @@ function formatPeriodo(periodo) {
   }
   const [year, month] = String(periodo).split("-");
   const date = new Date(Number(year), Number(month) - 1, 1);
-  return new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" }).format(date);
+  const text = new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" }).format(date);
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-function DownloadCard({ title, description, periodos, value, onChange, loading, onDownload }) {
-  return (
-    <div className="card shadow-sm h-100 module-card">
-      <div className="card-body d-flex flex-column p-4">
-        <h2 className="h5 mb-2">{title}</h2>
-        <p className="text-muted flex-grow-1">{description}</p>
-        <label className="form-label">Periodo</label>
-        <select className="form-select mb-3" value={value} onChange={(event) => onChange(event.target.value)} disabled={!periodos.length || loading}>
-          {!periodos.length && <option value="">Sin periodos disponibles</option>}
-          {periodos.map((periodo) => (
-            <option key={periodo} value={periodo}>
-              {formatPeriodo(periodo)}
-            </option>
-          ))}
-        </select>
-        <button className="btn btn-info" type="button" onClick={onDownload} disabled={!value || loading}>
-          {loading ? "Descargando..." : "Descargar"}
-        </button>
-      </div>
-    </div>
-  );
-}
+// Descargas disponibles: cada una usa su propia lista de periodos (clave en la respuesta del backend).
+const DESCARGAS = [
+  {
+    key: "cuotas",
+    title: "Cuotas",
+    description: "Todas las cuotas que envió Itaú en el mes, según la fecha de proceso.",
+    periodosKey: "cuotas",
+    download: downloadItauCuotasVencida,
+  },
+  {
+    key: "asignacion",
+    title: "Asignación",
+    description: "Toda la asignación que envió Itaú en el mes, según el periodo del nombre del archivo.",
+    periodosKey: "asignacion",
+    download: downloadItauAsignacionVencida,
+  },
+  {
+    key: "cuotasPagadas",
+    title: "Cuotas pagadas",
+    description: "Consolidado del mes de cuotas estimadas como pagadas, comparando cortes consecutivos de cuotas.",
+    periodosKey: "cuotas",
+    download: downloadItauCuotasPagadas,
+  },
+];
 
 export default function ItauAdministrativasPage() {
   const [periodos, setPeriodos] = useState({ cuotas: [], asignacion: [] });
-  const [selectedCuotas, setSelectedCuotas] = useState("");
-  const [selectedCuotasPagadas, setSelectedCuotasPagadas] = useState("");
-  const [selectedAsignacion, setSelectedAsignacion] = useState("");
-  const [loading, setLoading] = useState({ periodos: false, cuotas: false, cuotasPagadas: false, asignacion: false });
+  const [selected, setSelected] = useState({ cuotas: "", asignacion: "", cuotasPagadas: "" });
+  const [loadingPeriodos, setLoadingPeriodos] = useState(false);
+  const [downloading, setDownloading] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function loadPeriodos() {
-      setLoading((prev) => ({ ...prev, periodos: true }));
+      setLoadingPeriodos(true);
       setError("");
       try {
         const data = await fetchItauAdministrativasPeriodos();
         const cuotas = data.cuotas || [];
         const asignacion = data.asignacion || [];
         setPeriodos({ cuotas, asignacion });
-        setSelectedCuotas(cuotas[0] || "");
-        setSelectedCuotasPagadas(cuotas[0] || "");
-        setSelectedAsignacion(asignacion[0] || "");
+        setSelected({ cuotas: cuotas[0] || "", asignacion: asignacion[0] || "", cuotasPagadas: cuotas[0] || "" });
       } catch (err) {
-        setError(err.message || "No se pudieron cargar los periodos");
+        setError(err.message || "No se pudieron cargar los periodos disponibles.");
       } finally {
-        setLoading((prev) => ({ ...prev, periodos: false }));
+        setLoadingPeriodos(false);
       }
     }
 
     loadPeriodos();
   }, []);
 
-  async function downloadCuotas() {
-    setLoading((prev) => ({ ...prev, cuotas: true }));
+  async function onDownload(item) {
+    setDownloading(item.key);
     setError("");
     try {
-      const file = await downloadItauCuotasVencida(selectedCuotas);
+      const file = await item.download(selected[item.key]);
       saveDownload(file.blob, file.filename);
     } catch (err) {
-      setError(err.message || "No se pudo descargar cuotas Itaú");
+      setError(err.message || `No se pudo descargar ${item.title.toLowerCase()}. Intenta de nuevo o elige otro periodo.`);
     } finally {
-      setLoading((prev) => ({ ...prev, cuotas: false }));
-    }
-  }
-
-  async function downloadAsignacion() {
-    setLoading((prev) => ({ ...prev, asignacion: true }));
-    setError("");
-    try {
-      const file = await downloadItauAsignacionVencida(selectedAsignacion);
-      saveDownload(file.blob, file.filename);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar asignacion Itaú");
-    } finally {
-      setLoading((prev) => ({ ...prev, asignacion: false }));
-    }
-  }
-
-  async function downloadCuotasPagadas() {
-    setLoading((prev) => ({ ...prev, cuotasPagadas: true }));
-    setError("");
-    try {
-      const file = await downloadItauCuotasPagadas(selectedCuotasPagadas);
-      saveDownload(file.blob, file.filename);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar cuotas pagadas Itaú");
-    } finally {
-      setLoading((prev) => ({ ...prev, cuotasPagadas: false }));
+      setDownloading("");
     }
   }
 
   return (
-    <div className="container py-5 app-shell">
-      <div className="card shadow-sm module-panel module-panel-info mb-4">
-        <div className="card-body p-4">
-          <Link to="/administrativas" className="small text-decoration-none">Volver a Administrativas</Link>
-          <h1 className="h3 mt-2 mb-2">Itaú - Administrativo</h1>
-          <p className="text-muted mb-0">Espacio preparado para implementar procesos administrativos de Itaú.</p>
-        </div>
-      </div>
+    <div className="pd-page">
+      <PageHeader
+        title="Itaú Vencida"
+        subtitle="Descarga los archivos que envía Itaú y define qué casos cuentan para el cumplimiento del mes."
+        breadcrumb={BREADCRUMB}
+      />
 
       {error && <div className="alert alert-danger">{error}</div>}
-      {loading.periodos && <div className="alert alert-info">Cargando periodos disponibles...</div>}
 
-      <div className="row g-3">
-        <div className="col-12 col-lg-6">
-          <DownloadCard
-            title="Cuotas Itaú Vencida"
-            description="Descarga todas las cuotas enviadas por Itaú para el mes seleccionado, usando FechaDeProceso."
-            periodos={periodos.cuotas}
-            value={selectedCuotas}
-            onChange={setSelectedCuotas}
-            loading={loading.cuotas || loading.periodos}
-            onDownload={downloadCuotas}
-          />
-        </div>
-        <div className="col-12 col-lg-6">
-          <DownloadCard
-            title="Asignación Itaú Vencida"
-            description="Descarga toda la asignación enviada por Itaú para el mes seleccionado, usando el periodo detectado en el nombre del archivo."
-            periodos={periodos.asignacion}
-            value={selectedAsignacion}
-            onChange={setSelectedAsignacion}
-            loading={loading.asignacion || loading.periodos}
-            onDownload={downloadAsignacion}
-          />
-        </div>
-        <div className="col-12 col-lg-6">
-          <DownloadCard
-            title="Cuotas Pagadas Itaú Vencida"
-            description="Descarga el consolidado mensual de cuotas estimadas como pagadas, comparando cortes consecutivos de cuotas Itaú."
-            periodos={periodos.cuotas}
-            value={selectedCuotasPagadas}
-            onChange={setSelectedCuotasPagadas}
-            loading={loading.cuotasPagadas || loading.periodos}
-            onDownload={downloadCuotasPagadas}
-          />
-        </div>
-        <div className="col-12">
-          <MediblesItauCard />
-        </div>
-      </div>
+      <SectionCard title="Descargas" description="Elige el mes de cada archivo y descárgalo en Excel." bodyClassName="">
+        <ul className="pd-download-list">
+          {DESCARGAS.map((item) => {
+            const opciones = periodos[item.periodosKey];
+            const busy = downloading === item.key;
+            return (
+              <li className="pd-download-row" key={item.key}>
+                <div className="pd-download-text">
+                  <span className="pd-download-title">{item.title}</span>
+                  <span className="pd-download-desc">{item.description}</span>
+                </div>
+                <label className="pd-download-periodo">
+                  <span className="visually-hidden">Periodo de {item.title.toLowerCase()}</span>
+                  <select
+                    className="form-select"
+                    value={selected[item.key]}
+                    onChange={(event) => setSelected((prev) => ({ ...prev, [item.key]: event.target.value }))}
+                    disabled={!opciones.length || loadingPeriodos || busy}
+                  >
+                    {!opciones.length && <option value="">{loadingPeriodos ? "Cargando periodos..." : "Sin periodos"}</option>}
+                    {opciones.map((periodo) => (
+                      <option key={periodo} value={periodo}>
+                        {formatPeriodo(periodo)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="pd-btn pd-btn-primary"
+                  onClick={() => onDownload(item)}
+                  disabled={!selected[item.key] || loadingPeriodos || Boolean(downloading)}
+                >
+                  <i className="bi bi-download" aria-hidden="true" /> {busy ? "Descargando..." : "Descargar"}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      </SectionCard>
+
+      <MediblesItauCard />
     </div>
   );
 }

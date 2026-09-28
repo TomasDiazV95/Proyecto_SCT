@@ -2210,15 +2210,6 @@ html.phoenix-page-active #root {
   background: #fff;
 }
 
-.home-panel-card {
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.home-panel-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0.75rem 1.5rem rgba(15, 23, 42, 0.12) !important;
-}
-
 .btn-pink {
   color: #fff;
   background-color: #ec4899;
@@ -2333,36 +2324,6 @@ th {
 
 .gm-dot-low {
   background: var(--bajo);
-}
-
-.admin-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1100;
-  padding: 16px;
-}
-
-.admin-modal {
-  width: min(760px, 100%);
-  max-height: 90vh;
-  overflow: auto;
-}
-
-.admin-module-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 8px;
-}
-
-.admin-module-item {
-  border: 1px solid #d8deea;
-  border-radius: 0.4rem;
-  padding: 8px 10px;
-  background: #fff;
 }
 
 .factura-page {
