@@ -1,7 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { fetchGestionesDiariasSctDetail, fetchGestionesDiariasSctFilters, fetchGestionesDiariasSctSummary } from "../api";
+import {
+  EmptyRow,
+  Field,
+  FilterBar,
+  LoadingState,
+  PageHeader,
+  Pagination,
+  SectionCard,
+  ViewTabs,
+  exportFileName,
+  phoenixGrupalAlFinal,
+} from "../components/productividad/ui";
+
+const BREADCRUMB = [
+  { label: "Inicio", to: "/" },
+  { label: "Panel Administrativo", to: "/administrativas" },
+];
+
+function formatNumber(value) {
+  return new Intl.NumberFormat("es-CL").format(Number(value || 0));
+}
 
 const initialSharedFilters = {
   fecha_desde: "",
@@ -246,240 +266,245 @@ export default function GestionesDiariasSctPage() {
       ? "1 ejecutivo seleccionado"
       : `${summaryFilters.ejecutivos.length} ejecutivos seleccionados`;
 
-  return (
-    <div className="container-fluid py-4 app-shell">
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <h1 className="h3 m-0">Gestiones Diarias SCT</h1>
-          <Link to="/administrativas" className="small text-decoration-none">
-            Volver a Administrativas
-          </Link>
-        </div>
-        <div className="btn-group">
-          <button className={`btn btn-${view === "resumen" ? "primary" : "outline-primary"}`} onClick={() => { setRows([]); setContactoColumns([]); setTotal(0); setView("resumen"); setPage(1); }}>
-            Resumen
-          </button>
-          <button className={`btn btn-${view === "detalle" ? "primary" : "outline-primary"}`} onClick={() => { setRows([]); setContactoColumns([]); setTotal(0); setView("detalle"); setPage(1); }}>
-            Detalle
-          </button>
-        </div>
-      </div>
+  function changeView(next) {
+    if (next === view) {
+      return;
+    }
+    setRows([]);
+    setContactoColumns([]);
+    setTotal(0);
+    setView(next);
+    setPage(1);
+  }
 
-      <div className="card shadow-sm mb-3">
-        <div className="card-body">
-          <div className="row g-2 align-items-end">
-            <div className="col-12 col-md-2">
-              <label className="form-label">Fecha desde</label>
-              <input className="form-control" type="date" value={sharedFilters.fecha_desde} min={options.fecha_min || undefined} max={options.fecha_max || undefined} onChange={(e) => onFilter("fecha_desde", e.target.value)} />
-            </div>
-            <div className="col-12 col-md-2">
-              <label className="form-label">Fecha hasta</label>
-              <input className="form-control" type="date" value={sharedFilters.fecha_hasta} min={options.fecha_min || undefined} max={options.fecha_max || undefined} onChange={(e) => onFilter("fecha_hasta", e.target.value)} />
-            </div>
-            {view === "resumen" ? (
-              <div className="col-12 col-md-3">
-                <label className="form-label">Ejecutivos</label>
-                <div className="position-relative" ref={executiveDropdownRef}>
-                  <button className="btn btn-outline-secondary w-100 text-start d-flex justify-content-between align-items-center" type="button" onClick={() => setExecutiveDropdownOpen((prev) => !prev)}>
-                    <span className="text-truncate">{executiveButtonText}</span>
-                    <span className="ms-2">▾</span>
-                  </button>
-                  {executiveDropdownOpen && (
-                    <div className="position-absolute bg-white border rounded shadow-sm p-2 mt-1 w-100" style={{ zIndex: 20, maxHeight: 360, overflow: "hidden" }}>
-                      <input className="form-control form-control-sm mb-2" value={executiveSearch} onChange={(e) => setExecutiveSearch(e.target.value)} placeholder="Buscar ejecutivo" />
-                      <div className="d-flex gap-2 mb-2">
-                        <button className="btn btn-sm btn-outline-primary" type="button" onClick={() => selectVisibleExecutives(filteredExecutives)} disabled={!filteredExecutives.length}>
-                          Seleccionar visibles
-                        </button>
-                        <button className="btn btn-sm btn-outline-secondary" type="button" onClick={clearSummaryExecutives} disabled={!summaryFilters.ejecutivos.length}>
-                          Limpiar
-                        </button>
-                      </div>
-                      <div className="overflow-auto" style={{ maxHeight: 240 }}>
-                        {filteredExecutives.length ? filteredExecutives.map((value) => (
-                          <label className="d-flex align-items-center gap-2 py-1 small" key={value}>
-                            <input type="checkbox" className="form-check-input m-0" checked={summaryFilters.ejecutivos.includes(value)} onChange={() => toggleSummaryExecutive(value)} />
-                            <span className="text-truncate">{value}</span>
-                          </label>
-                        )) : (
-                          <div className="small text-muted py-2">Sin ejecutivos disponibles</div>
-                        )}
-                      </div>
-                      <div className="small text-muted border-top pt-2 mt-2">Sin seleccion = todos</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="col-12 col-md-3">
-                <label className="form-label">Ejecutivo</label>
-                <select className="form-select" value={detailFilters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
-                  <option value="">Todos</option>
-                  {options.ejecutivos.map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="col-12 col-md-2">
-              <label className="form-label">Contacto</label>
-              <select className="form-select" value={viewFilters.contacto} onChange={(e) => onFilter("contacto", e.target.value)}>
-                <option value="">Todos</option>
-                {options.contactos.map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
-            </div>
-            {view === "detalle" && (
-              <div className="col-12 col-md-2">
-                <label className="form-label">Accion</label>
-                <select className="form-select" value={detailFilters.accion} onChange={(e) => onFilter("accion", e.target.value)}>
-                  <option value="">Todas</option>
-                  {options.acciones.map((value) => (
-                    <option key={value} value={value}>{value}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {view === "detalle" && (
-              <div className="col-12 col-md-2">
-                <label className="form-label">Estado</label>
-                <select className="form-select" value={detailFilters.estado} onChange={(e) => onFilter("estado", e.target.value)}>
-                  <option value="">Todos</option>
-                  {options.estados.map((value) => (
-                    <option key={value} value={value}>{value}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {(view === "detalle" || view === "resumen") && (
-              <div className="col-12 col-md-2">
-                <label className="form-label">Tramo mora</label>
-                <select className="form-select" value={viewFilters.tramo_mora} onChange={(e) => onFilter("tramo_mora", e.target.value)}>
-                  <option value="">Todos</option>
-                  {options.tramos_mora.map((value) => (
-                    <option key={value} value={value}>{value}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="col-12 col-md-2">
-              <label className="form-label">Canal</label>
-              <select className="form-select" value={viewFilters.canal} onChange={(e) => onFilter("canal", e.target.value)}>
-                <option value="">Todos</option>
-                {options.canales.map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-2">
-              <label className="form-label">Zona</label>
-              <select className="form-select" value={viewFilters.zona} onChange={(e) => onFilter("zona", e.target.value)}>
-                <option value="">Todas</option>
-                {options.zonas.map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-2">
-              <label className="form-label">Filas</label>
-              <select className="form-select" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
-                {[50, 100, 200, 500].map((value) => (
-                  <option key={value} value={value}>{value}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-12 col-md-2">
-              <button className="btn btn-outline-secondary w-100" type="button" onClick={clearFilters}>
-                Limpiar filtros
+  const summaryRows = phoenixGrupalAlFinal(rows, (row) => row.cobrador_actual);
+  const detailColumns = ["Fecha gestión", "RUT", "DV", "Operación", "Tramo mora", "Cobrador", "Contacto", "Estado", "Fecha compromiso", "Comentario", "Acción", "Canal", "Zona"];
+  const summaryColSpan = contactoColumns.length + 2;
+
+  return (
+    <div className="pd-page">
+      <PageHeader
+        title="Gestiones Diarias SCT"
+        subtitle="Gestiones diarias de Santander Consumer Terreno: resumen por cobrador y detalle de cada gestión."
+        breadcrumb={BREADCRUMB}
+      />
+
+      <FilterBar
+        actions={
+          <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters}>
+            <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+          </button>
+        }
+      >
+        <Field label="Fecha desde">
+          <input className="form-control" type="date" value={sharedFilters.fecha_desde} min={options.fecha_min || undefined} max={options.fecha_max || undefined} onChange={(e) => onFilter("fecha_desde", e.target.value)} />
+        </Field>
+        <Field label="Fecha hasta">
+          <input className="form-control" type="date" value={sharedFilters.fecha_hasta} min={options.fecha_min || undefined} max={options.fecha_max || undefined} onChange={(e) => onFilter("fecha_hasta", e.target.value)} />
+        </Field>
+        {view === "resumen" ? (
+          <div className="pd-field">
+            <span className="pd-label" id="sct-ejecutivos-label">Ejecutivos</span>
+            <div className="position-relative" ref={executiveDropdownRef}>
+              <button
+                type="button"
+                className="form-select text-start text-truncate"
+                aria-labelledby="sct-ejecutivos-label"
+                aria-expanded={executiveDropdownOpen}
+                onClick={() => setExecutiveDropdownOpen((prev) => !prev)}
+              >
+                {executiveButtonText}
               </button>
+              {executiveDropdownOpen && (
+                <div className="pd-multi-panel">
+                  <input className="form-control" value={executiveSearch} onChange={(e) => setExecutiveSearch(e.target.value)} placeholder="Buscar ejecutivo" />
+                  <div className="pd-multi-actions">
+                    <button type="button" className="pd-btn pd-btn-secondary pd-btn-sm" onClick={() => selectVisibleExecutives(filteredExecutives)} disabled={!filteredExecutives.length}>
+                      Seleccionar visibles
+                    </button>
+                    <button type="button" className="pd-btn pd-btn-ghost pd-btn-sm" onClick={clearSummaryExecutives} disabled={!summaryFilters.ejecutivos.length}>
+                      Quitar selección
+                    </button>
+                  </div>
+                  <div className="pd-multi-list">
+                    {filteredExecutives.length ? filteredExecutives.map((value) => (
+                      <label className="pd-multi-option" key={value}>
+                        <input type="checkbox" className="form-check-input" checked={summaryFilters.ejecutivos.includes(value)} onChange={() => toggleSummaryExecutive(value)} />
+                        <span>{String(value).toUpperCase()}</span>
+                      </label>
+                    )) : (
+                      <div className="pd-small pd-muted">Ningún ejecutivo coincide con la búsqueda.</div>
+                    )}
+                  </div>
+                  <div className="pd-multi-hint">Si no marcas ninguno, se muestran todos.</div>
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      </div>
+        ) : (
+          <Field label="Ejecutivo">
+            <select className="form-select" value={detailFilters.ejecutivo} onChange={(e) => onFilter("ejecutivo", e.target.value)}>
+              <option value="">Todos</option>
+              {options.ejecutivos.map((value) => (
+                <option key={value} value={value}>
+                  {String(value).toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Field label="Contacto">
+          <select className="form-select" value={viewFilters.contacto} onChange={(e) => onFilter("contacto", e.target.value)}>
+            <option value="">Todos</option>
+            {options.contactos.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </Field>
+        {view === "detalle" && (
+          <Field label="Acción">
+            <select className="form-select" value={detailFilters.accion} onChange={(e) => onFilter("accion", e.target.value)}>
+              <option value="">Todas</option>
+              {options.acciones.map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {view === "detalle" && (
+          <Field label="Estado">
+            <select className="form-select" value={detailFilters.estado} onChange={(e) => onFilter("estado", e.target.value)}>
+              <option value="">Todos</option>
+              {options.estados.map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        <Field label="Tramo mora">
+          <select className="form-select" value={viewFilters.tramo_mora} onChange={(e) => onFilter("tramo_mora", e.target.value)}>
+            <option value="">Todos</option>
+            {options.tramos_mora.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Canal">
+          <select className="form-select" value={viewFilters.canal} onChange={(e) => onFilter("canal", e.target.value)}>
+            <option value="">Todos</option>
+            {options.canales.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Zona">
+          <select className="form-select" value={viewFilters.zona} onChange={(e) => onFilter("zona", e.target.value)}>
+            <option value="">Todas</option>
+            {options.zonas.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Filas">
+          <select className="form-select" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
+            {[50, 100, 200, 500].map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </Field>
+      </FilterBar>
 
       {error && <div className="alert alert-danger">{error}</div>}
 
-      <div className="card shadow-sm">
-        <div className="card-body">
-          <div className="d-flex justify-content-between align-items-center mb-2">
-            <span className="small text-muted">Mostrando {from}-{to} de {total} registros</span>
-            <div className="btn-group btn-group-sm">
-              <button className="btn btn-outline-primary" disabled={page <= 1 || loading} onClick={() => setPage((prev) => Math.max(1, prev - 1))}>Anterior</button>
-              <button className="btn btn-outline-primary" disabled>{page} / {totalPages}</button>
-              <button className="btn btn-outline-primary" disabled={page >= totalPages || loading} onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}>Siguiente</button>
-            </div>
-          </div>
-
-          <div className="table-responsive">
-            {loading ? (
-              <div className="text-center py-4">Cargando...</div>
-            ) : rows.length === 0 ? (
-              <div className="text-center py-4 text-muted">No hay gestiones para los filtros seleccionados.</div>
-            ) : (
-              <table className="table table-striped table-hover align-middle gm-data-table">
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={changeView}
+          options={[
+            { value: "resumen", label: "Resumen por cobrador" },
+            { value: "detalle", label: "Detalle de gestiones" },
+          ]}
+        />
+        <SectionCard
+          exportName={exportFileName("Gestiones-SCT", view, sharedFilters.fecha_desde, sharedFilters.fecha_hasta)}
+          bodyClassName=""
+          footer={
+            <Pagination
+              summary={`Mostrando ${formatNumber(from)}-${formatNumber(to)} de ${formatNumber(total)} ${view === "resumen" ? "cobradores" : "gestiones"}. Página ${page} de ${totalPages}.`}
+              onPrev={() => setPage((prev) => Math.max(1, prev - 1))}
+              onNext={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+              prevDisabled={page <= 1 || loading}
+              nextDisabled={page >= totalPages || loading}
+            />
+          }
+        >
+          {loading ? (
+            <LoadingState text="Cargando gestiones..." />
+          ) : view === "detalle" ? (
+            <div className="pd-table-scroll">
+              <table className="pd-table pd-table-compact">
                 <thead>
-                  {view === "detalle" ? (
-                    <tr>
-                      <th>Fecha gestion</th>
-                      <th>RUT</th>
-                      <th>DV</th>
-                      <th>Operacion</th>
-                      <th>Tramo mora</th>
-                      <th>Cobrador</th>
-                      <th>Contacto</th>
-                      <th>Estado</th>
-                      <th>Fecha compromiso</th>
-                      <th>Comentario</th>
-                      <th>Accion</th>
-                      <th>Canal</th>
-                      <th>Zona</th>
-                    </tr>
-                  ) : (
-                    <tr>
-                      <th>Cobrador</th>
-                      {contactoColumns.map((column) => (
-                        <th key={column}>{column}</th>
-                      ))}
-                      <th>Total gestiones</th>
-                    </tr>
-                  )}
+                  <tr>
+                    {detailColumns.map((label) => (
+                      <th key={label}>{label}</th>
+                    ))}
+                  </tr>
                 </thead>
                 <tbody>
-                  {view === "detalle"
-                    ? rows.map((row) => (
-                        <tr key={row.id_gestion}>
-                          <td>{formatGestionDate(row.fech_gest)}</td>
-                          <td>{display(row.ddas_nrt_ppal)}</td>
-                          <td>{display(row.ddas_drt_ppal)}</td>
-                          <td>{display(row.ddas_id_numero_operac)}</td>
-                          <td>{display(row.tramo_mora)}</td>
-                          <td>{display(row.cobrador_actual)}</td>
-                          <td>{display(row.contacto)}</td>
-                          <td>{display(row.estado)}</td>
-                          <td>{formatGestionDate(row.fecha_comp)}</td>
-                          <td className="text-wrap" style={{ minWidth: 260 }}>{display(row.com_gest)}</td>
-                          <td>{display(row.accion)}</td>
-                          <td>{display(row.canal)}</td>
-                          <td>{display(row.zona)}</td>
-                        </tr>
-                      ))
-                    : rows.map((row) => (
-                        <tr key={row.cobrador_actual || "sin-cobrador"}>
-                          <td>{display(row.cobrador_actual)}</td>
-                          {contactoColumns.map((column) => (
-                            <td key={column}>{Number(row.contactos?.[column] || 0)}</td>
-                          ))}
-                          <td>{display(row.total_gestiones)}</td>
-                        </tr>
-                      ))}
+                  {rows.map((row) => (
+                    <tr key={row.id_gestion}>
+                      <td>{formatGestionDate(row.fech_gest)}</td>
+                      <td>{display(row.ddas_nrt_ppal)}</td>
+                      <td>{display(row.ddas_drt_ppal)}</td>
+                      <td>{display(row.ddas_id_numero_operac)}</td>
+                      <td>{display(row.tramo_mora)}</td>
+                      <td className="pd-cell-ejecutivo">{display(row.cobrador_actual)}</td>
+                      <td>{display(row.contacto)}</td>
+                      <td>{display(row.estado)}</td>
+                      <td>{formatGestionDate(row.fecha_comp)}</td>
+                      <td className="pd-cell-comment">{display(row.com_gest)}</td>
+                      <td>{display(row.accion)}</td>
+                      <td>{display(row.canal)}</td>
+                      <td>{display(row.zona)}</td>
+                    </tr>
+                  ))}
+                  {!rows.length && <EmptyRow colSpan={detailColumns.length} text="No hay gestiones para los filtros seleccionados. Prueba con otro rango de fechas." />}
                 </tbody>
               </table>
-            )}
-          </div>
-        </div>
+            </div>
+          ) : (
+            <div className="pd-table-scroll">
+              <table className="pd-table">
+                <thead>
+                  <tr>
+                    <th rowSpan={2}>Cobrador</th>
+                    {contactoColumns.length > 0 && (
+                      <th colSpan={contactoColumns.length} className="pd-th-group-1 pd-group-start">Gestiones por contacto</th>
+                    )}
+                    <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Total gestiones</th>
+                  </tr>
+                  <tr>
+                    {contactoColumns.map((column, idx) => (
+                      <th key={column} className={`pd-num pd-th-sub-1${idx === 0 ? " pd-group-start" : ""}`}>{column}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {summaryRows.map((row) => (
+                    <tr key={row.cobrador_actual || "sin-cobrador"}>
+                      <td className="pd-cell-ejecutivo">{display(row.cobrador_actual)}</td>
+                      {contactoColumns.map((column, idx) => (
+                        <td key={column} className={`pd-num${idx === 0 ? " pd-group-start" : ""}`}>{formatNumber(row.contactos?.[column])}</td>
+                      ))}
+                      <td className="pd-num pd-group-start pd-cell-strong">{formatNumber(row.total_gestiones)}</td>
+                    </tr>
+                  ))}
+                  {!rows.length && <EmptyRow colSpan={summaryColSpan} text="No hay gestiones para los filtros seleccionados. Prueba con otro rango de fechas." />}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
       </div>
     </div>
   );
