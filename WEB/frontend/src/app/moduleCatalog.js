@@ -141,6 +141,15 @@ export const modulePanels = [
         path: "/administrativas/itau",
         buttonLabel: "Abrir Itaú Vencida",
       },
+      {
+        code: "gestiones-diarias-sct",
+        title: "Gestiones Diarias SCT",
+        description: "Carga, resumen y detalle de gestiones diarias Santander Consumer Terreno.",
+        path: "/gestiones-diarias-sct",
+        buttonLabel: "Ver Gestiones SCT",
+        // Solo lo ve quien tiene este modulo asignado (o acceso global), aunque tenga el panel.
+        requiresOwnAccess: true,
+      },
     ],
   },
   {

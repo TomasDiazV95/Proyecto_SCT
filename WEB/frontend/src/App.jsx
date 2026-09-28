@@ -8,6 +8,7 @@ import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ContactabilidadItauVencidaPage from "./pages/ContactabilidadItauVencidaPage";
 import BitPage from "./pages/BitPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import GestionesDiariasSctPage from "./pages/GestionesDiariasSctPage";
 import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
@@ -40,6 +41,7 @@ export default function App() {
       <Route path="/admin" element={<ProtectedRoute moduleCode="admin"><PanelPage panelCode="admin" /></ProtectedRoute>} />
       <Route path="/sc-tardia" element={<ProtectedRoute moduleCode="sc-tardia"><ScTardiaPage /></ProtectedRoute>} />
       <Route path="/sc-temprana" element={<ProtectedRoute moduleCode="sc-temprana"><ScTempranaPage /></ProtectedRoute>} />
+      <Route path="/gestiones-diarias-sct" element={<ProtectedRoute moduleCode="gestiones-diarias-sct"><GestionesDiariasSctPage /></ProtectedRoute>} />
       <Route path="/gm" element={<ProtectedRoute moduleCode="gm"><GmPage /></ProtectedRoute>} />
       <Route path="/bench" element={<ProtectedRoute moduleCode="bench"><BenchPage /></ProtectedRoute>} />
       <Route path="/itau-castigo" element={<ProtectedRoute moduleCode="itau-castigo"><ItauCastigoPage /></ProtectedRoute>} />
@@ -50,7 +52,7 @@ export default function App() {
       {/* <Route path="/porsche" element={<ProtectedRoute moduleCode="porsche"><PorschePage /></ProtectedRoute>} /> */}
       <Route path="/sth" element={<ProtectedRoute moduleCode="sth"><SthPage /></ProtectedRoute>} />
       <Route path="/factura" element={<ProtectedRoute moduleCode="factura"><PanelPage panelCode="factura" emptyTitle="Panel de Factura en preparacion" emptyDescription="Este modulo esta reservado para simular facturas" /></ProtectedRoute>} />
-      <Route path="/administrativas" element={<ProtectedRoute moduleCode="administrativas"><PanelPage panelCode="administrativas" /></ProtectedRoute>} />
+      <Route path="/administrativas" element={<ProtectedRoute><PanelPage panelCode="administrativas" /></ProtectedRoute>} />
       <Route path="/administrativas/itau" element={<ProtectedRoute moduleCode="administrativas"><ItauAdministrativasPage /></ProtectedRoute>} />
       <Route path="/admin/permisos" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Permisos" description="Administracion avanzada de permisos." /></ProtectedRoute>} />
       <Route path="/admin/configuracion" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Configuracion" description="Configuracion general de la plataforma." /></ProtectedRoute>} />

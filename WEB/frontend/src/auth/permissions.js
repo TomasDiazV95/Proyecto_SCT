@@ -43,13 +43,14 @@ export function canAccessPanel(user, panel) {
 }
 
 export function getVisibleModules(user, panel) {
+  let modules;
   if (panel.adminOnly) {
-    return isAdminRole(user) || hasAssignedModule(user, panel.code) ? panel.modules : [];
+    modules = isAdminRole(user) || hasAssignedModule(user, panel.code) ? panel.modules : [];
+  } else if (hasGlobalAccess(user) || hasAssignedModule(user, panel.code)) {
+    modules = panel.modules;
+  } else {
+    modules = (panel.modules || []).filter((module) => hasAssignedModule(user, module.code));
   }
-
-  if (hasGlobalAccess(user) || hasAssignedModule(user, panel.code)) {
-    return panel.modules;
-  }
-
-  return (panel.modules || []).filter((module) => hasAssignedModule(user, module.code));
+  // Modulos con permiso propio: tener el panel no alcanza, hay que poder abrir el modulo.
+  return (modules || []).filter((module) => !module.requiresOwnAccess || canAccessModule(user, module.code));
 }
