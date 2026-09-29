@@ -146,7 +146,7 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
         GROUP BY v.origen
     ),
 
-    base AS (
+    base_zona_original AS (
         SELECT
             v.fecha,
             v.rut,
@@ -163,6 +163,44 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
         INNER JOIN ultimas_fechas uf
             ON v.origen = uf.origen
            AND v.fecha = uf.fecha_utilizada
+    ),
+
+    -- Cada ejecutivo queda en una sola zona: la que concentra mas operaciones.
+    -- Asi una operacion suelta en otra zona no duplica al ejecutivo en la tabla.
+    zona_principal_ejecutivo AS (
+        SELECT ejecutivo, zona
+        FROM (
+            SELECT
+                ejecutivo,
+                zona,
+                ROW_NUMBER() OVER (
+                    PARTITION BY ejecutivo
+                    ORDER BY COUNT_BIG(1) DESC, zona
+                ) AS rn
+            FROM base_zona_original
+            WHERE ISNULL(ejecutivo, '') <> ''
+              AND zona IS NOT NULL
+            GROUP BY ejecutivo, zona
+        ) AS z
+        WHERE rn = 1
+    ),
+
+    base AS (
+        SELECT
+            b.fecha,
+            b.rut,
+            b.operacion,
+            ISNULL(zp.zona, b.zona) AS zona,
+            b.deuda,
+            b.contenido,
+            b.normalizado,
+            b.ciclo,
+            b.apertura,
+            b.ejecutivo,
+            b.origen
+        FROM base_zona_original b
+        LEFT JOIN zona_principal_ejecutivo zp
+            ON zp.ejecutivo = b.ejecutivo
     ),
 
     stc_clasificado AS (

@@ -184,8 +184,8 @@ DESCARGAS = [
 
         "patron_archivo":
             (
-                "BENCH MORA TEMPRANA - "
-                "PHOENIX (TELEFONIA)"
+                "PHOENIX (TELEFONIA)_"
+                "BENCH_MORA_TEMPRANA.xlsx"
             ),
 
         # Ya viene ordenado
