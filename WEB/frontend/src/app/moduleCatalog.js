@@ -101,6 +101,13 @@ export const modulePanels = [
         path: "/kpi-avance-phoenix",
         buttonLabel: "Abrir KPI Phoenix",
       },
+      {
+        code: "kpi-operacional",
+        title: "KPI Operacional",
+        description: "Asignacion, saldo, contactabilidad, pagos y compromisos por mandante y cartera.",
+        path: "/kpi-operacional",
+        buttonLabel: "Abrir KPI Operacional",
+      },
     ],
   },
   {

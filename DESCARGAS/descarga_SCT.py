@@ -76,6 +76,11 @@ GRAPH_CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "")
 GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "")
 VISOR_MAILBOX = os.getenv("VISOR_MAILBOX", "")
 
+# Credenciales del usuario judicial (mismo visor, otra cuenta y otro buzon OTP).
+USUARIO_JUD = os.getenv("USUARIO_JUD", "").strip()
+CLAVE_JUD = os.getenv("CLAVE_JUD", "").strip()
+VISOR_MAILBOX_JUD = os.getenv("VISOR_MAILBOX_JUD", "").strip()
+
 # Espera antes de comenzar a consultar Outlook/Graph.
 OTP_WAIT_SECONDS = int(
     os.getenv("OTP_WAIT_SECONDS", "60")
@@ -194,6 +199,27 @@ DESCARGAS = [
     },
 ]
 
+# Se descarga con el usuario judicial (USUARIO_JUD / CLAVE_JUD).
+# Archivo: YYYYMMDD - BENCH BENCH JUDICIAL - P&S.xlsx; se toma el de fecha mas reciente.
+DESCARGAS_JUDICIAL = [
+    {
+        "nombre":
+            "BENCH JUDICIAL",
+
+        "carpeta_visor":
+            "📁 BENCH JUDICIAL",
+
+        "patron_archivo":
+            "BENCH BENCH JUDICIAL - P&S",
+
+        "patron_fecha":
+            r"(\d{8})\s*-\s*BENCH BENCH JUDICIAL - P&S",
+
+        "ordenar":
+            False,
+    },
+]
+
 
 # ============================================================
 # VALIDAR CONFIGURACION
@@ -221,6 +247,21 @@ def validar_configuracion() -> None:
             "Faltan variables en .env: "
             + ", ".join(faltantes)
         )
+
+
+def faltantes_judicial() -> list[str]:
+
+    variables = {
+        "USUARIO_JUD": USUARIO_JUD,
+        "CLAVE_JUD": CLAVE_JUD,
+        "VISOR_MAILBOX_JUD": VISOR_MAILBOX_JUD,
+    }
+
+    return [
+        nombre
+        for nombre, valor in variables.items()
+        if not valor
+    ]
 
 
 # ============================================================
@@ -339,12 +380,16 @@ def normalizar_texto(
 def obtener_codigo_desde_graph(
     fecha_solicitud: datetime,
     timeout: int = 180,
+    buzon: str | None = None,
+    codigos_excluidos: set[str] | None = None,
 ) -> str:
 
     token = obtener_token_graph()
 
+    codigos_excluidos = codigos_excluidos or set()
+
     mailbox = quote(
-        VISOR_MAILBOX,
+        buzon or VISOR_MAILBOX,
         safe="@.",
     )
 
@@ -447,7 +492,7 @@ def obtener_codigo_desde_graph(
                 body
             )
 
-            if codigo:
+            if codigo and codigo not in codigos_excluidos:
                 print(
                     "OTP encontrado correctamente."
                 )
@@ -572,6 +617,63 @@ def buscar_primera_fila(
         ) from e
 
     return fila
+
+
+# ============================================================
+# BUSCAR FILA CON FECHA MAS RECIENTE EN EL NOMBRE
+# ============================================================
+
+def buscar_fila_mas_reciente(
+    frame,
+    patron_archivo: str,
+    patron_fecha: str,
+):
+
+    # Espera a que exista al menos una fila coincidente.
+    buscar_primera_fila(
+        frame,
+        patron_archivo,
+    )
+
+    filas = (
+        frame
+        .locator("tr")
+        .filter(
+            has_text=patron_archivo
+        )
+    )
+
+    regex = re.compile(
+        patron_fecha,
+        re.IGNORECASE,
+    )
+
+    mejor_fila = None
+    mejor_fecha = ""
+
+    for indice in range(filas.count()):
+
+        fila = filas.nth(indice)
+
+        match = regex.search(
+            fila.inner_text()
+        )
+
+        if match and match.group(1) > mejor_fecha:
+            mejor_fecha = match.group(1)
+            mejor_fila = fila
+
+    if mejor_fila is None:
+        raise FileNotFoundError(
+            f"No se encontró '{patron_archivo}' "
+            "con fecha YYYYMMDD en el nombre."
+        )
+
+    print(
+        f"Fecha más reciente encontrada: {mejor_fecha}"
+    )
+
+    return mejor_fila
 
 
 # ============================================================
@@ -764,12 +866,26 @@ def descargar_desde_carpeta(
     # TOMAR PRIMER ARCHIVO COINCIDENTE
     # ========================================================
 
-    fila = (
-        buscar_primera_fila(
+    patron_fecha = configuracion.get(
+        "patron_fecha"
+    )
+
+    if patron_fecha:
+
+        fila = buscar_fila_mas_reciente(
             frame,
             patron_archivo,
+            patron_fecha,
         )
-    )
+
+    else:
+
+        fila = (
+            buscar_primera_fila(
+                frame,
+                patron_archivo,
+            )
+        )
 
     texto_archivo = (
         fila
@@ -977,8 +1093,12 @@ def extraer_y_eliminar_zip(
 # ============================================================
 
 def autenticar_visor(
-    page
-) -> None:
+    page,
+    usuario: str | None = None,
+    clave: str | None = None,
+    buzon: str | None = None,
+    codigos_excluidos: set[str] | None = None,
+) -> str:
 
     print()
     print("=" * 70)
@@ -1006,7 +1126,7 @@ def autenticar_visor(
     )
 
     campo_usuario.fill(
-        USUARIO
+        usuario or USUARIO
     )
 
     # ========================================================
@@ -1019,7 +1139,7 @@ def autenticar_visor(
     )
 
     campo_clave.fill(
-        CLAVE
+        clave or CLAVE
     )
 
     fecha_solicitud_otp = (
@@ -1090,6 +1210,8 @@ def autenticar_visor(
         timeout=(
             OTP_TIMEOUT_SECONDS
         ),
+        buzon=buzon,
+        codigos_excluidos=codigos_excluidos,
     )
 
     # ========================================================
@@ -1123,16 +1245,170 @@ def autenticar_visor(
         "Login completado."
     )
 
+    return codigo
+
+
+# ============================================================
+# EXPLORADOR
+# ============================================================
+
+def abrir_explorador(
+    page
+):
+
+    print()
+    print(
+        "Abriendo explorador..."
+    )
+
+    link_explorador = (
+        page
+        .get_by_role(
+            "link",
+            name=" explorador archivos",
+        )
+    )
+
+    link_explorador.click()
+
+    iframe = (
+        page
+        .locator(
+            'iframe[name="myMainFrame"]'
+        )
+    )
+
+    iframe.wait_for(
+        state="attached",
+        timeout=30000,
+    )
+
+    frame = (
+        iframe
+        .content_frame
+    )
+
+    if frame is None:
+
+        raise RuntimeError(
+            "No fue posible acceder "
+            "al iframe myMainFrame."
+        )
+
+    frame.locator(
+        "body"
+    ).wait_for(
+        state="visible",
+        timeout=10000,
+    )
+
+    print(
+        "Explorador abierto."
+    )
+
+    return frame
+
+
+# ============================================================
+# SESION: LOGIN + DESCARGAS
+# ============================================================
+
+def descargar_con_sesion(
+    browser,
+    descargas: list[dict],
+    usuario: str | None = None,
+    clave: str | None = None,
+    buzon: str | None = None,
+    codigos_excluidos: set[str] | None = None,
+) -> tuple[list[tuple[Path, str]], str]:
+
+    context = (
+        browser
+        .new_context(
+            accept_downloads=True
+        )
+    )
+
+    try:
+
+        page = (
+            context
+            .new_page()
+        )
+
+        codigo = autenticar_visor(
+            page,
+            usuario=usuario,
+            clave=clave,
+            buzon=buzon,
+            codigos_excluidos=codigos_excluidos,
+        )
+
+        frame = abrir_explorador(
+            page
+        )
+
+        zips_descargados = []
+
+        for (
+            indice,
+            configuracion
+        ) in enumerate(
+            descargas,
+            start=1,
+        ):
+
+            print()
+            print(
+                f"DESCARGA "
+                f"{indice}/"
+                f"{len(descargas)}"
+            )
+
+            ruta_zip = (
+                descargar_desde_carpeta(
+                    page,
+                    frame,
+                    configuracion,
+                )
+            )
+
+            zips_descargados.append(
+                (ruta_zip, configuracion["nombre"])
+            )
+
+        return zips_descargados, codigo
+
+    finally:
+
+        try:
+
+            context.close()
+
+        except Exception:
+
+            pass
+
 
 # ============================================================
 # MAIN
 # ============================================================
 
 def run(
-    playwright: Playwright
+    playwright: Playwright,
+    solo_judicial: bool = False,
 ) -> None:
 
-    validar_configuracion()
+    if not solo_judicial:
+        validar_configuracion()
+
+    variables_judicial_faltantes = faltantes_judicial()
+
+    if solo_judicial and variables_judicial_faltantes:
+        raise RuntimeError(
+            "Faltan variables en .env: "
+            + ", ".join(variables_judicial_faltantes)
+        )
 
     # ========================================================
     # CARPETAS
@@ -1148,8 +1424,19 @@ def run(
         exist_ok=True,
     )
 
-    # Limpiar una sola vez al inicio
-    limpiar_carpeta_extraida()
+    if solo_judicial:
+
+        # Solo se reemplaza el bench judicial; los demas archivos se conservan.
+        for archivo in CARPETA_EXTRAIDA.glob(
+            "*BENCH JUDICIAL*"
+        ):
+            archivo.unlink()
+
+    else:
+
+        # Limpiar una sola vez al inicio
+        limpiar_carpeta_extraida()
+
     limpiar_carpeta_zip()
 
     # ========================================================
@@ -1164,118 +1451,56 @@ def run(
         )
     )
 
-    context = (
-        browser
-        .new_context(
-            accept_downloads=True
-        )
-    )
-
-    page = (
-        context
-        .new_page()
-    )
-
     try:
 
-        # ====================================================
-        # LOGIN
-        # ====================================================
-
-        autenticar_visor(
-            page
-        )
-
-        # ====================================================
-        # ABRIR EXPLORADOR UNA VEZ
-        # ====================================================
-
-        print()
-        print(
-            "Abriendo explorador..."
-        )
-
-        link_explorador = (
-            page
-            .get_by_role(
-                "link",
-                name=" explorador archivos",
-            )
-        )
-
-        link_explorador.click()
-
-        # ====================================================
-        # IFRAME
-        # ====================================================
-
-        iframe = (
-            page
-            .locator(
-                'iframe[name="myMainFrame"]'
-            )
-        )
-
-        iframe.wait_for(
-            state="attached",
-            timeout=30000,
-        )
-
-        frame = (
-            iframe
-            .content_frame
-        )
-
-        if frame is None:
-
-            raise RuntimeError(
-                "No fue posible acceder "
-                "al iframe myMainFrame."
-            )
-
-        frame.locator(
-            "body"
-        ).wait_for(
-            state="visible",
-            timeout=10000,
-        )
-
-        print(
-            "Explorador abierto."
-        )
-
-        # ====================================================
-        # DESCARGAS
-        # ====================================================
-
         zips_descargados = []
+        codigos_usados: set[str] = set()
 
-        for (
-            indice,
-            configuracion
-        ) in enumerate(
-            DESCARGAS,
-            start=1,
-        ):
+        # ====================================================
+        # USUARIO PRINCIPAL
+        # ====================================================
+
+        if not solo_judicial:
+
+            zips, codigo = descargar_con_sesion(
+                browser,
+                DESCARGAS,
+            )
+
+            zips_descargados.extend(zips)
+            codigos_usados.add(codigo)
+
+        # ====================================================
+        # USUARIO JUDICIAL
+        # ====================================================
+
+        if variables_judicial_faltantes:
 
             print()
             print(
-                f"DESCARGA "
-                f"{indice}/"
-                f"{len(DESCARGAS)}"
+                "ADVERTENCIA: se omite BENCH JUDICIAL. "
+                "Faltan variables en .env: "
+                + ", ".join(variables_judicial_faltantes)
             )
 
-            ruta_zip = (
-                descargar_desde_carpeta(
-                    page,
-                    frame,
-                    configuracion,
-                )
+        else:
+
+            print()
+            print("=" * 70)
+            print("SESION JUDICIAL")
+            print("=" * 70)
+
+            zips, codigo = descargar_con_sesion(
+                browser,
+                DESCARGAS_JUDICIAL,
+                usuario=USUARIO_JUD,
+                clave=CLAVE_JUD,
+                buzon=VISOR_MAILBOX_JUD,
+                codigos_excluidos=codigos_usados,
             )
 
-            zips_descargados.append(
-                (ruta_zip, configuracion["nombre"])
-            )
+            zips_descargados.extend(zips)
+            codigos_usados.add(codigo)
 
         # ====================================================
         # EXTRAER
@@ -1339,14 +1564,6 @@ def run(
 
         try:
 
-            context.close()
-
-        except Exception:
-
-            pass
-
-        try:
-
             browser.close()
 
         except Exception:
@@ -1360,6 +1577,11 @@ def run(
 
 if __name__ == "__main__":
 
+    import sys
+
     with sync_playwright() as playwright:
 
-        run(playwright)
+        run(
+            playwright,
+            solo_judicial="--solo-judicial" in sys.argv,
+        )

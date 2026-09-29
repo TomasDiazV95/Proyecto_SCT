@@ -16,9 +16,11 @@ from dotenv import load_dotenv
 
 CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
 CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
+ASIGNACION_TABLE = "dbo.tmp_BIT_asignacion"
 DEFAULT_BIT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\AUTOMATIZACION\BIT")
 CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6}|\d{8})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
 CONTENCION_PATTERN = re.compile(r"^Seguimiento_Metas_PHOENIX_(\d{8})\.xlsx$", re.IGNORECASE)
+ASIGNACION_PATTERN = re.compile(r"^ASIGNACION_PHOENIX_(\d{8})\.csv$", re.IGNORECASE)
 CASTIGO_NUMERIC_COLUMNS = {"MTO_RECUPERO_FINAL", "GC_CASTIGO"}
 CONTENCION_NUMERIC_COLUMNS = {
     "MTO_CUOTA",
@@ -29,6 +31,19 @@ CONTENCION_NUMERIC_COLUMNS = {
     "GC_BAJO",
     "GC_ESPERADO",
     "GC_SOBRE",
+}
+ASIGNACION_NUMERIC_COLUMNS = {
+    "DEUDA_TOTAL",
+    "CUOTAS_MOROSAS",
+    "NRO_TOTAL_CUOTAS",
+    "MTO_CUOTA",
+    "DEUDA_FAC_PESOS_TOTAL",
+    "PAGO_MINIMO",
+    "PORC_DCTO_PUT",
+    "PORC_DCTO_AP",
+    "PORC_ABONO_EXIGIDO_AP",
+    "PORC_ABONO_EXIGIDO_RENE",
+    "MONTO_MORA_TOTAL",
 }
 RESERVED_METADATA_COLUMNS = {"ID", "PERIODO", "SOURCE_FILE", "FECHA_CARGA"}
 UF_FALLBACK_BY_PERIOD = {
@@ -45,6 +60,9 @@ class BitSources:
     castigo: pd.DataFrame | None = None
     castigo_source_file: str | None = None
     castigo_period: str | None = None
+    asignacion: pd.DataFrame | None = None
+    asignacion_source_file: str | None = None
+    asignacion_period: str | None = None
 
 
 def load_env_files() -> None:
@@ -99,6 +117,23 @@ def load_sheet(path: Path, sheet_name: str | int) -> pd.DataFrame:
     if duplicated:
         raise RuntimeError(f"Columnas duplicadas despues de normalizar en {path.name}: {duplicated}")
     return df.where(pd.notnull(df), None)
+
+
+def load_csv(path: Path) -> pd.DataFrame:
+    last_error: Exception | None = None
+    for encoding in ("utf-8-sig", "latin-1"):
+        try:
+            df = pd.read_csv(path, sep=";", dtype=str, keep_default_na=False, encoding=encoding)
+            break
+        except UnicodeDecodeError as exc:
+            last_error = exc
+    else:
+        raise RuntimeError(f"No se pudo leer {path.name}: {last_error}")
+    df.columns = [normalize_col(c) for c in df.columns]
+    duplicated = df.columns[df.columns.duplicated()].tolist()
+    if duplicated:
+        raise RuntimeError(f"Columnas duplicadas despues de normalizar en {path.name}: {duplicated}")
+    return df
 
 
 def clean_cell(value: object) -> object:
@@ -407,6 +442,40 @@ def extract_contencion_period(file_name: str) -> str:
     return f"{raw_date[:4]}-{raw_date[4:6]}"
 
 
+def extract_asignacion_period(file_name: str) -> str:
+    match = ASIGNACION_PATTERN.match(Path(file_name).name)
+    if not match:
+        raise RuntimeError(
+            "Nombre de asignacion invalido. "
+            f"Se esperaba ASIGNACION_PHOENIX_YYYYMMDD.csv y se encontro {file_name}"
+        )
+    raw_date = match.group(1)
+    return f"{raw_date[:4]}-{raw_date[4:6]}"
+
+
+def resolve_asignacion_source(folder: Path) -> tuple[Path, str, str] | None:
+    asignacion_path = find_unique_file(folder, "ASIGNACION_PHOENIX_*.csv", "asignacion", required=False)
+    if asignacion_path is None:
+        return None
+
+    source_file = asignacion_path.name
+    asignacion_period = extract_asignacion_period(source_file)
+
+    metadata = read_metadata(folder / "ASIGNACION.meta.json")
+    metadata_name = str(metadata.get("original_filename") or "").strip()
+    if metadata_name and metadata_name != source_file:
+        raise RuntimeError(
+            f"Metadata de asignacion inconsistente. original_filename={metadata_name}, archivo={source_file}"
+        )
+    metadata_period = str(metadata.get("periodo_detectado") or "").strip()
+    if metadata_period and metadata_period != asignacion_period:
+        raise RuntimeError(
+            f"Metadata de asignacion inconsistente. periodo_detectado={metadata_period}, archivo={source_file}"
+        )
+
+    return asignacion_path, source_file, asignacion_period
+
+
 def quote_ident(name: str) -> str:
     return f"[{str(name).replace(']', ']]')}]"
 
@@ -618,6 +687,14 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
         if not len(castigo_df.columns):
             raise RuntimeError(f"El archivo de castigo {castigo_source_file} no tiene columnas.")
 
+        asignacion_df = None
+        asignacion_source_file = None
+        asignacion_period = None
+        asignacion_source = resolve_asignacion_source(folder)
+        if asignacion_source:
+            asignacion_path, asignacion_source_file, asignacion_period = asignacion_source
+            asignacion_df = load_csv(asignacion_path)
+
         return BitSources(
             cont=cont,
             cont_source_file=cont_source_name,
@@ -625,6 +702,9 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
             castigo=castigo_df,
             castigo_source_file=castigo_source_file,
             castigo_period=castigo_period,
+            asignacion=asignacion_df,
+            asignacion_source_file=asignacion_source_file,
+            asignacion_period=asignacion_period,
         )
 
     if file_path:
@@ -768,6 +848,20 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
 
         castigo_rows = insert_castigo(cur, castigo_period, sources.castigo, sources.castigo_source_file)
 
+        # Igual que contencion: se reemplaza el periodo completo, asi queda solo el ultimo archivo del mes.
+        asignacion_rows = 0
+        if sources.asignacion is not None:
+            asignacion_rows, _ = insert_dynamic_sheet(
+                cur,
+                ASIGNACION_TABLE,
+                sources.asignacion_period,
+                sources.asignacion,
+                sources.asignacion_source_file,
+                numeric_columns=ASIGNACION_NUMERIC_COLUMNS,
+            )
+        else:
+            print(f"Advertencia: no se encontro archivo ASIGNACION_PHOENIX_*.csv; {ASIGNACION_TABLE} no se actualizo.")
+
         cn.commit()
 
     print(
@@ -778,7 +872,8 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
         f"contencion_monto_uf_source={contencion_stats['monto_uf_source']}, "
         f"contencion_monto_uf_error={contencion_stats['monto_uf_error'] or 'none'}, "
         f"contencion_tramo_desconocido={contencion_stats['unknown_tramo']}, "
-        f"periodo_castigo={castigo_period}, castigo={castigo_rows}"
+        f"periodo_castigo={castigo_period}, castigo={castigo_rows}, "
+        f"periodo_asignacion={sources.asignacion_period or 'none'}, asignacion={asignacion_rows}"
     )
 
 
