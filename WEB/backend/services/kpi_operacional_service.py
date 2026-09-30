@@ -86,12 +86,12 @@ TIPO_KPI = {
     "cumplidos": ("int", "pct"),
     "incumplidos": ("int", "pct"),
     "pendientes": ("int", "pct"),
-    "cumplimiento": ("pct", "pp"),
+    "pct_cumplidos": ("pct", "pp"),
+    "pct_incumplidos": ("pct", "pp"),
     "intensidad": ("dec", "pct"),
     "sin_gestion": ("pct", "pp"),
     "no_gestionados": ("int", "pct"),
     "monto_comprometido": ("money", "pct"),
-    "cumplimiento_monto": ("pct", "pp"),
 }
 
 
@@ -465,14 +465,15 @@ def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, se
             "cumplidos": cp["CUMPLIDO"],
             "incumplidos": cp["INCUMPLIDO"],
             "pendientes": cp["PENDIENTE"],
-            "cumplimiento": _safe_div(cp["CUMPLIDO"], cp["CUMPLIDO"] + cp["INCUMPLIDO"]),
+            # Sobre el total de compromisos generados (cumplidos + incumplidos + pendientes = 100%).
+            "pct_cumplidos": _safe_div(cp["CUMPLIDO"], total_comp),
+            "pct_incumplidos": _safe_div(cp["INCUMPLIDO"], total_comp),
             # Intensidad = llamados / casos asignados.
             "intensidad": _safe_div(int(c.get("llamados") or 0), asignados),
             # Clientes asignados sin ninguna gestion al corte.
             "sin_gestion": _safe_div(asignados - gestionados, asignados),
             "no_gestionados": max(asignados - gestionados, 0),
             "monto_comprometido": sum(mp.values()),
-            "cumplimiento_monto": _safe_div(mp["CUMPLIDO"], mp["CUMPLIDO"] + mp["INCUMPLIDO"]),
         }
         for name, value in valores.items():
             # Mes sin asignacion cargada: sin dato (no cero), para no mostrar caidas falsas.
