@@ -4,7 +4,7 @@ Toda la logica vive en el stored procedure (WEB/backend/sql/007_kpi_operacional.
 este script solo lo invoca para poder encadenarlo con los demas ETL.
 
 Uso:
-  python etl_kpi_operacional.py                 # mes anterior y actual
+  python etl_kpi_operacional.py                 # mes actual y 3 anteriores (los que compara el dashboard)
   python etl_kpi_operacional.py --periodos 2026-08 2026-09
 """
 
@@ -45,11 +45,17 @@ def connect() -> pyodbc.Connection:
     missing = [n for n, v in {"DB_SERVER": SERVER, "DB_NAME": DATABASE, "DB_USER": USER, "DB_PASSWORD": PASSWORD}.items() if not v]
     if missing:
         raise RuntimeError("Faltan variables en .env: " + ", ".join(missing))
-    conn_str = (
-        f"Driver={{{pick_driver()}}};Server={SERVER};Database={DATABASE};Uid={USER};Pwd={PASSWORD};"
-        "TrustServerCertificate=yes;Encrypt=yes;"
-    )
-    return pyodbc.connect(conn_str)
+    driver = pick_driver()
+    base = f"Driver={{{driver}}};Server={SERVER};Database={DATABASE};Uid={USER};Pwd={PASSWORD};TrustServerCertificate=yes;"
+    # El driver antiguo "SQL Server" no acepta Encrypt; los ODBC 17/18 prueban con y sin cifrado (como database.py).
+    encrypts = [None] if driver == "SQL Server" else [os.getenv("DB_ENCRYPT") or "yes", "no"]
+    errors = []
+    for encrypt in encrypts:
+        try:
+            return pyodbc.connect(base + (f"Encrypt={encrypt};" if encrypt else ""))
+        except pyodbc.Error as exc:
+            errors.append(str(exc))
+    raise RuntimeError("No se pudo conectar a SQL Server: " + " | ".join(errors))
 
 
 def print_results(cur: pyodbc.Cursor) -> None:
@@ -71,7 +77,7 @@ def print_results(cur: pyodbc.Cursor) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Carga KPI Operacional (stored procedure)")
-    parser.add_argument("--periodos", nargs="*", help="Periodos YYYY-MM. Por defecto, mes anterior y actual.")
+    parser.add_argument("--periodos", nargs="*", help="Periodos YYYY-MM. Por defecto, mes actual y 3 anteriores.")
     args = parser.parse_args()
 
     for periodo in args.periodos or []:
