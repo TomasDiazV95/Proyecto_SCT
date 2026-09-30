@@ -424,7 +424,7 @@ export default function KpiOperacionalPage() {
       { key: "recuperacion", nombre: "Recuperación", sentido: 1 },
       { key: "contactabilidad", nombre: "Contactabilidad", sentido: 1 },
       { key: "cobertura", nombre: "Cobertura de gestión", sentido: 1 },
-      { key: "cumplimiento", nombre: "Cumplimiento de compromisos", sentido: 1 },
+      { key: "pct_cumplidos", nombre: "Compromisos cumplidos", sentido: 1 },
     ];
     const out = items
       .filter((it) => kpis[it.key])
@@ -579,14 +579,20 @@ export default function KpiOperacionalPage() {
               meses={meses}
               note={`${fInt(kpis.pendientes?.valores[0])} aún no vencen.`}
             />
-            <KpiCard label="% de cumplimiento" help="De los compromisos ya vencidos, cuántos se pagaron." kpi={kpis.cumplimiento} meses={meses} />
             <KpiCard
               label="Monto comprometido"
               help="Suma de lo que los clientes prometieron pagar."
               kpi={kpis.monto_comprometido}
               meses={meses}
             />
-            <KpiCard label="% cumplimiento en monto" help="De cada $100 comprometidos y ya vencidos, cuánto se pagó." kpi={kpis.cumplimiento_monto} meses={meses} />
+            <KpiCard label="% cumplidos" help="De los compromisos generados, cuántos se pagaron." kpi={kpis.pct_cumplidos} meses={meses} />
+            <KpiCard
+              label="% incumplidos"
+              help="De los compromisos generados, cuántos vencieron sin pago."
+              kpi={kpis.pct_incumplidos}
+              meses={meses}
+              sentido={-1}
+            />
             <StackedMonths
               title="Estado de los compromisos"
               help="Cumplido: el cliente pagó. Incumplido: venció sin pago. Pendiente: aún no vence."

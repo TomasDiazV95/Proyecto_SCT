@@ -16,12 +16,15 @@ Universo:
 from __future__ import annotations
 
 import calendar
+import threading
+import time
 from datetime import date
 
 from database import run_query, run_query_sets
 
 
 SIN_PRODUCTO = "Sin producto"
+FILTROS_TTL = 600  # segundos; la asignacion solo cambia cuando corre sp_kpi_operacional_cargar
 SIN_ASIGNACION = "Sin asignación"
 MESES_COMPARACION = 4  # mes actual + 3 anteriores
 DIMENSIONES = ("mandante", "cartera", "tramo", "producto", "zona")
@@ -83,12 +86,12 @@ TIPO_KPI = {
     "cumplidos": ("int", "pct"),
     "incumplidos": ("int", "pct"),
     "pendientes": ("int", "pct"),
-    "cumplimiento": ("pct", "pp"),
+    "pct_cumplidos": ("pct", "pp"),
+    "pct_incumplidos": ("pct", "pp"),
     "intensidad": ("dec", "pct"),
     "sin_gestion": ("pct", "pp"),
     "no_gestionados": ("int", "pct"),
     "monto_comprometido": ("money", "pct"),
-    "cumplimiento_monto": ("pct", "pp"),
 }
 
 
@@ -151,18 +154,37 @@ def _union(listas) -> list[str]:
     return out
 
 
+_combinaciones_cache: dict[str, tuple[float, list[dict]]] = {}
+_combinaciones_lock = threading.Lock()
+
+
+def _combinaciones(periodo: str) -> list[dict]:
+    """Combinaciones distintas de dimensiones del mes (pocas filas), en cache por FILTROS_TTL."""
+    with _combinaciones_lock:
+        cached = _combinaciones_cache.get(periodo)
+        if cached and time.monotonic() - cached[0] < FILTROS_TTL:
+            return cached[1]
+        rows = run_query(
+            f"""SELECT DISTINCT mandante, cartera, tramo, ISNULL(producto, N'{SIN_PRODUCTO}') AS producto, zona
+            FROM dbo.kpi_asignacion WHERE periodo = ?""",
+            (periodo,),
+        )
+        _combinaciones_cache[periodo] = (time.monotonic(), rows)
+        return rows
+
+
 def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> dict:
     filters = filters or {}
     periodo_actual = _cortes(hoy or date.today())[0][0]
+    combinaciones = _combinaciones(periodo_actual)
 
     def distinct(field: str, include: tuple[str, ...]) -> set[str]:
-        dim_sql, dim_params = _dimension_filters(filters, "a", include)
-        expr = f"ISNULL(a.producto, '{SIN_PRODUCTO}')" if field == "producto" else f"a.{field}"
-        rows = run_query(
-            f"SELECT DISTINCT {expr} AS valor FROM dbo.kpi_asignacion a WHERE a.periodo = ?{dim_sql}",
-            (periodo_actual, *dim_params),
-        )
-        return {row["valor"] for row in rows if row.get("valor")}
+        # Mismo criterio que _dimension_filters (producto 'Sin producto' = NULL, ya normalizado en la consulta).
+        activos = [(f, _clean(filters.get(f))) for f in include if _clean(filters.get(f))]
+        return {
+            row[field] for row in combinaciones
+            if row.get(field) and all(row.get(f) == v for f, v in activos)
+        }
 
     mandante = _clean(filters.get("mandante"))
     cartera = _clean(filters.get("cartera"))
@@ -443,14 +465,15 @@ def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, se
             "cumplidos": cp["CUMPLIDO"],
             "incumplidos": cp["INCUMPLIDO"],
             "pendientes": cp["PENDIENTE"],
-            "cumplimiento": _safe_div(cp["CUMPLIDO"], cp["CUMPLIDO"] + cp["INCUMPLIDO"]),
+            # Sobre el total de compromisos generados (cumplidos + incumplidos + pendientes = 100%).
+            "pct_cumplidos": _safe_div(cp["CUMPLIDO"], total_comp),
+            "pct_incumplidos": _safe_div(cp["INCUMPLIDO"], total_comp),
             # Intensidad = llamados / casos asignados.
             "intensidad": _safe_div(int(c.get("llamados") or 0), asignados),
             # Clientes asignados sin ninguna gestion al corte.
             "sin_gestion": _safe_div(asignados - gestionados, asignados),
             "no_gestionados": max(asignados - gestionados, 0),
             "monto_comprometido": sum(mp.values()),
-            "cumplimiento_monto": _safe_div(mp["CUMPLIDO"], mp["CUMPLIDO"] + mp["INCUMPLIDO"]),
         }
         for name, value in valores.items():
             # Mes sin asignacion cargada: sin dato (no cero), para no mostrar caidas falsas.
