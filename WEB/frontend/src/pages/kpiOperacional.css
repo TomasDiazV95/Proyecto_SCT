@@ -1,0 +1,836 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
+
+/* KPI Operacional: estilos propios de la vista. */
+.kpo {
+  /* Superficies y tinta */
+  --kpo-bg: #f5f4f0;
+  --kpo-surface: #ffffff;
+  --kpo-border: #e4e2da;
+  --kpo-divider: #eeece6;
+  --kpo-grid: #e1e0d9;
+  --kpo-text: #1b1c1e;
+  --kpo-text-2: #4d4e52;
+  --kpo-muted: #6f7075;
+
+  /* Datos: mes actual en acento, meses anteriores en el mismo tono aclarado */
+  --kpo-accent: #2a78d6;
+  --kpo-past: #86b6ef;
+
+  /* Tipos de contacto: un solo azul, de mejor (oscuro) a peor (claro) */
+  --kpo-contact-1: #184f95;
+  --kpo-contact-2: #3987e5;
+  --kpo-contact-3: #86b6ef;
+
+  /* Compromisos: azul / amarillo / rojo (verde-rojo no se distingue con daltonismo) */
+  --kpo-comp-ok: #2a78d6;
+  --kpo-comp-wait: #eda100;
+  --kpo-comp-bad: #e34948;
+
+  /* Estado (siempre con flecha y texto, nunca solo color) */
+  --kpo-good: #0ca30c;
+  --kpo-good-text: #006300;
+  --kpo-good-bg: #e8f5e8;
+  --kpo-bad: #d03b3b;
+  --kpo-bad-text: #b02a2a;
+  --kpo-bad-bg: #fcebea;
+  --kpo-neutral-bg: #f0efeb;
+
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 36px 48px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  background: var(--kpo-bg);
+  color: var(--kpo-text);
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.kpo *,
+.kpo select,
+.kpo button {
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.kpo h1,
+.kpo h2,
+.kpo h3,
+.kpo p {
+  margin: 0;
+}
+
+/* ---------------- Encabezado ---------------- */
+.kpo-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.kpo-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kpo-muted);
+}
+
+.kpo-eyebrow a {
+  color: var(--kpo-accent);
+  text-decoration: none;
+}
+
+.kpo-eyebrow a:hover {
+  text-decoration: underline;
+}
+
+.kpo-title {
+  margin-top: 6px !important;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.kpo-subtitle {
+  margin-top: 6px !important;
+  font-size: 15px;
+  color: var(--kpo-text-2);
+}
+
+/* ---------------- Filtros ---------------- */
+.kpo-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 14px 18px;
+  background: var(--kpo-surface);
+  border: 1px solid var(--kpo-border);
+  border-radius: 12px;
+}
+
+.kpo-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  max-width: 100%;
+}
+
+.kpo-field label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--kpo-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.kpo-field select {
+  height: 42px;
+  padding: 0 12px;
+  font-size: 15px;
+  border: 1px solid #cfccc2;
+  border-radius: 8px;
+  background: #fbfaf8;
+  color: var(--kpo-text);
+}
+
+.kpo-btn {
+  height: 42px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid #cfccc2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--kpo-accent);
+  cursor: pointer;
+}
+
+.kpo-btn:hover {
+  background: #f4f7fc;
+}
+
+.kpo select:focus-visible,
+.kpo .kpo-btn:focus-visible {
+  outline: 2px solid var(--kpo-accent);
+  outline-offset: 2px;
+}
+
+/* ---------------- Estructura ---------------- */
+.kpo-body {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  transition: opacity 0.15s ease;
+}
+
+.kpo-is-loading {
+  opacity: 0.55;
+}
+
+.kpo-card {
+  padding: 20px 22px;
+  background: var(--kpo-surface);
+  border: 1px solid var(--kpo-border);
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.kpo-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.kpo-section-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.kpo-section-num {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--kpo-accent);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.kpo-section-title {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.kpo-section-desc {
+  margin-top: 2px !important;
+  font-size: 14px;
+  color: var(--kpo-text-2);
+}
+
+/* Las tarjetas se reparten el ancho de la fila; las anchas (apiladas, proyeccion) ocupan la fila completa. */
+.kpo-section-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.kpo-section-grid > .kpo-kpi {
+  flex: 1 1 260px;
+}
+
+.kpo-section-grid > .kpo-stacked,
+.kpo-section-grid > .kpo-proj {
+  flex: 1 1 100%;
+}
+
+/* ---------------- Resumen ---------------- */
+.kpo-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.kpo-summary-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.kpo-summary-title {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.kpo-summary-scope {
+  font-size: 13px;
+  color: var(--kpo-muted);
+}
+
+.kpo-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 10px;
+}
+
+.kpo-summary-list li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-areas:
+    "icon name"
+    "value value"
+    "verdict verdict";
+  column-gap: 8px;
+  row-gap: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--kpo-neutral-bg);
+}
+
+.kpo-summary-list li.is-good {
+  background: var(--kpo-good-bg);
+}
+
+.kpo-summary-list li.is-bad {
+  background: var(--kpo-bad-bg);
+}
+
+.kpo-summary-icon {
+  grid-area: icon;
+  align-self: center;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #ffffff;
+  font-size: 12px;
+  color: var(--kpo-text-2);
+}
+
+.is-good > .kpo-summary-icon {
+  color: var(--kpo-good-text);
+}
+
+.is-bad > .kpo-summary-icon {
+  color: var(--kpo-bad-text);
+}
+
+.kpo-summary-list li > .kpo-summary-name {
+  grid-area: name;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--kpo-text-2);
+}
+
+.kpo-summary-value {
+  grid-area: value;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--kpo-text);
+  white-space: nowrap;
+}
+
+.kpo-summary-verdict {
+  grid-area: verdict;
+  font-size: 13px;
+  color: var(--kpo-text-2);
+}
+
+.is-good > .kpo-summary-verdict {
+  color: var(--kpo-good-text);
+}
+
+.is-bad > .kpo-summary-verdict {
+  color: var(--kpo-bad-text);
+}
+
+.kpo-note {
+  padding: 10px 14px;
+  border: 1px solid #eadfc4;
+  border-radius: 10px;
+  background: #fbf6ea;
+  color: #5a4a2a;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ---------------- Tarjeta KPI ---------------- */
+.kpo-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kpo-kpi-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.kpo-kpi-label {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.kpo-kpi-help {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--kpo-muted);
+}
+
+/* Cifra grande: cifras proporcionales (sin tabular-nums). */
+.kpo-kpi-value {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.kpo-delta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.kpo-delta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--kpo-neutral-bg);
+  color: var(--kpo-text-2);
+}
+
+.kpo-delta.is-good .kpo-delta-chip {
+  background: var(--kpo-good-bg);
+  color: var(--kpo-good-text);
+}
+
+.kpo-delta.is-bad .kpo-delta-chip {
+  background: var(--kpo-bad-bg);
+  color: var(--kpo-bad-text);
+}
+
+.kpo-delta-text {
+  color: var(--kpo-text-2);
+}
+
+.kpo-kpi-note {
+  font-size: 12px;
+  color: var(--kpo-muted);
+}
+
+/* Columnas de 4 meses: barra <= 24px, punta redondeada, base recta. */
+.kpo-mini {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--kpo-divider);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.kpo-mini-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.kpo-mini-value {
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--kpo-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kpo-mini-col.is-current .kpo-mini-value {
+  font-weight: 700;
+  color: var(--kpo-text);
+}
+
+.kpo-mini-track {
+  width: 100%;
+  height: 72px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  border-bottom: 1px solid var(--kpo-grid);
+}
+
+.kpo-mini-bar {
+  width: 24px;
+  border-radius: 4px 4px 0 0;
+}
+
+.kpo-mini-month {
+  font-size: 12px;
+  color: var(--kpo-muted);
+}
+
+.kpo-mini-col.is-current .kpo-mini-month {
+  font-weight: 700;
+  color: var(--kpo-text);
+}
+
+.kpo-mini-empty {
+  margin-top: auto;
+  padding: 16px 0 4px;
+  border-top: 1px solid var(--kpo-divider);
+  font-size: 13px;
+  color: var(--kpo-muted);
+  text-align: center;
+}
+
+/* ---------------- Barras apiladas por mes ---------------- */
+.kpo-stacked {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ---------------- Proyeccion ---------------- */
+.kpo-proj {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-areas:
+    "head calc"
+    "top calc"
+    "bar calc"
+    "note note";
+  gap: 14px 32px;
+  align-items: start;
+}
+
+.kpo-proj > .kpo-kpi-head {
+  grid-area: head;
+}
+
+.kpo-proj-top {
+  grid-area: top;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kpo-proj-bar-wrap {
+  grid-area: bar;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 22px;
+}
+
+.kpo-proj-bar {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  height: 24px;
+  background: var(--kpo-divider);
+  border-radius: 6px;
+}
+
+.kpo-proj-seg.is-hoy {
+  background: var(--kpo-accent);
+  border-radius: 6px 0 0 6px;
+}
+
+.kpo-proj-seg.is-tubo {
+  background: var(--kpo-past);
+  border-radius: 0 4px 4px 0;
+}
+
+/* Marca del cierre anterior: linea vertical con etiqueta arriba. */
+.kpo-proj-mark {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--kpo-text);
+}
+
+.kpo-proj-mark span {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--kpo-text-2);
+  white-space: nowrap;
+}
+
+.kpo-swatch-line {
+  width: 2px;
+  height: 14px;
+  border-radius: 0;
+  background: var(--kpo-text);
+}
+
+.kpo-proj-calc {
+  grid-area: calc;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #f8f8f5;
+  display: flex;
+  flex-direction: column;
+}
+
+.kpo-proj-calc > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--kpo-divider);
+}
+
+.kpo-proj-calc > div:last-child {
+  border-bottom: 0;
+}
+
+.kpo-proj-calc dt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kpo-proj-calc dt small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--kpo-muted);
+}
+
+.kpo-proj-calc dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kpo-proj-calc > div.is-total {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 2px solid var(--kpo-text);
+}
+
+.kpo-proj-calc > div.is-total dt,
+.kpo-proj-calc > div.is-total dd {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.kpo-proj > .kpo-kpi-note {
+  grid-area: note;
+}
+
+.kpo-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13px;
+  color: var(--kpo-text-2);
+}
+
+.kpo-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kpo-swatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.kpo-stack-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+}
+
+.kpo-stack-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 96px;
+  gap: 12px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--kpo-muted);
+}
+
+.kpo-stack-row.is-current {
+  color: var(--kpo-text);
+  font-weight: 700;
+}
+
+/* Segmentos separados por 2px de superficie (sin bordes). */
+.kpo-stack {
+  display: flex;
+  gap: 2px;
+  height: 30px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.kpo-stack-seg {
+  flex-basis: 0;
+  min-width: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kpo-stack-seg span {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.kpo-stack-seg.is-light span {
+  color: var(--kpo-text);
+}
+
+.kpo-stack.is-empty {
+  align-items: center;
+  justify-content: center;
+  background: var(--kpo-divider);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.kpo-stack-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpo-stack-total small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--kpo-muted);
+}
+
+/* ---------------- Tabla de detalle ---------------- */
+.kpo-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.kpo-table-wrap {
+  overflow-x: auto;
+}
+
+.kpo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kpo-table th {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: right;
+  color: var(--kpo-muted);
+  border-bottom: 1px solid #cfccc2;
+  white-space: nowrap;
+}
+
+.kpo-table td {
+  padding: 11px 12px;
+  text-align: right;
+  border-bottom: 1px solid var(--kpo-divider);
+  white-space: nowrap;
+}
+
+.kpo-table tbody tr:hover {
+  background: #fafaf7;
+}
+
+.kpo-table th:first-child,
+.kpo-table td:first-child {
+  text-align: left;
+}
+
+.kpo-table-sub {
+  display: block;
+  font-size: 12px;
+  color: var(--kpo-muted);
+}
+
+.kpo .is-good {
+  color: var(--kpo-good-text);
+}
+
+.kpo .is-bad {
+  color: var(--kpo-bad-text);
+}
+
+.kpo .is-neutral {
+  color: var(--kpo-text-2);
+}
+
+.kpo-table td.is-good,
+.kpo-table td.is-bad {
+  font-weight: 600;
+}
+
+/* ---------------- Estados ---------------- */
+.kpo-empty {
+  padding: 32px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--kpo-muted);
+  background: var(--kpo-surface);
+  border: 1px dashed var(--kpo-border);
+  border-radius: 12px;
+}
+
+.kpo-error {
+  padding: 12px 16px;
+  border: 1px solid #f1c7b4;
+  border-radius: 10px;
+  background: #fdf1eb;
+  color: var(--kpo-bad-text);
+  font-size: 14px;
+}
+
+/* ---------------- Responsivo ---------------- */
+@media (max-width: 900px) {
+  .kpo-proj {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "head" "top" "bar" "calc" "note";
+  }
+}
+
+@media (max-width: 640px) {
+  .kpo {
+    padding: 24px 16px;
+  }
+
+  .kpo-field {
+    width: 100%;
+  }
+
+  .kpo-stack-row {
+    grid-template-columns: 34px minmax(0, 1fr) 72px;
+    gap: 8px;
+  }
+}

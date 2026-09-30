@@ -16,6 +16,7 @@ import ItauVencidaPage from "./pages/ItauVencidaPage";
 import ItauAdministrativasPage from "./pages/administrativas/ItauAdministrativasPage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
 import KpiAvancePhoenixPage from "./pages/KpiAvancePhoenixPage";
+import KpiOperacionalPage from "./pages/KpiOperacionalPage";
 import LoginPage from "./pages/LoginPage";
 import PanelPage from "./pages/PanelPage";
 import PorschePage from "./pages/PorschePage";
@@ -36,6 +37,7 @@ export default function App() {
       <Route path="/productividad" element={<ProtectedRoute><PanelPage panelCode="productividad" /></ProtectedRoute>} />
       <Route path="/kpi" element={<ProtectedRoute><PanelPage panelCode="kpi" /></ProtectedRoute>} />
       <Route path="/kpi-avance-phoenix" element={<ProtectedRoute moduleCode="kpi-diario"><KpiAvancePhoenixPage /></ProtectedRoute>} />
+      <Route path="/kpi-operacional" element={<ProtectedRoute moduleCode="kpi-operacional"><KpiOperacionalPage /></ProtectedRoute>} />
       <Route path="/contactabilidad" element={<ProtectedRoute moduleCode="contactabilidad"><PanelPage panelCode="contactabilidad" /></ProtectedRoute>} />
       <Route path="/contactabilidad/itau-vencida" element={<ProtectedRoute moduleCode="contactabilidad"><ContactabilidadItauVencidaPage /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute moduleCode="admin"><PanelPage panelCode="admin" /></ProtectedRoute>} />

@@ -33,6 +33,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'kpi-diario')
 ELSE
     UPDATE dbo.modules SET display_name = 'KPI Cumplimiento Diario', route_path = '/kpi-cumplimiento-diario', is_active = 1 WHERE code = 'kpi-diario';
 
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'kpi-operacional')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('kpi-operacional', 'KPI Operacional', '/kpi-operacional');
+ELSE
+    UPDATE dbo.modules SET display_name = 'KPI Operacional', route_path = '/kpi-operacional', is_active = 1 WHERE code = 'kpi-operacional';
+
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'la-araucana')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('la-araucana', 'La Araucana', '/la-araucana');
 

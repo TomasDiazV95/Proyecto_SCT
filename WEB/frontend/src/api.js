@@ -411,6 +411,22 @@ export async function fetchKpiAvancePhoenixComparison(filters) {
   return res.json();
 }
 
+export async function fetchKpiOperacionalFilters(filters = {}) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-operacional/filtros`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros del KPI Operacional");
+  }
+  return res.json();
+}
+
+export async function fetchKpiOperacionalDashboard(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-operacional/dashboard`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el KPI Operacional");
+  }
+  return res.json();
+}
+
 export async function downloadGmMonthlyExcel(periodo) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/gm/export`, { periodo }));
   if (!res.ok) {

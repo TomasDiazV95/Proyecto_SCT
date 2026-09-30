@@ -11,11 +11,14 @@ from dotenv import load_dotenv
 
 
 REMOTE_DIR = "/Entrada/Seguimientos"
+REMOTE_ASIGNACION_DIR = "/Entrada/Carga_Cobranza"
 LOCAL_DIR = Path(r"C:\Users\Analista de Datos\Desktop\AUTOMATIZACION\BIT")
 CONT_METADATA_NAME = "CONTENCION.meta.json"
 CASTIGO_METADATA_NAME = "CASTIGO.meta.json"
+ASIGNACION_METADATA_NAME = "ASIGNACION.meta.json"
 CONT_LOCAL_GLOB = "Seguimiento_Metas_PHOENIX_*.xlsx"
 CASTIGO_LOCAL_GLOB = "Detalle_Recuperos_Castigo_*.xlsx"
+ASIGNACION_LOCAL_GLOB = "ASIGNACION_PHOENIX_*.csv"
 
 
 @dataclass(frozen=True)
@@ -35,7 +38,7 @@ def load_env_files() -> None:
 
 
 def _download_with_replace(sftp: paramiko.SFTPClient, remote_file: str, local_path: Path) -> None:
-    with NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp_file:
+    with NamedTemporaryFile(delete=False, suffix=local_path.suffix) as tmp_file:
         tmp_path = Path(tmp_file.name)
 
     try:
@@ -100,6 +103,27 @@ def pick_latest_bit_file(sftp: paramiko.SFTPClient, remote_dir: str) -> tuple[st
     if not candidates:
         raise FileNotFoundError(
             f"No se encontraron archivos con formato Seguimiento_Metas_PHOENIX_YYYYMMDD.xlsx en {remote_dir}"
+        )
+
+    return max(candidates, key=lambda item: item[1])
+
+
+def pick_latest_asignacion_file(sftp: paramiko.SFTPClient, remote_dir: str) -> tuple[str, datetime]:
+    # Solo la asignacion diaria: quedan fuera _aval, _ESPECIAL, 90MAS, CAMPANA_NUEVA, FLUJO_ESPECIAL, etc.
+    pattern = re.compile(r"^ASIGNACION_PHOENIX_(\d{8})\.csv$", re.IGNORECASE)
+    candidates: list[tuple[str, datetime]] = []
+
+    for entry in sftp.listdir_attr(remote_dir):
+        name = entry.filename
+        match = pattern.match(name)
+        if not match:
+            continue
+        dt = datetime.strptime(match.group(1), "%Y%m%d")
+        candidates.append((name, dt))
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"No se encontraron archivos con formato ASIGNACION_PHOENIX_YYYYMMDD.csv en {remote_dir}"
         )
 
     return max(candidates, key=lambda item: item[1])
@@ -196,6 +220,30 @@ def download_castigo(sftp: paramiko.SFTPClient, remote_dir: str, local_dir: Path
         print(f"Advertencia: no se pudo eliminar archivo anterior en uso: {skipped_file}")
 
 
+def download_asignacion(sftp: paramiko.SFTPClient, remote_dir: str, local_dir: Path) -> None:
+    latest_name, latest_date = pick_latest_asignacion_file(sftp, remote_dir)
+    metadata_path = local_dir / ASIGNACION_METADATA_NAME
+    local_path, skipped_files = _download_original_name(sftp, remote_dir, latest_name, local_dir, ASIGNACION_LOCAL_GLOB)
+
+    period = latest_date.strftime("%Y-%m")
+    _write_metadata(
+        metadata_path,
+        {
+            "original_filename": latest_name,
+            "fecha_detectada": latest_date.strftime("%Y-%m-%d"),
+            "periodo_detectado": period,
+        },
+    )
+
+    print(f"Archivo asignacion seleccionado: {latest_name}")
+    print(f"Fecha asignacion detectada: {latest_date.strftime('%Y-%m-%d')}")
+    print(f"Periodo asignacion detectado: {period}")
+    print(f"Guardado en: {local_path}")
+    print(f"Metadata guardada en: {metadata_path}")
+    for skipped_file in skipped_files:
+        print(f"Advertencia: no se pudo eliminar archivo anterior en uso: {skipped_file}")
+
+
 def main() -> None:
     load_env_files()
 
@@ -217,6 +265,7 @@ def main() -> None:
         try:
             download_contencion(sftp, REMOTE_DIR, local_dir)
             download_castigo(sftp, REMOTE_DIR, local_dir)
+            download_asignacion(sftp, REMOTE_ASIGNACION_DIR, local_dir)
         finally:
             sftp.close()
     finally:
