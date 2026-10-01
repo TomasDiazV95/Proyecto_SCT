@@ -348,6 +348,18 @@
   line-height: 1.5;
 }
 
+/* Aviso: el mes en curso aun no tiene asignacion y se muestra el anterior. */
+.kpo-banner {
+  padding: 12px 16px;
+  border: 1px solid #eda100;
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: #fff6e0;
+  color: #5a4300;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 /* ---------------- Tarjeta KPI ---------------- */
 .kpo-kpi {
   display: flex;

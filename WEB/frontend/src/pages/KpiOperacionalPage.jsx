@@ -499,6 +499,13 @@ export default function KpiOperacionalPage() {
         </div>
       ) : (
         <div className={`kpo-body${loading ? " kpo-is-loading" : ""}`}>
+          {data.mes_anterior && (
+            <div className="kpo-banner" role="status">
+              <strong>Estás viendo {monthName(actual)}, no {monthName(data.periodo_en_curso)}.</strong> Aún no hay asignación
+              cargada de {monthName(data.periodo_en_curso)} para estos filtros, así que se muestra el cierre del mes anterior
+              comparado con los 3 meses previos.
+            </div>
+          )}
           {/* Resumen en palabras */}
           <section className="kpo-card kpo-summary" aria-label="Resumen del mes">
             <div className="kpo-summary-head">
@@ -551,7 +558,7 @@ export default function KpiOperacionalPage() {
               note={kpis.no_gestionados?.valores[0] != null ? `${fInt(kpis.no_gestionados.valores[0])} clientes sin gestión.` : ""}
             />
             <KpiCard label="Contactabilidad" help="De cada 100 clientes gestionados, con cuántos hablamos directamente (titular)." kpi={kpis.contactabilidad} meses={meses} />
-            <KpiCard label="Intensidad de llamados" help="Promedio de llamados por cliente asignado (sin IVR, terreno ni mensajes)." kpi={kpis.intensidad} meses={meses} />
+            <KpiCard label="Intensidad de gestión" help="Promedio de gestiones por cliente" kpi={kpis.intensidad} meses={meses} />
             <StackedMonths
               title="Tipos de contacto"
               help="Mejor contacto logrado con cada cliente gestionado."
