@@ -149,7 +149,7 @@ IF COL_LENGTH('dbo.kpi_gestiones_rut', 'n_llamadas') IS NULL
     ALTER TABLE dbo.kpi_gestiones_rut ADD n_llamadas INT NULL;
 GO
 
--- Canal de cada AccionGestion del CRM. La intensidad cuenta solo LLAMADA (sin IVR, terreno, mensajes, etc.).
+-- Canal de cada AccionGestion del CRM (kpi_gestiones_rut.n_llamadas). La intensidad del dashboard usa n_gestiones (todos los canales).
 IF OBJECT_ID('dbo.kpi_accion_canal', 'U') IS NULL
 CREATE TABLE dbo.kpi_accion_canal (
     valor NVARCHAR(200) NOT NULL PRIMARY KEY,

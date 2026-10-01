@@ -18,7 +18,7 @@ from __future__ import annotations
 import calendar
 import threading
 import time
-from datetime import date
+from datetime import date, timedelta
 
 from database import run_query, run_query_sets
 
@@ -173,18 +173,28 @@ def _combinaciones(periodo: str) -> list[dict]:
         return rows
 
 
+def _coincide(row: dict, filters: dict, include: tuple[str, ...] = DIMENSIONES) -> bool:
+    """Mismo criterio que _dimension_filters (producto 'Sin producto' = NULL, ya normalizado en la consulta)."""
+    return all(row.get(f) == _clean(filters.get(f)) for f in include if _clean(filters.get(f)))
+
+
+def _hay_asignacion(periodo: str, filters: dict) -> bool:
+    return any(_coincide(row, filters) for row in _combinaciones(periodo))
+
+
+def _fin_mes_anterior(hoy: date) -> date:
+    return hoy.replace(day=1) - timedelta(days=1)
+
+
 def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> dict:
     filters = filters or {}
-    periodo_actual = _cortes(hoy or date.today())[0][0]
-    combinaciones = _combinaciones(periodo_actual)
+    hoy = hoy or date.today()
+    periodo_actual = _cortes(hoy)[0][0]
+    # Un segmento sin asignacion este mes sigue disponible si la tuvo el mes anterior (el dashboard muestra ese mes).
+    combinaciones = _combinaciones(periodo_actual) + _combinaciones(_cortes(_fin_mes_anterior(hoy))[0][0])
 
     def distinct(field: str, include: tuple[str, ...]) -> set[str]:
-        # Mismo criterio que _dimension_filters (producto 'Sin producto' = NULL, ya normalizado en la consulta).
-        activos = [(f, _clean(filters.get(f))) for f in include if _clean(filters.get(f))]
-        return {
-            row[field] for row in combinaciones
-            if row.get(field) and all(row.get(f) == v for f, v in activos)
-        }
+        return {row[field] for row in combinaciones if row.get(field) and _coincide(row, filters, include)}
 
     mandante = _clean(filters.get("mandante"))
     cartera = _clean(filters.get("cartera"))
@@ -234,9 +244,13 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
 # ------------------------------------------------------------
 def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     hoy = hoy or date.today()
-    cortes = _cortes(hoy)
     filters = {k: _clean(filters.get(k)) for k in DIMENSIONES}
     mandante = filters["mandante"]
+    periodo_en_curso = _cortes(hoy)[0][0]
+    # Sin asignacion del mes en curso (p. ej. primeros dias del mes): se muestra el mes anterior, ya cerrado.
+    mes_anterior = not _hay_asignacion(periodo_en_curso, filters)
+    referencia = _fin_mes_anterior(hoy) if mes_anterior else hoy
+    cortes = _cortes(referencia)
 
     dim_a_sql, dim_a_params = _dimension_filters(filters, "a")
     dim_p_sql, dim_p_params = _dimension_filters(filters, "p")
@@ -304,7 +318,7 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
                MIN(g.fecha_primera_gestion) AS f_gest,
                MIN(g.fecha_primer_directo) AS f_dir,
                MIN(g.fecha_primer_indirecto) AS f_ind,
-               SUM(CAST(ISNULL(g.n_llamadas, 0) AS bigint)) AS n_llamadas
+               SUM(CAST(ISNULL(g.n_gestiones, 0) AS bigint)) AS n_gestiones
         FROM (SELECT DISTINCT periodo, mandante, cartera, rut FROM #asig) s
         INNER JOIN dbo.kpi_crm_cartera k
             ON k.mandante = s.mandante AND (k.cartera IS NULL OR k.cartera = s.cartera)
@@ -318,8 +332,8 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
            SUM(CASE WHEN (g.f_dir IS NULL OR g.f_dir > c.corte) AND g.f_ind <= c.corte THEN 1 ELSE 0 END) AS indirecto,
            SUM(CASE WHEN g.f_gest <= c.corte AND (g.f_dir IS NULL OR g.f_dir > c.corte)
                          AND (g.f_ind IS NULL OR g.f_ind > c.corte) THEN 1 ELSE 0 END) AS sin_contacto,
-           -- Llamados del mes (sin IVR, terreno ni mensajes; ver dbo.kpi_accion_canal). Mes actual: hasta la ultima carga del CRM.
-           SUM(CASE WHEN g.f_gest <= c.corte THEN g.n_llamadas ELSE 0 END) AS llamados
+           -- Gestiones del mes de cualquier tipo/canal (sin las EXCLUIR). Mes actual: hasta la ultima carga del CRM.
+           SUM(CASE WHEN g.f_gest <= c.corte THEN g.n_gestiones ELSE 0 END) AS gestiones
     FROM #cortes c
     LEFT JOIN casos cs ON cs.periodo = c.periodo
     LEFT JOIN gest g ON g.periodo = c.periodo
@@ -384,11 +398,19 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     FROM #pagos p
     WHERE p.aprox = 1{dim_p_sql};
     """
-    params = [*cortes_params, *dim_a_params, cortes[0][0], *mand_params, *mand_params, *dim_p_params, *dim_p_params, *dim_p_params]
+    # Mes que se trata como "en curso" en las fotos de pagos; con mes_anterior todos los meses estan cerrados.
+    periodo_abierto = "" if mes_anterior else periodo_en_curso
+    params = [*cortes_params, *dim_a_params, periodo_abierto, *mand_params, *mand_params, *dim_p_params, *dim_p_params, *dim_p_params]
     asig, contacto, pagos, compromisos, seg_asig, seg_pagos, aprox = run_query_sets(sql, tuple(params))
-    response = _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, seg_asig, seg_pagos)
+    response = _build_response(referencia, cortes, filters, asig, contacto, pagos, compromisos, seg_asig, seg_pagos)
     for mes in response["meses"]:
         mes["aproximado_mandantes"] = sorted({r["mandante"] for r in aprox if r["periodo"] == mes["periodo"]})
+    response["hoy"] = hoy.isoformat()
+    response["mes_anterior"] = mes_anterior
+    response["periodo_en_curso"] = periodo_en_curso
+    if mes_anterior:
+        # El mes mostrado ya cerro: no hay cierre que proyectar.
+        response["proyeccion"] = None
     return response
 
 
@@ -468,8 +490,8 @@ def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, se
             # Sobre el total de compromisos generados (cumplidos + incumplidos + pendientes = 100%).
             "pct_cumplidos": _safe_div(cp["CUMPLIDO"], total_comp),
             "pct_incumplidos": _safe_div(cp["INCUMPLIDO"], total_comp),
-            # Intensidad = llamados / casos asignados.
-            "intensidad": _safe_div(int(c.get("llamados") or 0), asignados),
+            # Intensidad = gestiones (cualquier tipo) / casos asignados.
+            "intensidad": _safe_div(int(c.get("gestiones") or 0), asignados),
             # Clientes asignados sin ninguna gestion al corte.
             "sin_gestion": _safe_div(asignados - gestionados, asignados),
             "no_gestionados": max(asignados - gestionados, 0),
