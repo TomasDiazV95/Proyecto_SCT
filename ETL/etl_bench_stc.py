@@ -2,6 +2,7 @@ import os
 import re
 import unicodedata
 import data_cleaners
+import bench_recarga
 from pathlib import Path
 from io import BytesIO
 from decimal import Decimal
@@ -391,34 +392,12 @@ def insert_append(df: pd.DataFrame, source_file: str):
     print(f"OK: insertadas {inserted} filas")
 
 
-def get_last_source_file() -> str | None:
+def should_skip_load(current_source_file: str, fecha_visor) -> bool:
+    # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
     with connect() as cn:
-        cur = cn.cursor()
-        cur.execute(f"SELECT TOP (1) source_file FROM {TABLE} ORDER BY id_bench_stc DESC")
-        row = cur.fetchone()
-        if not row:
-            return None
-        return row[0]
-
-
-def should_skip_load(current_source_file: str) -> bool:
-    last_source_file = get_last_source_file()
-    if last_source_file is None:
-        print("No hay carga previa en la tabla; se cargara el archivo actual.")
-        return False
-
-    current_norm = str(current_source_file).strip().upper()
-    last_norm = str(last_source_file).strip().upper()
-
-    print(f"source_file actual: {current_source_file}")
-    print(f"ultimo source_file en BD: {last_source_file}")
-
-    if current_norm == last_norm:
-        print("El ultimo source_file coincide con el archivo actual. Se omite la carga.")
-        return True
-
-    print("El source_file es distinto al ultimo en BD. Se continuara con la carga.")
-    return False
+        cargar = bench_recarga.debe_cargar(cn.cursor(), TABLE, current_source_file, fecha_visor)
+        cn.commit()
+    return not cargar
 
 
 def main():
@@ -434,9 +413,13 @@ def main():
 
     ensure_table_and_columns(df)
     current_source_file = Path(EXCEL_PATH).name
-    if should_skip_load(current_source_file):
+    fecha_visor = bench_recarga.fecha_visor_archivo(EXCEL_PATH)
+    if should_skip_load(current_source_file, fecha_visor):
         return
     insert_append(df, current_source_file)
+    with connect() as cn:
+        bench_recarga.registrar_fecha_visor(cn.cursor(), TABLE, current_source_file, fecha_visor)
+        cn.commit()
 
 
 if __name__ == "__main__":

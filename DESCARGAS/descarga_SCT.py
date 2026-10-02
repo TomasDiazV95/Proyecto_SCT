@@ -129,6 +129,29 @@ def resolver_carpeta_extraida() -> Path:
     return referencia
 
 
+# Nombres de archivo en el visor: mismos patrones glob que usan los ETL.
+BENCH_TEMP_PATTERN = os.getenv("BENCH_TEMP_PATTERN", "").strip()
+BENCH_STC_PATTERN = os.getenv("BENCH_STC_PATTERN", "").strip()
+BENCH_SC_CASTIGO_PATTERN = os.getenv("BENCH_SC_CASTIGO_PATTERN", "").strip()
+
+
+def texto_desde_patron(nombre_variable: str, patron: str) -> str:
+    # El patron del .env es un glob (ej. *NOMBRE*.xlsx); en el visor
+    # se busca la fila por su fragmento fijo mas largo.
+    fragmentos = [
+        fragmento.strip()
+        for fragmento in re.split(r"[*?]", patron)
+        if fragmento.strip()
+    ]
+
+    if not fragmentos:
+        raise RuntimeError(
+            f"Falta el patron de archivo en el .env: {nombre_variable}"
+        )
+
+    return max(fragmentos, key=len)
+
+
 CARPETA_EXTRAIDA = resolver_carpeta_extraida()
 CARPETA_BASE = CARPETA_EXTRAIDA.parent
 CARPETA_ZIP = CARPETA_BASE / "zip"
@@ -158,11 +181,10 @@ DESCARGAS = [
             "📁 BENCH CASTIGO",
 
         "patron_archivo":
-            "BENCH CASTIGO - PHOENIX",
-
-        # CASTIGO SI requiere ordenar
-        "ordenar":
-            True,
+            texto_desde_patron(
+                "BENCH_SC_CASTIGO_PATTERN",
+                BENCH_SC_CASTIGO_PATTERN,
+            ),
     },
 
     {
@@ -173,11 +195,10 @@ DESCARGAS = [
             "📁 BENCH MORA TARDIA",
 
         "patron_archivo":
-            "BENCH MORA TARDIA - PHOENIX",
-
-        # Ya viene ordenado
-        "ordenar":
-            False,
+            texto_desde_patron(
+                "BENCH_STC_PATTERN",
+                BENCH_STC_PATTERN,
+            ),
     },
 
     {
@@ -188,19 +209,39 @@ DESCARGAS = [
             "📁 BENCH MORA TEMPRANA",
 
         "patron_archivo":
-            (
-                "PHOENIX (TELEFONIA)_"
-                "BENCH_MORA_TEMPRANA.xlsx"
+            texto_desde_patron(
+                "BENCH_TEMP_PATTERN",
+                BENCH_TEMP_PATTERN,
             ),
+    },
 
-        # Ya viene ordenado
-        "ordenar":
-            False,
+    # Asignacion de apertura mensual: YYYYMM - ASIGNACION_APERTURA - PHOENIX[ (TELEFONIA)].XLSX
+    # El ".XLSX" evita que el patron de terreno tome el archivo de telefonia.
+    {
+        "nombre":
+            "ASIGNACION APERTURA",
+
+        "carpeta_visor":
+            "📁 ASIGNACIÓN APERTURA",
+
+        "patron_archivo":
+            "ASIGNACION_APERTURA - PHOENIX.XLSX",
+    },
+
+    {
+        "nombre":
+            "ASIGNACION APERTURA - TELEFONIA",
+
+        "carpeta_visor":
+            "📁 ASIGNACIÓN APERTURA",
+
+        "patron_archivo":
+            "ASIGNACION_APERTURA - PHOENIX (TELEFONIA).XLSX",
     },
 ]
 
 # Se descarga con el usuario judicial (USUARIO_JUD / CLAVE_JUD).
-# Archivo: YYYYMMDD - BENCH BENCH JUDICIAL - P&S.xlsx; se toma el de fecha mas reciente.
+# Archivo: YYYYMMDD - BENCH BENCH JUDICIAL - P&S.xlsx; se toma el de carga mas reciente.
 DESCARGAS_JUDICIAL = [
     {
         "nombre":
@@ -211,12 +252,6 @@ DESCARGAS_JUDICIAL = [
 
         "patron_archivo":
             "BENCH BENCH JUDICIAL - P&S",
-
-        "patron_fecha":
-            r"(\d{8})\s*-\s*BENCH BENCH JUDICIAL - P&S",
-
-        "ordenar":
-            False,
     },
 ]
 
@@ -620,13 +655,44 @@ def buscar_primera_fila(
 
 
 # ============================================================
-# BUSCAR FILA CON FECHA MAS RECIENTE EN EL NOMBRE
+# BUSCAR FILA CON LA CARGA MAS RECIENTE
 # ============================================================
 
-def buscar_fila_mas_reciente(
+# Columna FECHA DE MODIFICACIÓN del visor: dd-mm-yyyy hh:mm
+REGEX_FECHA_CARGA = re.compile(
+    r"\b(\d{2})-(\d{2})-(\d{4})\s+(\d{1,2}):(\d{2})\b"
+)
+
+# Fecha YYYYMMDD al inicio del nombre del archivo.
+REGEX_FECHA_NOMBRE = re.compile(
+    r"(?<!\d)(\d{8})(?!\d)"
+)
+
+
+def fecha_carga_fila(
+    texto_fila: str
+) -> datetime | None:
+
+    fechas = REGEX_FECHA_CARGA.findall(
+        texto_fila
+    )
+
+    # Una fila de archivo tiene exactamente una fecha de carga.
+    if len(fechas) != 1:
+        return None
+
+    dia, mes, anio, hora, minuto = map(int, fechas[0])
+
+    try:
+        return datetime(anio, mes, dia, hora, minuto)
+    except ValueError:
+        return None
+
+
+def buscar_fila_ultima_carga(
+    page,
     frame,
     patron_archivo: str,
-    patron_fecha: str,
 ):
 
     # Espera a que exista al menos una fila coincidente.
@@ -643,37 +709,57 @@ def buscar_fila_mas_reciente(
         )
     )
 
-    regex = re.compile(
-        patron_fecha,
-        re.IGNORECASE,
-    )
+    # La carpeta puede seguir cargando filas: se espera
+    # a que el listado deje de cambiar antes de comparar.
+    textos = filas.all_inner_texts()
 
-    mejor_fila = None
-    mejor_fecha = ""
+    for _ in range(20):
 
-    for indice in range(filas.count()):
+        page.wait_for_timeout(500)
 
-        fila = filas.nth(indice)
+        textos_nuevos = filas.all_inner_texts()
 
-        match = regex.search(
-            fila.inner_text()
+        if textos_nuevos == textos:
+            break
+
+        textos = textos_nuevos
+
+    # Si suben el mismo periodo mas de una vez, manda la ultima carga;
+    # a igual fecha de carga, la fecha mas alta en el nombre.
+    mejor_indice = None
+    mejor_clave = None
+
+    for indice, texto in enumerate(textos):
+
+        fecha_carga = fecha_carga_fila(texto)
+
+        if fecha_carga is None:
+            continue
+
+        match_nombre = REGEX_FECHA_NOMBRE.search(texto)
+
+        clave = (
+            fecha_carga,
+            match_nombre.group(1) if match_nombre else "",
+            indice,
         )
 
-        if match and match.group(1) > mejor_fecha:
-            mejor_fecha = match.group(1)
-            mejor_fila = fila
+        if mejor_clave is None or clave > mejor_clave:
+            mejor_clave = clave
+            mejor_indice = indice
 
-    if mejor_fila is None:
+    if mejor_indice is None:
         raise FileNotFoundError(
             f"No se encontró '{patron_archivo}' "
-            "con fecha YYYYMMDD en el nombre."
+            "con fecha de modificación en el visor."
         )
 
     print(
-        f"Fecha más reciente encontrada: {mejor_fecha}"
+        f"Coincidencias: {len(textos)} | "
+        f"Última carga: {mejor_clave[0]:%d-%m-%Y %H:%M}"
     )
 
-    return mejor_fila
+    return filas.nth(mejor_indice)
 
 
 # ============================================================
@@ -749,7 +835,8 @@ def descargar_desde_carpeta(
     page,
     frame,
     configuracion: dict,
-) -> Path:
+    abrir_carpeta: bool = True,
+) -> tuple[Path, datetime]:
 
     nombre = (
         configuracion[
@@ -769,14 +856,6 @@ def descargar_desde_carpeta(
         ]
     )
 
-    ordenar = (
-        configuracion
-        .get(
-            "ordenar",
-            False
-        )
-    )
-
     print()
     print("=" * 70)
     print(
@@ -788,20 +867,24 @@ def descargar_desde_carpeta(
     # ABRIR CARPETA
     # ========================================================
 
-    carpeta = (
-        frame
-        .get_by_role(
-            "link",
-            name=carpeta_visor,
+    # Si la descarga anterior fue de esta misma carpeta ya esta
+    # abierta: reabrirla recarga la tabla mientras se elige la fila.
+    if abrir_carpeta:
+
+        carpeta = (
+            frame
+            .get_by_role(
+                "link",
+                name=carpeta_visor,
+            )
         )
-    )
 
-    carpeta.wait_for(
-        state="visible",
-        timeout=10000,
-    )
+        carpeta.wait_for(
+            state="visible",
+            timeout=10000,
+        )
 
-    carpeta.click()
+        carpeta.click()
 
     # ========================================================
     # ESPERAR TABLA
@@ -820,72 +903,16 @@ def descargar_desde_carpeta(
     )
 
     # ========================================================
-    # ORDENAR SOLO SI CORRESPONDE
+    # TOMAR EL ARCHIVO CON LA CARGA MAS RECIENTE
     # ========================================================
 
-    if ordenar:
-
-        print(
-            "Ordenando por "
-            "FECHA DE MODIFICACIÓN..."
-        )
-
-        boton_fecha = (
-            frame
-            .get_by_role(
-                "button",
-                name="FECHA DE MODIFICACIÓN ↓↑",
-            )
-        )
-
-        boton_fecha.wait_for(
-            state="visible",
-            timeout=10000,
-        )
-
-        boton_fecha.click()
-
-        # Pequeña espera para que
-        # la tabla cambie de orden
-        page.wait_for_timeout(
-            500
-        )
-
-        print(
-            "Tabla ordenada."
-        )
-
-    else:
-
-        print(
-            "No se modifica el orden "
-            "de esta carpeta."
-        )
-
-    # ========================================================
-    # TOMAR PRIMER ARCHIVO COINCIDENTE
-    # ========================================================
-
-    patron_fecha = configuracion.get(
-        "patron_fecha"
+    # No depende del orden de la tabla: compara la
+    # FECHA DE MODIFICACIÓN de todas las coincidencias.
+    fila = buscar_fila_ultima_carga(
+        page,
+        frame,
+        patron_archivo,
     )
-
-    if patron_fecha:
-
-        fila = buscar_fila_mas_reciente(
-            frame,
-            patron_archivo,
-            patron_fecha,
-        )
-
-    else:
-
-        fila = (
-            buscar_primera_fila(
-                frame,
-                patron_archivo,
-            )
-        )
 
     texto_archivo = (
         fila
@@ -899,6 +926,11 @@ def descargar_desde_carpeta(
     )
 
     print(
+        texto_archivo
+    )
+
+    # Fecha en que el archivo fue cargado al visor.
+    fecha_visor = fecha_carga_fila(
         texto_archivo
     )
 
@@ -1006,10 +1038,12 @@ def descargar_desde_carpeta(
         "Descarga recibida."
     )
 
-    return guardar_download(
+    ruta_zip = guardar_download(
         download,
         nombre,
     )
+
+    return ruta_zip, fecha_visor
 
 
 # ============================================================
@@ -1019,6 +1053,7 @@ def descargar_desde_carpeta(
 def extraer_y_eliminar_zip(
     ruta_zip: Path,
     nombre_logico: str,
+    fecha_visor: datetime,
 ) -> list[Path]:
 
     print()
@@ -1052,6 +1087,15 @@ def extraer_y_eliminar_zip(
             )
 
             if archivo.is_file():
+
+                # Los ETL leen esta fecha para detectar archivos
+                # resubidos al visor con el mismo nombre.
+                marca = fecha_visor.timestamp()
+
+                os.utime(
+                    archivo,
+                    (marca, marca),
+                )
 
                 archivos_extraidos.append(
                     archivo
@@ -1320,7 +1364,7 @@ def descargar_con_sesion(
     clave: str | None = None,
     buzon: str | None = None,
     codigos_excluidos: set[str] | None = None,
-) -> tuple[list[tuple[Path, str]], str]:
+) -> tuple[list[tuple[Path, str, datetime]], str]:
 
     context = (
         browser
@@ -1349,6 +1393,7 @@ def descargar_con_sesion(
         )
 
         zips_descargados = []
+        carpeta_abierta = None
 
         for (
             indice,
@@ -1365,16 +1410,22 @@ def descargar_con_sesion(
                 f"{len(descargas)}"
             )
 
-            ruta_zip = (
+            ruta_zip, fecha_visor = (
                 descargar_desde_carpeta(
                     page,
                     frame,
                     configuracion,
+                    abrir_carpeta=(
+                        configuracion["carpeta_visor"]
+                        != carpeta_abierta
+                    ),
                 )
             )
 
+            carpeta_abierta = configuracion["carpeta_visor"]
+
             zips_descargados.append(
-                (ruta_zip, configuracion["nombre"])
+                (ruta_zip, configuracion["nombre"], fecha_visor)
             )
 
         return zips_descargados, codigo
@@ -1513,7 +1564,7 @@ def run(
 
         archivos_finales = []
 
-        for ruta_zip, nombre_logico in (
+        for ruta_zip, nombre_logico, fecha_visor in (
             zips_descargados
         ):
 
@@ -1521,6 +1572,7 @@ def run(
                 extraer_y_eliminar_zip(
                     ruta_zip,
                     nombre_logico,
+                    fecha_visor,
                 )
             )
 

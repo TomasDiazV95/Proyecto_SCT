@@ -47,8 +47,9 @@ SEGMENTACION: dict[str, dict] = {
         },
     },
     "SC TELEFONÍA": {
-        "tramo_label": "Ciclo",
-        "tramos": ["C1", "C2", "C3"],
+        "tramo_label": "Segmento",
+        # C1-C3 y, para los tramos mayores, los segmentos de SC Terreno (C4 = Susc. CV, C7-C8 = Pre Castigo).
+        "tramos": ["C1", "C2", "C3", "Susc. CV", "C5", "C6", "Pre Castigo", "Castigo"],
     },
     "BANCO INTERNACIONAL": {
         "carteras": ["VIGENTE", "CASTIGO"],
@@ -57,7 +58,8 @@ SEGMENTACION: dict[str, dict] = {
     },
     "SC TERRENO": {
         "tramo_label": "Segmento",
-        "tramos": ["C3", "Susc. CV", "C5", "C6", "Pre Castigo", "Castigo"],
+        # Entra toda la asignacion: C1 y C2 (y cualquier tramo que la regla no clasifica) quedan con su tramo.
+        "tramos": ["C1", "C2", "C3", "Susc. CV", "C5", "C6", "Pre Castigo", "Castigo"],
         "zonas": ["Norte", "Metropolitana", "Sur"],
     },
     "ITAÚ": {
@@ -73,6 +75,7 @@ SEGMENTACION: dict[str, dict] = {
 
 TIPO_KPI = {
     "casos": ("int", "pct"),
+    "operaciones": ("int", "pct"),
     "saldo": ("money", "pct"),
     "contactabilidad": ("pct", "pp"),
     "cobertura": ("pct", "pp"),
@@ -474,6 +477,8 @@ def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, se
 
         valores = {
             "casos": casos,
+            # Operaciones asignadas (un RUT puede tener varias).
+            "operaciones": int(a.get("operaciones") or 0),
             "saldo": saldo,
             "contactabilidad": _safe_div(directo, gestionados),
             "cobertura": _safe_div(gestionados, asignados),

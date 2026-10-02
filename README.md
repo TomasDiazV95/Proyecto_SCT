@@ -50,7 +50,7 @@ python -m playwright install chromium
 python -m pip install paramiko
 ```
 
-`paramiko` se usa en `DESCARGAS\descarga_bit_contencion.py`.
+`paramiko` se usa en `DESCARGAS\descarga_bit_contencion.py` y `DESCARGAS\descarga_itau_vencida.py`.
 
 ## Configuracion
 
@@ -166,6 +166,12 @@ Descarga BIT contencion desde SFTP:
 
 ```powershell
 python DESCARGAS\descarga_bit_contencion.py
+```
+
+Descarga cuotas y asignacion Itau Vencida desde SFTP (deja los CSV en `AUTOMATIZACION\ITAU`, de donde los leen `ETL\etl_cuotas_itau_vencida.py` y `ETL\etl_asignacion_itau_vencida.py`):
+
+```powershell
+python DESCARGAS\descarga_itau_vencida.py
 ```
 
 ## Automatizacion diaria
