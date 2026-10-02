@@ -14,8 +14,7 @@ function formatMM(value) {
 }
 
 function formatRecovero(value) {
-  const n = Number(value || 0);
-  return n === 0 ? "-" : `$${formatMoney(n)}`;
+  return `$${formatMoney(value)}`;
 }
 
 function formatPct(value) {
@@ -57,14 +56,14 @@ function dotClassByThresholds(value, thresholds) {
 }
 
 // Una fila por ejecutivo con sus carteras como columnas.
-// El cumplimiento final es la suma de los aportes del ejecutivo en cada cartera.
+// El aporte final es el recupero del ejecutivo en todas las carteras sobre el recupero total.
 function pivotRows(rows) {
   const grouped = new Map();
   rows.forEach((row) => {
     const nombre = row.ejecutivo || "PHOENIX";
     const current = grouped.get(nombre) || { ejecutivo: nombre, carteras: {}, cumplimiento: 0 };
     current.carteras[row.tipo_cartera] = row;
-    current.cumplimiento += Number(row.pct_aporte || 0);
+    current.cumplimiento = Number(row.pct_aporte_final || 0);
     grouped.set(nombre, current);
   });
   return Array.from(grouped.values()).sort(
@@ -76,9 +75,6 @@ function totalByCartera(rows) {
   return Object.fromEntries(
     CARTERAS.map(({ key }) => {
       const items = rows.filter((row) => row.tipo_cartera === key);
-      if (!items.length) {
-        return [key, null];
-      }
       return [
         key,
         {
@@ -103,6 +99,7 @@ export default function LaAraucanaPage() {
   const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
   const executiveRows = pivotRows(rows);
   const totalCarteras = totalByCartera(rows);
+  const totalAporteFinal = executiveRows.reduce((acc, row) => acc + row.cumplimiento, 0);
   const finalValues = executiveRows.map((row) => row.cumplimiento).sort((a, b) => a - b);
   const finalThresholds = { p33: percentile(finalValues, 0.33), p66: percentile(finalValues, 0.66) };
   // Umbrales relativos del % cumplimiento dentro de cada cartera.
@@ -206,14 +203,9 @@ export default function LaAraucanaPage() {
     }
   }
 
-  function renderCarteraCells(data, key, isTotal) {
-    if (!data) {
-      return (
-        <td key={key} colSpan={3} className="pd-center pd-group-start pd-cell-muted">
-          Sin cartera
-        </td>
-      );
-    }
+  // Un ejecutivo sin datos en una cartera se muestra en cero.
+  function renderCarteraCells(row, key, isTotal) {
+    const data = row || { deuda: 0, recupero: 0, pct_aporte: 0 };
     return (
       <React.Fragment key={key}>
         <td className="pd-num pd-group-start">{formatMM(data.deuda)}</td>
@@ -276,7 +268,7 @@ export default function LaAraucanaPage() {
                   {CARTERAS.map(({ key, label }, idx) => (
                     <th key={key} colSpan={3} className={`pd-th-group-${(idx % 2) + 1} pd-group-start`}>{label}</th>
                   ))}
-                  <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+                  <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Aporte Final</th>
                 </tr>
                 <tr>
                   {CARTERAS.map(({ key }, idx) =>
@@ -303,7 +295,9 @@ export default function LaAraucanaPage() {
                   <tr className="pd-row-total">
                     <td>Total general</td>
                     {CARTERAS.map(({ key }) => renderCarteraCells(totalCarteras[key], key, true))}
-                    <td className="pd-num pd-group-start">-</td>
+                    <td className="pd-num pd-group-start">
+                      <span className="pd-status pd-status-none">{formatPct(totalAporteFinal)}</span>
+                    </td>
                   </tr>
                 )}
               </tbody>

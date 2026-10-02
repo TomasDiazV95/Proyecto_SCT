@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from database import run_query
+from database import run_query, run_query_sets
 
 
 USER_TO_NAME = {
@@ -31,6 +31,54 @@ USER_ORDER = [
     "RCALDERON",
 ]
 
+# Peso de cada respuesta: 1 es la mejor. Las respuestas que no estan aca no cuentan.
+PESO_RESPUESTA = [
+    "COMPROMISO NORMALIZACION",
+    "COMPROMISO CONTENCION",
+    "COMPROMISO PREPAGO",
+    "COMPROMISO",
+    "COMPROMISO ADP (CUOTA)",
+    "COMPRA DIRECTA EN TRAMITE",
+    "COMPRA DIRECTA CONCRETADA",
+    "COMPRA DIRECTA INTERESADO",
+    "COMPROMISO INTERESADO EN PAC",
+    "COMPROMISO PUT",
+    "COMPROMISO SOLICITA PREPAGO",
+    "DACION",
+    "NOVACION EN TRMITE",
+    "NOVACION",
+    "REFINANCIAMIENTO",
+    "RECONDUCCION EN TRAMITE",
+    "RECONDUCCION INTERESADO",
+    "NOVACION INTERESADO",
+    "DACION EN TRAMITE",
+    "DACION INTERESADO",
+    "REFINANCIAMIENTO EN TRAMITE",
+    "REFINANCIAMIENTO INTERESADO",
+    "A LA ESPERA DEL DESCUENTO PAC",
+    "RENOVACION EN TRAMITE",
+    "VENTA DIRECTA EN TRAMITE",
+    "VENTA DIRECTA INTERESADO",
+    "RENOVACION INTERESADO",
+    "REGULARIZAR POR SUS PROPIOS MEDIOS",
+    "ADP EN TRAMITE",
+    "ADP INTERESADO",
+    "PAGARE EN TRIBUNALES",
+    "RENOVACION",
+    "CESANTE",
+    "EN TRAMITE CON CONCESIONARIO",
+    "ENFERMEDAD DEUDOR MUCHOS GASTOS MEDICOS",
+    "ENFERMEDAD DEUDOR TERMINAL",
+    "YA PAGO",
+    "NOVACION EN TRAMITE",
+    "PROBLEMA ECONOMICO IMPREVISTO",
+    "PROBLEMA ECONOMICO SUELDO INSUFICIENTE",
+    "PROBLEMAS TECNICOS PARA PAGAR CONSUMER.CL",
+    "PROBLEMAS TECNICOS PARA PAGAR PAC",
+    "SINIESTRO PERDIDA TOTAL",
+    "FALLECIDO",
+]
+
 
 def _normalize_period(periodo: str | None) -> str:
     if periodo:
@@ -51,6 +99,127 @@ def _safe_div(num: float, den: float) -> float:
     if den is None or den == 0:
         return 0.0
     return (num / den) * 100.0
+
+
+def _asignacion_sql(periodo: str) -> tuple[str, list]:
+    """Lote SQL que deja en #asig una fila por operacion del bench con la gestion que se la lleva.
+
+    Fecha de pago de una operacion contenida: el ultimo pago informado en el primer bench del mes
+    en que aparece contenida (si no es una fecha del mes hasta ese bench, la fecha de ese bench).
+    Gana la mejor gestion del RUT hasta la fecha de pago (peso de la respuesta y la mas reciente);
+    si no hay, la primera gestion posterior. Asi el contenido no cambia de ejecutivo al llegar
+    gestiones nuevas. Las operaciones no contenidas van a la mejor gestion del mes.
+    """
+    peso_case = "\n".join(
+        "                WHEN '{}' THEN {}".format(respuesta.replace("'", "''"), peso)
+        for peso, respuesta in enumerate(PESO_RESPUESTA, start=1)
+    )
+    sql = f"""SET NOCOUNT ON;
+    SELECT
+        g.rut,
+        g.UsuarioGestion,
+        g.RespuestaGestion,
+        g.GestionFecha,
+        g.GestionHora,
+        g.telefono,
+        p.peso_gestion
+    INTO #gest
+    FROM dbo.tmp_GEST_CRM g
+    CROSS APPLY (
+        SELECT
+            CASE g.RespuestaGestion
+{peso_case}
+                ELSE 999
+            END AS peso_gestion
+    ) p
+    WHERE g.cartera = 526
+      AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND CAST(? AS date)
+      AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
+      AND p.peso_gestion <> 999;
+
+    CREATE CLUSTERED INDEX IX_gest_rut ON #gest (rut);
+
+    SELECT
+        x.operacion,
+        CASE
+            WHEN TRY_CAST(x.ult_pago AS date) BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND TRY_CAST(x.foto AS date)
+                THEN TRY_CAST(x.ult_pago AS date)
+            ELSE TRY_CAST(x.foto AS date)
+        END AS fecha_pago
+    INTO #pago
+    FROM (
+        SELECT
+            b.fld_OPERACION AS operacion,
+            b.fld_fecha AS foto,
+            MAX(b.fld_FEC_ULT_PAGO) AS ult_pago,
+            ROW_NUMBER() OVER (PARTITION BY b.fld_OPERACION ORDER BY b.fld_fecha) AS rn
+        FROM dbo.tmp_bench_temp_STC b
+        WHERE LEFT(b.fld_fecha, 6) = LEFT(?, 6)
+          AND b.fld_fecha <= ?
+          AND ISNULL(b.fld_CONTENIDO, 0) <> 0
+        GROUP BY b.fld_OPERACION, b.fld_fecha
+    ) x
+    WHERE x.rn = 1;
+
+    SELECT
+        b.id_bench_temp_stc AS fila,
+        b.fld_OPERACION AS operacion,
+        b.fld_RUT AS rut,
+        LTRIM(RTRIM(b.fld_TRAMO_MORA)) AS tramo,
+        CAST(ISNULL(b.fld_DEUDA_INI, 0) AS float) AS deuda,
+        CAST(ISNULL(b.fld_CONTENIDO, 0) AS float) AS monto_contenido,
+        CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN 1 ELSE 0 END AS contenido,
+        CASE WHEN ISNULL(b.fld_NORMALIZADO, 0) <> 0 THEN 1 ELSE 0 END AS normalizado,
+        CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN p.fecha_pago END AS fecha_pago
+    INTO #ops
+    FROM dbo.tmp_bench_temp_STC b
+    LEFT JOIN #pago p ON p.operacion = b.fld_OPERACION
+    WHERE b.fld_fecha = ?;
+
+    WITH candidatas AS (
+        SELECT
+            o.fila,
+            g.UsuarioGestion,
+            g.RespuestaGestion,
+            g.GestionFecha,
+            g.GestionHora,
+            g.telefono,
+            g.peso_gestion,
+            CASE WHEN o.fecha_pago IS NOT NULL AND g.GestionFecha > o.fecha_pago THEN 1 ELSE 0 END AS es_posterior
+        FROM #ops o
+        INNER JOIN #gest g ON g.rut = o.rut
+    ),
+    elegida AS (
+        SELECT
+            c.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY c.fila
+                ORDER BY
+                    c.es_posterior ASC,
+                    CASE WHEN c.es_posterior = 0 THEN c.peso_gestion ELSE 0 END ASC,
+                    CASE WHEN c.es_posterior = 0 THEN c.GestionFecha END DESC,
+                    CASE WHEN c.es_posterior = 0 THEN c.GestionHora END DESC,
+                    c.GestionFecha ASC,
+                    c.GestionHora ASC
+            ) AS rn
+        FROM candidatas c
+    )
+    SELECT
+        o.operacion,
+        o.tramo,
+        o.deuda,
+        o.monto_contenido,
+        o.contenido,
+        o.normalizado,
+        e.UsuarioGestion AS usuario_gestion,
+        e.RespuestaGestion AS respuesta_gestion,
+        e.GestionFecha AS gestion_fecha,
+        e.telefono
+    INTO #asig
+    FROM #ops o
+    LEFT JOIN elegida e ON e.fila = o.fila AND e.rn = 1;
+    """
+    return sql, [periodo] * 8
 
 
 def get_filter_values(periodo: str | None = None) -> dict:
@@ -86,113 +255,25 @@ def get_cycle_view(filters: dict) -> list[dict]:
     periodo = _normalize_period(filters.get("periodo"))
     ejecutivo_filter = str(filters.get("ejecutivo") or "").strip().lower()
 
-    sql = """
-    WITH gestiones AS (
-        SELECT
-            g.rut,
-            g.UsuarioGestion,
-            g.ContactoGestion,
-            g.RespuestaGestion,
-            g.GestionFecha,
-            g.GestionHora,
-            g.telefono,
-            CASE g.RespuestaGestion
-                WHEN 'COMPROMISO NORMALIZACION' THEN 1
-                WHEN 'COMPROMISO CONTENCION' THEN 2
-                WHEN 'COMPROMISO PREPAGO' THEN 3
-                WHEN 'COMPROMISO' THEN 4
-                WHEN 'COMPROMISO ADP (CUOTA)' THEN 5
-                WHEN 'COMPRA DIRECTA EN TRAMITE' THEN 6
-                WHEN 'COMPRA DIRECTA CONCRETADA' THEN 7
-                WHEN 'COMPRA DIRECTA INTERESADO' THEN 8
-                WHEN 'COMPROMISO INTERESADO EN PAC' THEN 9
-                WHEN 'COMPROMISO PUT' THEN 10
-                WHEN 'COMPROMISO SOLICITA PREPAGO' THEN 11
-                WHEN 'DACION' THEN 12
-                WHEN 'NOVACION EN TRMITE' THEN 13
-                WHEN 'NOVACION' THEN 14
-                WHEN 'REFINANCIAMIENTO' THEN 15
-                WHEN 'RECONDUCCION EN TRAMITE' THEN 16
-                WHEN 'RECONDUCCION INTERESADO' THEN 17
-                WHEN 'NOVACION INTERESADO' THEN 18
-                WHEN 'DACION EN TRAMITE' THEN 19
-                WHEN 'DACION INTERESADO' THEN 20
-                WHEN 'REFINANCIAMIENTO EN TRAMITE' THEN 21
-                WHEN 'REFINANCIAMIENTO INTERESADO' THEN 22
-                WHEN 'A LA ESPERA DEL DESCUENTO PAC' THEN 23
-                WHEN 'RENOVACION EN TRAMITE' THEN 24
-                WHEN 'VENTA DIRECTA EN TRAMITE' THEN 25
-                WHEN 'VENTA DIRECTA INTERESADO' THEN 26
-                WHEN 'RENOVACION INTERESADO' THEN 27
-                WHEN 'REGULARIZAR POR SUS PROPIOS MEDIOS' THEN 28
-                WHEN 'ADP EN TRAMITE' THEN 29
-                WHEN 'ADP INTERESADO' THEN 30
-                WHEN 'PAGARE EN TRIBUNALES' THEN 31
-                WHEN 'RENOVACION' THEN 32
-                WHEN 'CESANTE' THEN 33
-                WHEN 'EN TRAMITE CON CONCESIONARIO' THEN 34
-                WHEN 'ENFERMEDAD DEUDOR MUCHOS GASTOS MEDICOS' THEN 35
-                WHEN 'ENFERMEDAD DEUDOR TERMINAL' THEN 36
-                WHEN 'YA PAGO' THEN 37
-                WHEN 'NOVACION EN TRAMITE' THEN 38
-                WHEN 'PROBLEMA ECONOMICO IMPREVISTO' THEN 39
-                WHEN 'PROBLEMA ECONOMICO SUELDO INSUFICIENTE' THEN 40
-                WHEN 'PROBLEMAS TECNICOS PARA PAGAR CONSUMER.CL' THEN 41
-                WHEN 'PROBLEMAS TECNICOS PARA PAGAR PAC' THEN 42
-                WHEN 'SINIESTRO PERDIDA TOTAL' THEN 43
-                WHEN 'FALLECIDO' THEN 44
-                ELSE 999
-            END AS peso_gestion
-        FROM dbo.tmp_GEST_CRM g
-        WHERE g.cartera = 526
-          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND CAST(? AS date)
-          AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
-    ),
-    ranking AS (
-        SELECT
-            *,
-            ROW_NUMBER() OVER (
-                PARTITION BY rut
-                ORDER BY peso_gestion ASC, GestionFecha DESC, GestionHora DESC
-            ) AS rn
-        FROM gestiones
-        WHERE peso_gestion <> 999
-    ),
-    mejor_gestion AS (
-        SELECT rut, UsuarioGestion
-        FROM ranking
-        WHERE rn = 1
-    )
+    asignacion_sql, params = _asignacion_sql(periodo)
+    usuarios = ", ".join(f"'{user}'" for user in USER_ORDER)
+    sql = f"""{asignacion_sql}
     SELECT
-        ISNULL(mg.UsuarioGestion, 'SIN GESTION') AS usuario_gestion,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C1' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c1_deuda_asignada,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C1' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c1_monto_cont,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C2' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c2_deuda_asignada,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C2' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c2_monto_cont,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C3' THEN ISNULL(b.fld_DEUDA_INI, 0) ELSE 0 END) AS c3_deuda_asignada,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C3' THEN ISNULL(b.fld_CONTENIDO, 0) ELSE 0 END) AS c3_monto_cont,
-        SUM(CASE WHEN b.fld_TRAMO_MORA = 'C3' THEN 1 ELSE 0 END) AS c3_casos
-    FROM dbo.tmp_bench_temp_STC b
-    LEFT JOIN mejor_gestion mg
-        ON b.fld_RUT = mg.rut
-    WHERE ISNULL(mg.UsuarioGestion, 'SIN GESTION') IN (
-        'EMUNOZ',
-        'LROJAS',
-        'MINOSTROZA',
-        'CVERA',
-        'SDUARTE',
-        'BMONCADA',
-        'SFUENTES',
-        'MCOLMENARES',
-        'PALTAMIRANO',
-        'RCALDERON'
-    )
-      AND b.fld_TRAMO_MORA IN ('C1', 'C2', 'C3')
-      AND b.fld_fecha = ?
-    GROUP BY ISNULL(mg.UsuarioGestion, 'SIN GESTION')
+        a.usuario_gestion,
+        SUM(CASE WHEN a.tramo = 'C1' THEN a.deuda ELSE 0 END) AS c1_deuda_asignada,
+        SUM(CASE WHEN a.tramo = 'C1' THEN a.monto_contenido ELSE 0 END) AS c1_monto_cont,
+        SUM(CASE WHEN a.tramo = 'C2' THEN a.deuda ELSE 0 END) AS c2_deuda_asignada,
+        SUM(CASE WHEN a.tramo = 'C2' THEN a.monto_contenido ELSE 0 END) AS c2_monto_cont,
+        SUM(CASE WHEN a.tramo = 'C3' THEN a.deuda ELSE 0 END) AS c3_deuda_asignada,
+        SUM(CASE WHEN a.tramo = 'C3' THEN a.monto_contenido ELSE 0 END) AS c3_monto_cont,
+        SUM(CASE WHEN a.tramo = 'C3' THEN 1 ELSE 0 END) AS c3_casos
+    FROM #asig a
+    WHERE a.usuario_gestion IN ({usuarios})
+      AND a.tramo IN ('C1', 'C2', 'C3')
+    GROUP BY a.usuario_gestion
     """
 
-    raw_rows = run_query(sql, (periodo, periodo, periodo, periodo))
+    raw_rows = run_query_sets(sql, tuple(params))[-1]
 
     sql_c3_base = """
     SELECT COUNT_BIG(1) AS c3_casos_base
@@ -281,8 +362,8 @@ def get_detail_view(filters: dict) -> dict:
     page_size = min(500, max(1, int(filters.get("page_size") or 100)))
     offset = (page - 1) * page_size
 
+    asignacion_sql, params = _asignacion_sql(periodo)
     where_clauses = []
-    params: list = [periodo, periodo, periodo, periodo]
 
     if operacion:
         where_clauses.append("CAST(base.operacion AS VARCHAR(100)) LIKE ?")
@@ -304,104 +385,7 @@ def get_detail_view(filters: dict) -> dict:
     if where_clauses:
         extra_where = "WHERE " + " AND ".join(where_clauses)
 
-    sql = f"""
-    WITH gestiones AS (
-        SELECT
-            g.rut,
-            g.UsuarioGestion,
-            g.ContactoGestion,
-            g.RespuestaGestion,
-            g.GestionFecha,
-            g.GestionHora,
-            g.telefono,
-            CASE g.RespuestaGestion
-                WHEN 'COMPROMISO NORMALIZACION' THEN 1
-                WHEN 'COMPROMISO CONTENCION' THEN 2
-                WHEN 'COMPROMISO PREPAGO' THEN 3
-                WHEN 'COMPROMISO' THEN 4
-                WHEN 'COMPROMISO ADP (CUOTA)' THEN 5
-                WHEN 'COMPRA DIRECTA EN TRAMITE' THEN 6
-                WHEN 'COMPRA DIRECTA CONCRETADA' THEN 7
-                WHEN 'COMPRA DIRECTA INTERESADO' THEN 8
-                WHEN 'COMPROMISO INTERESADO EN PAC' THEN 9
-                WHEN 'COMPROMISO PUT' THEN 10
-                WHEN 'COMPROMISO SOLICITA PREPAGO' THEN 11
-                WHEN 'DACION' THEN 12
-                WHEN 'NOVACION EN TRMITE' THEN 13
-                WHEN 'NOVACION' THEN 14
-                WHEN 'REFINANCIAMIENTO' THEN 15
-                WHEN 'RECONDUCCION EN TRAMITE' THEN 16
-                WHEN 'RECONDUCCION INTERESADO' THEN 17
-                WHEN 'NOVACION INTERESADO' THEN 18
-                WHEN 'DACION EN TRAMITE' THEN 19
-                WHEN 'DACION INTERESADO' THEN 20
-                WHEN 'REFINANCIAMIENTO EN TRAMITE' THEN 21
-                WHEN 'REFINANCIAMIENTO INTERESADO' THEN 22
-                WHEN 'A LA ESPERA DEL DESCUENTO PAC' THEN 23
-                WHEN 'RENOVACION EN TRAMITE' THEN 24
-                WHEN 'VENTA DIRECTA EN TRAMITE' THEN 25
-                WHEN 'VENTA DIRECTA INTERESADO' THEN 26
-                WHEN 'RENOVACION INTERESADO' THEN 27
-                WHEN 'REGULARIZAR POR SUS PROPIOS MEDIOS' THEN 28
-                WHEN 'ADP EN TRAMITE' THEN 29
-                WHEN 'ADP INTERESADO' THEN 30
-                WHEN 'PAGARE EN TRIBUNALES' THEN 31
-                WHEN 'RENOVACION' THEN 32
-                WHEN 'CESANTE' THEN 33
-                WHEN 'EN TRAMITE CON CONCESIONARIO' THEN 34
-                WHEN 'ENFERMEDAD DEUDOR MUCHOS GASTOS MEDICOS' THEN 35
-                WHEN 'ENFERMEDAD DEUDOR TERMINAL' THEN 36
-                WHEN 'FALLECIDO' THEN 37
-                WHEN 'YA PAGO' THEN 38
-                WHEN 'NOVACION EN TRAMITE' THEN 39
-                WHEN 'PROBLEMA ECONOMICO IMPREVISTO' THEN 40
-                WHEN 'PROBLEMA ECONOMICO SUELDO INSUFICIENTE' THEN 41
-                WHEN 'PROBLEMAS TECNICOS PARA PAGAR CONSUMER.CL' THEN 42
-                WHEN 'PROBLEMAS TECNICOS PARA PAGAR PAC' THEN 43
-                WHEN 'SINIESTRO PERDIDA TOTAL' THEN 44
-                ELSE 999
-            END AS peso_gestion
-        FROM dbo.tmp_GEST_CRM g
-        WHERE g.cartera = 526
-          AND g.GestionFecha BETWEEN DATEFROMPARTS(YEAR(?), MONTH(?), 1) AND CAST(? AS date)
-          AND g.ContactoGestion IN ('TITULAR', 'INFORMATIVO')
-    ),
-    ranking AS (
-        SELECT
-            *,
-            ROW_NUMBER() OVER (
-                PARTITION BY rut
-                ORDER BY peso_gestion ASC, GestionFecha DESC, GestionHora DESC
-            ) AS rn
-        FROM gestiones
-        WHERE peso_gestion <> 999
-    ),
-    mejor_gestion AS (
-        SELECT
-            rut,
-            UsuarioGestion,
-            RespuestaGestion,
-            GestionFecha,
-            telefono
-        FROM ranking
-        WHERE rn = 1
-    ),
-    base AS (
-        SELECT
-            b.fld_OPERACION AS operacion,
-            CAST(ISNULL(b.fld_DEUDA_INI, 0) AS FLOAT) AS deuda,
-            LTRIM(RTRIM(b.fld_TRAMO_MORA)) AS tramo,
-            CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN 1 ELSE 0 END AS contenido,
-            CASE WHEN ISNULL(b.fld_NORMALIZADO, 0) <> 0 THEN 1 ELSE 0 END AS normalizado,
-            mg.UsuarioGestion AS usuario_gestion,
-            mg.RespuestaGestion AS respuesta_gestion,
-            mg.GestionFecha AS gestion_fecha,
-            mg.telefono AS telefono
-        FROM dbo.tmp_bench_temp_STC b
-        LEFT JOIN mejor_gestion mg
-            ON b.fld_RUT = mg.rut
-        WHERE b.fld_fecha = ?
-    )
+    sql = f"""{asignacion_sql}
     SELECT
         base.operacion,
         base.deuda,
@@ -413,7 +397,7 @@ def get_detail_view(filters: dict) -> dict:
         base.gestion_fecha,
         base.telefono,
         COUNT_BIG(1) OVER () AS total_count
-    FROM base
+    FROM #asig base
     {extra_where}
     ORDER BY
         CASE
@@ -429,7 +413,7 @@ def get_detail_view(filters: dict) -> dict:
     rows = []
     total = 0
     query_params = [*params, offset, page_size]
-    for row in run_query(sql, tuple(query_params)):
+    for row in run_query_sets(sql, tuple(query_params))[-1]:
         total = int(row.get("total_count") or 0)
         usuario = str(row.get("usuario_gestion") or "").strip().upper()
         rows.append(

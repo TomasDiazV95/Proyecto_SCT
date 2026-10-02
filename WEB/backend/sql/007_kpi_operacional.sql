@@ -5,9 +5,9 @@
      - GM:                  bucket de mora 6-30 / 31-60 / 61-90 / 91-150.
      - SANTANDER:           producto (Hipoteca, Consumo, Pyme, TC) y ciclo
                             (Consumo C1-C2; Hipoteca y Pyme C1-C3; TC C0 y Multiciclo).
-     - SC TELEFONÍA:        ciclo C1 / C2 / C3.
+     - SC TELEFONÍA:        C1, C2, C3 y los segmentos de Terreno (Susc. CV = C4, C5, C6, Pre Castigo = C7-C8, Castigo).
      - BANCO INTERNACIONAL: Vigente (30-90 / 90+) y Castigo.
-     - SC TERRENO:          C3, Susc. CV, C5, C6, Pre Castigo, Castigo + zona Norte / Metropolitana / Sur.
+     - SC TERRENO:          toda la asignacion: C1, C2, C3, Susc. CV, C5, C6, Pre Castigo, Castigo + zona Norte / Metropolitana / Sur.
      - ITAÚ:                Castigo (Stock / MCV) y Vencida (Consumo / Hipoteca, Fase 4-7).
      - LA ARAUCANA:         Vigente, Castigo, +365.
    Solo se cargan los segmentos definidos; el resto de la asignacion queda fuera del KPI.
@@ -521,17 +521,29 @@ BEGIN
     WHERE s.tramo_kpi IS NOT NULL AND TRY_CAST(s.fld_Rut AS bigint) IS NOT NULL;
     INSERT INTO @stats VALUES ('asig_santander', @@ROWCOUNT);
 
-    -- SC Telefonia: ciclos C1-C3 (como en productividad SC Temprana).
+    -- SC Telefonia: ciclos C1-C3 y, para los tramos mayores, los segmentos de SC Terreno. La tabla no trae apertura:
+    -- C4 = Susc. CV, C7-C8 = Pre Castigo, F1-F4 = Castigo.
     INSERT INTO dbo.kpi_asignacion (periodo, mandante, cartera, rut, operacion, producto, tramo, saldo_asignado, fecha_corte, source_file)
     SELECT @periodo, N'SC TELEFONÍA', N'TELEFONÍA', TRY_CAST(b.fld_RUT AS bigint), b.fld_OPERACION, NULL,
-           UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))), b.fld_DEUDA_INI, @tel_fecha, b.source_file
+           t.segmento, b.fld_DEUDA_INI, @tel_fecha, b.source_file
     FROM dbo.tmp_bench_temp_STC b
+    CROSS APPLY (
+        SELECT CASE
+                   WHEN UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))) IN ('C1', 'C2', 'C3', 'C5', 'C6') THEN UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA)))
+                   WHEN UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))) = 'C4' THEN N'Susc. CV'
+                   WHEN UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))) IN ('C7', 'C8') THEN N'Pre Castigo'
+                   WHEN UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))) IN ('F1', 'F2', 'F3', 'F4') THEN N'Castigo'
+               END AS segmento
+    ) t
     WHERE b.source_file = @tel_file AND b.fecha_carga = @tel_carga
-      AND UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))) IN ('C1', 'C2', 'C3')
+      AND t.segmento IS NOT NULL
       AND TRY_CAST(b.fld_RUT AS bigint) IS NOT NULL;
     INSERT INTO @stats VALUES ('asig_sc_telefonia', @@ROWCOUNT);
 
     -- SC Terreno: segmento segun tramo y apertura (regla _general_bucket de productividad SC) + castigo F1-F4.
+    -- Entra toda la asignacion (casos y saldo cuadran con el archivo). Lo que la regla no clasifica:
+    -- sin apertura informada (archivo de apertura del mes) C4 = Susc. CV y C7-C8 = Pre Castigo, como en SC Telefonia;
+    -- el resto queda con su tramo (C1, C2, ...).
     INSERT INTO dbo.kpi_asignacion (periodo, mandante, cartera, rut, operacion, producto, tramo, zona, saldo_asignado, fecha_corte, source_file)
     SELECT @periodo, N'SC TERRENO', N'TERRENO', s.rut, s.fld_OPERACION, NULL, s.segmento, s.zona, s.fld_DEUDA_INI, @stc_fecha, s.source_file
     FROM (
@@ -543,6 +555,9 @@ BEGIN
                    WHEN t.apertura = 'SUSCEPTIBLE CV' THEN N'Susc. CV'
                    WHEN t.tramo = 'C5' THEN N'C5'
                    WHEN t.tramo IN ('F1', 'F2', 'F3', 'F4') THEN N'Castigo'
+                   WHEN t.apertura IS NULL AND t.tramo = 'C4' THEN N'Susc. CV'
+                   WHEN t.apertura IS NULL AND t.tramo IN ('C7', 'C8') THEN N'Pre Castigo'
+                   ELSE ISNULL(t.tramo, N'Sin tramo')
                END AS segmento,
                CASE UPPER(LTRIM(RTRIM(b.fld_ZONA)))
                    WHEN 'ZONA NORTE CENTRO' THEN N'Norte'
@@ -551,10 +566,11 @@ BEGIN
                    ELSE NULLIF(LTRIM(RTRIM(b.fld_ZONA)), '')
                END AS zona
         FROM dbo.tmp_bench_STC b
-        CROSS APPLY (SELECT UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))) AS tramo, UPPER(LTRIM(RTRIM(b.fld_APERTURA))) AS apertura) t
+        CROSS APPLY (SELECT NULLIF(UPPER(LTRIM(RTRIM(b.fld_TRAMO_MORA))), '') AS tramo,
+                            NULLIF(UPPER(LTRIM(RTRIM(b.fld_APERTURA))), '') AS apertura) t
         WHERE b.source_file = @stc_file AND b.fecha_carga = @stc_carga
     ) s
-    WHERE s.segmento IS NOT NULL AND s.rut IS NOT NULL;
+    WHERE s.rut IS NOT NULL;
     INSERT INTO @stats VALUES ('asig_sc_terreno', @@ROWCOUNT);
 
     -- La Araucana: cartera = tipo de cartera (Vigente / Castigo / +365).

@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from io import BytesIO
-from openpyxl import Workbook
 
 from auth.dependencies import require_module, require_roles
-from services.la_araucana_service import get_export_rows, get_filtros, get_resumen, get_validacion
+from services.la_araucana_auditoria import build_auditoria_workbook
+from services.la_araucana_service import get_filtros, get_resumen, get_validacion
 
 
 router = APIRouter(dependencies=[Depends(require_module("la-araucana"))])
@@ -76,37 +76,14 @@ def productividad_detalle(
 @router.get("/export")
 def export(
     periodo: str = Query(...),
-    tipo_cartera: str | None = Query(default=None),
     _user: dict = Depends(require_roles("super_admin", "admin", "coordinador")),
 ) -> StreamingResponse:
     try:
-        period_month, rows = get_export_rows({"periodo": periodo, "tipo_cartera": tipo_cartera})
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "La Araucana"
-        headers = [
-            "folio_credito",
-            "rut",
-            "tramo_mora",
-            "capital",
-            "total_deuda",
-            "recupero",
-            "tipo_cartera",
-            "usuariogestion",
-            "contactogestion",
-            "respuestagestion",
-            "gestionfecha",
-            "gestionhora",
-            "telefono",
-        ]
-        ws.append(headers)
-        for row in rows:
-            ws.append([row.get(h) for h in headers])
-
+        period_month, wb = build_auditoria_workbook(periodo)
         output = BytesIO()
         wb.save(output)
         output.seek(0)
-        filename = f"la_araucana_detalle_{period_month}.xlsx"
+        filename = f"la_araucana_auditoria_{period_month}.xlsx"
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
