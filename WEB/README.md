@@ -82,6 +82,8 @@ Para iniciar el backend y el frontend simultáneamente, ejecuta el siguiente scr
 WEB\start_web.bat
 ```
 
+Por defecto el backend y el frontend se recargan solos al guardar un cambio, sin compilar ni reiniciar. Para servir la versión compilada (sin recarga), usa `WEB\start_web.bat --prod`.
+
 Este script abrirá automáticamente el navegador con la aplicación y mostrará las URLs locales y de red (`http://IP_DE_TU_PC:5173`) para acceder desde otros equipos en la misma red.
 
 Rutas de frontend:

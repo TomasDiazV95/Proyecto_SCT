@@ -16,6 +16,10 @@
   --kpo-accent: #2a78d6;
   --kpo-past: #86b6ef;
 
+  /* Segunda serie de un mismo grafico (p. ej. operaciones junto a RUT unicos): naranjo, distinguible del azul con daltonismo */
+  --kpo-second: #e8830c;
+  --kpo-second-text: #9a5200;
+
   /* Tipos de contacto: un solo azul, de mejor (oscuro) a peor (claro) */
   --kpo-contact-1: #184f95;
   --kpo-contact-2: #3987e5;
@@ -479,6 +483,34 @@
 .kpo-mini-month {
   font-size: 12px;
   color: var(--kpo-muted);
+}
+
+/* Dos series por mes (p. ej. RUT unicos y operaciones): barras mas angostas, una al lado de la otra. */
+.kpo-mini.is-dual .kpo-mini-track {
+  gap: 3px;
+}
+
+.kpo-mini.is-dual .kpo-mini-bar {
+  width: 16px;
+}
+
+.kpo-mini-bar.is-second,
+.kpo-swatch-second {
+  background: var(--kpo-second);
+}
+
+.kpo-mini-col:not(.is-current) .kpo-mini-bar.is-second {
+  opacity: 0.55;
+}
+
+.kpo-mini-value.is-second,
+.kpo-mini-col.is-current .kpo-mini-value.is-second {
+  margin-top: -4px;
+  color: var(--kpo-second-text);
+}
+
+.kpo-mini-legend {
+  font-size: 12px;
 }
 
 .kpo-mini-col.is-current .kpo-mini-month {

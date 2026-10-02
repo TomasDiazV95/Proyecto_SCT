@@ -7,10 +7,24 @@ set "BACKEND_DIR=%ROOT%backend"
 set "FRONTEND_DIR=%ROOT%frontend"
 set "PYTHON_EXE=%PROJECT_ROOT%\.venv\Scripts\python.exe"
 set "BUILD_ONLY=0"
+rem Por defecto: recarga automatica al guardar (uvicorn --reload y Vite dev), sin compilar.
+rem --prod: compila React y sirve la version compilada, sin recarga.
+set "DEV_MODE=1"
 set "IN_FRONTEND=0"
-if /i "%~1"=="--build-only" set "BUILD_ONLY=1"
-if not "%~1"=="" if "%BUILD_ONLY%"=="0" (
-  echo Uso: start_web.bat [--build-only]
+set "ARG_OK=0"
+if "%~1"=="" set "ARG_OK=1"
+if /i "%~1"=="--dev" set "ARG_OK=1"
+if /i "%~1"=="--prod" (
+  set "DEV_MODE=0"
+  set "ARG_OK=1"
+)
+if /i "%~1"=="--build-only" (
+  set "BUILD_ONLY=1"
+  set "DEV_MODE=0"
+  set "ARG_OK=1"
+)
+if "%ARG_OK%"=="0" (
+  echo Uso: start_web.bat [--prod ^| --build-only]
   exit /b 1
 )
 
@@ -96,23 +110,34 @@ if exist "package-lock.json" (
 )
 if errorlevel 1 goto :error
 
+if "%DEV_MODE%"=="1" goto :skip_build
 echo [2/3] Compilando React...
 call npm.cmd run build
 if errorlevel 1 goto :error
+echo [OK] Compilacion generada en "%FRONTEND_DIR%\dist".
+:skip_build
 popd
 set "IN_FRONTEND=0"
-echo [OK] Compilacion generada en "%FRONTEND_DIR%\dist".
 if "%BUILD_ONLY%"=="1" exit /b 0
 
 echo [3/3] Preparando backend...
 "%PYTHON_EXE%" -m pip install -r "%BACKEND_DIR%\requirements.txt"
 if errorlevel 1 goto :error
 
+if "%DEV_MODE%"=="1" goto :start_dev
 echo Iniciando backend FastAPI...
 start "Backend FastAPI" /D "%BACKEND_DIR%" cmd /d /k ""%PYTHON_EXE%" -m uvicorn main:app --host 0.0.0.0 --port 8000"
 echo Iniciando vista previa de la compilacion...
 start "Frontend React compilado" /D "%FRONTEND_DIR%" cmd /d /k "npm.cmd run preview -- --host 0.0.0.0 --port 5173 --strictPort"
+goto :started
 
+:start_dev
+echo Iniciando backend FastAPI con recarga automatica...
+start "Backend FastAPI dev" /D "%BACKEND_DIR%" cmd /d /k ""%PYTHON_EXE%" -m uvicorn main:app --reload --host 0.0.0.0 --port 8000"
+echo Iniciando frontend React con recarga automatica...
+start "Frontend React dev" /D "%FRONTEND_DIR%" cmd /d /k "npm.cmd run dev -- --host 0.0.0.0 --port 5173 --strictPort"
+
+:started
 echo.
 echo Frontend local: http://localhost:5173
 echo Backend local:  http://localhost:8000

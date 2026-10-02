@@ -4,6 +4,7 @@ from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 
+import bench_recarga
 import data_cleaners
 import pandas as pd
 import pyodbc
@@ -258,37 +259,12 @@ def insert_append(df: pd.DataFrame, source_file: str):
     print(f"OK: insertadas {inserted} filas")
 
 
-def get_last_source_file() -> str | None:
-    try:
-        with connect() as cn:
-            cur = cn.cursor()
-            cur.execute(f"SELECT TOP (1) source_file FROM {TABLE} ORDER BY id_bench_temp_stc DESC")
-            row = cur.fetchone()
-            if not row:
-                return None
-            return row[0]
-    except pyodbc.Error:
-        return None
-
-
-def should_skip_load(current_source_file: str) -> bool:
-    last_source_file = get_last_source_file()
-    if last_source_file is None:
-        print("No hay carga previa en la tabla; se cargara el archivo actual.")
-        return False
-
-    current_norm = str(current_source_file).strip().upper()
-    last_norm = str(last_source_file).strip().upper()
-
-    print(f"source_file actual: {current_source_file}")
-    print(f"ultimo source_file en BD: {last_source_file}")
-
-    if current_norm == last_norm:
-        print("El ultimo source_file coincide con el archivo actual. Se omite la carga.")
-        return True
-
-    print("El source_file es distinto al ultimo en BD. Se continuara con la carga.")
-    return False
+def should_skip_load(current_source_file: str, fecha_visor) -> bool:
+    # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
+    with connect() as cn:
+        cargar = bench_recarga.debe_cargar(cn.cursor(), TABLE, current_source_file, fecha_visor)
+        cn.commit()
+    return not cargar
 
 
 def pick_files_to_process() -> list[Path]:
@@ -314,8 +290,8 @@ def main():
             continue
 
         source_file = excel_file.name
-        if should_skip_load(source_file):
-            print(f"Ya cargado, se omite: {source_file}")
+        fecha_visor = bench_recarga.fecha_visor_archivo(excel_file)
+        if should_skip_load(source_file, fecha_visor):
             continue
 
         df = read_excel(str(excel_file), SHEET_NAME)
@@ -330,6 +306,9 @@ def main():
 
         ensure_table_and_columns(df)
         insert_append(df, source_file)
+        with connect() as cn:
+            bench_recarga.registrar_fecha_visor(cn.cursor(), TABLE, source_file, fecha_visor)
+            cn.commit()
 
 
 if __name__ == "__main__":

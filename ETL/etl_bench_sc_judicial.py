@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
 
+import bench_recarga
 import pandas as pd
 import pyodbc
 from dotenv import load_dotenv
@@ -219,11 +220,6 @@ def ensure_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> list[str]:
     return added
 
 
-def already_loaded(cur: pyodbc.Cursor, source_file: str) -> bool:
-    cur.execute(f"SELECT TOP (1) 1 FROM {TABLE} WHERE source_file = ?", (source_file,))
-    return cur.fetchone() is not None
-
-
 def insert_rows(cn: pyodbc.Connection, df: pd.DataFrame, source_file: str, fecha_archivo: date) -> int:
     excel_columns = list(df.columns)
     insert_cols = ["source_file", "fecha_archivo"] + ["fld_" + col for col in excel_columns]
@@ -266,11 +262,13 @@ def main() -> None:
         if added:
             print(f"{TABLE}: columnas agregadas: {', '.join(added)}")
 
-        if already_loaded(cur, source_file):
-            print(f"Ya cargado, se omite: {source_file}")
+        # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
+        fecha_visor = bench_recarga.fecha_visor_archivo(excel_path)
+        if not bench_recarga.debe_cargar(cur, TABLE, source_file, fecha_visor):
             return
 
         inserted = insert_rows(cn, df, source_file, fecha_archivo)
+        bench_recarga.registrar_fecha_visor(cur, TABLE, source_file, fecha_visor)
         cn.commit()
 
     print(f"OK: insertadas {inserted} filas en {TABLE}")

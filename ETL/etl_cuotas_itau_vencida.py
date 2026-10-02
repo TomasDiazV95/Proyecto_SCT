@@ -24,9 +24,10 @@ USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
-DEFAULT_FOLDER = Path(__file__).resolve().parents[1] / "archivos"
+# Carpeta donde deja los archivos DESCARGAS/descarga_itau_vencida.py
+DEFAULT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\AUTOMATIZACION\ITAU")
 CSV_FOLDER = Path(os.getenv("CUOTAS_ITAU_VENCIDA_FOLDER", str(DEFAULT_FOLDER)))
-CSV_PATTERN = os.getenv("CUOTAS_ITAU_VENCIDA_PATTERN", "*.csv")
+CSV_PATTERN = os.getenv("CUOTAS_ITAU_VENCIDA_PATTERN", "Cuotas_PHOENIX_*.csv")
 
 TABLE = "dbo.cuotas_itau_vencida"
 BATCH_SIZE = 10000
@@ -335,6 +336,13 @@ def ensure_table() -> None:
         cn.commit()
 
 
+def already_loaded(source_file: str) -> bool:
+    with connect() as cn:
+        cur = cn.cursor()
+        cur.execute(f"SELECT TOP 1 1 FROM {TABLE} WHERE source_file = ?", (source_file,))
+        return cur.fetchone() is not None
+
+
 def insert_append(df: pd.DataFrame, source_file: str) -> None:
     insert_cols = ["source_file"] + TABLE_COLUMNS
     placeholders = ",".join(["?"] * len(insert_cols))
@@ -385,10 +393,14 @@ def main() -> None:
     source_file = csv_path.name
     print(f"Archivo cuotas Itau vencida: {csv_path}")
 
+    ensure_table()
+    if already_loaded(source_file):
+        print(f"El archivo {source_file} ya fue cargado en {TABLE}. No se inserta nada.")
+        return
+
     df = read_csv_file(csv_path)
     print(f"Filas: {len(df)} | Columnas cargadas: {len(df.columns)}")
 
-    ensure_table()
     insert_append(df, source_file)
 
 

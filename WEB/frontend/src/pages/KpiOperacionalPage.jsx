@@ -131,32 +131,45 @@ function Delta({ kpi, sentido, prevMonth }) {
 }
 
 // Columnas de los 4 meses (del mas antiguo al actual); el mes actual en el color de acento.
-function MiniColumns({ kpi, meses, label }) {
+// kpi2 (opcional): segunda serie en la misma escala, con una barra al lado de la principal en cada mes.
+function MiniColumns({ kpi, meses, label, kpi2, label2 }) {
   const format = FORMAT[kpi?.tipo || "int"];
   const formatShort = FORMAT_SHORT[kpi?.tipo || "int"];
-  const rows = meses.map((mes, i) => ({ ...mes, value: kpi?.valores[i] })).reverse();
-  const max = Math.max(0, ...rows.map((r) => Number(r.value || 0)));
+  const rows = meses.map((mes, i) => ({ ...mes, value: kpi?.valores[i], value2: kpi2?.valores[i] })).reverse();
+  const max = Math.max(0, ...rows.map((r) => Math.max(Number(r.value || 0), Number(r.value2 || 0))));
   if (max <= 0) return <div className="kpo-mini-empty">Sin datos para comparar</div>;
+  const height = (value) => (value ? Math.max(3, Math.round((Number(value) / max) * 100)) : 0);
+  const describe = (r) => `${monthName(r.periodo)} ${format(r.value)}${kpi2 ? ` (${label2}: ${format(r.value2)})` : ""}`;
   return (
-    <div className="kpo-mini" role="img" aria-label={`${label}: ${rows.map((r) => `${monthName(r.periodo)} ${format(r.value)}`).join(", ")}`}>
-      {rows.map((row, i) => {
-        const current = i === rows.length - 1;
-        const h = row.value ? Math.max(3, Math.round((Number(row.value) / max) * 100)) : 0;
-        return (
-          <div key={row.periodo} className={`kpo-mini-col${current ? " is-current" : ""}`} title={`${label} · ${current ? `${monthName(row.periodo)} al ${cutLabel(row.corte)}` : `cierre de ${monthName(row.periodo)}`}: ${format(row.value)}`}>
-            <span className="kpo-mini-value">{formatShort(row.value)}</span>
-            <div className="kpo-mini-track">
-              <div className="kpo-mini-bar" style={{ height: `${h}%`, background: current ? C.actual : C.anterior }} />
+    <>
+      <div className={`kpo-mini${kpi2 ? " is-dual" : ""}`} role="img" aria-label={`${label}: ${rows.map(describe).join(", ")}`}>
+        {rows.map((row, i) => {
+          const current = i === rows.length - 1;
+          const cuando = current ? `${monthName(row.periodo)} al ${cutLabel(row.corte)}` : `cierre de ${monthName(row.periodo)}`;
+          return (
+            <div key={row.periodo} className={`kpo-mini-col${current ? " is-current" : ""}`} title={`${label} · ${cuando}: ${format(row.value)}${kpi2 ? ` · ${label2}: ${format(row.value2)}` : ""}`}>
+              <span className="kpo-mini-value">{formatShort(row.value)}</span>
+              {kpi2 && <span className="kpo-mini-value is-second">{formatShort(row.value2)}</span>}
+              <div className="kpo-mini-track">
+                <div className="kpo-mini-bar" style={{ height: `${height(row.value)}%`, background: current ? C.actual : C.anterior }} />
+                {kpi2 && <div className="kpo-mini-bar is-second" style={{ height: `${height(row.value2)}%` }} />}
+              </div>
+              <span className="kpo-mini-month">{monthShort(row.periodo)}</span>
             </div>
-            <span className="kpo-mini-month">{monthShort(row.periodo)}</span>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      {kpi2 && (
+        <div className="kpo-legend kpo-mini-legend">
+          <span><span className="kpo-swatch" style={{ background: C.actual }} />{label}</span>
+          <span><span className="kpo-swatch kpo-swatch-second" />{label2}</span>
+        </div>
+      )}
+    </>
   );
 }
 
-function KpiCard({ label, help, kpi, meses, sentido = 1, note }) {
+function KpiCard({ label, help, kpi, meses, sentido = 1, note, kpi2, serie, serie2 }) {
   if (!kpi) return null;
   const format = FORMAT[kpi.tipo];
   const prevMonth = meses[1] ? monthName(meses[1].periodo) : "el mes anterior";
@@ -168,7 +181,7 @@ function KpiCard({ label, help, kpi, meses, sentido = 1, note }) {
       </header>
       <div className="kpo-kpi-value">{format(kpi.valores[0])}</div>
       <Delta kpi={kpi} sentido={sentido} prevMonth={prevMonth} />
-      <MiniColumns kpi={kpi} meses={meses} label={label} />
+      <MiniColumns kpi={kpi} meses={meses} label={serie || label} kpi2={kpi2} label2={serie2} />
       {kpi.tipo === "money" && <p className="kpo-kpi-note">Gráfico en millones de pesos (MM$).</p>}
       {note && <p className="kpo-kpi-note">{note}</p>}
     </article>
@@ -543,7 +556,16 @@ export default function KpiOperacionalPage() {
           </section>
 
           <Section num="1" title="Cartera asignada" desc="Cuántos clientes y cuánta deuda nos entregaron para gestionar en el mes.">
-            <KpiCard label="Casos asignados" help="Clientes (RUT únicos) asignados." kpi={kpis.casos} meses={meses} sentido={0} />
+            <KpiCard
+              label="Casos asignados"
+              help="Clientes (RUT únicos) asignados y total de operaciones."
+              kpi={kpis.casos}
+              meses={meses}
+              sentido={0}
+              kpi2={kpis.operaciones}
+              serie="RUT únicos"
+              serie2="Operaciones"
+            />
             <KpiCard label="Saldo asignado" help="Deuda total asignada, en millones de pesos." kpi={kpis.saldo} meses={meses} sentido={0} />
           </Section>
 
