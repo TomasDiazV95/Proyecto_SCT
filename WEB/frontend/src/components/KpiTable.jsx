@@ -9,7 +9,7 @@ function toNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
-function formatValue(value, type) {
+function formatValue(value, type, digits = 1) {
   if (value === "") {
     return "";
   }
@@ -24,7 +24,7 @@ function formatValue(value, type) {
 
   if (type === "percent") {
     const n = toNumber(value);
-    return n === null ? "-" : `${(n * 100).toFixed(1)}%`;
+    return n === null ? "-" : `${(n * 100).toFixed(digits)}%`;
   }
 
   if (type === "decimal1") {
@@ -111,7 +111,7 @@ export default function KpiTable({ columns, rows, totalRow: totalRowOverride, cu
                     className={column.align ? `text-${column.align}` : ""}
                     style={cellStyle}
                   >
-                    {formatValue(value, column.type)}
+                    {formatValue(value, column.type, column.key === "cumplimiento" ? 0 : 1)}
                   </td>
                 );
               })}
@@ -124,7 +124,7 @@ export default function KpiTable({ columns, rows, totalRow: totalRowOverride, cu
 
               return (
                 <td key={`total-${column.key}`} className={column.align ? `text-${column.align}` : ""} style={cellStyle}>
-                  {formatValue(value, column.type)}
+                  {formatValue(value, column.type, column.key === "cumplimiento" ? 0 : 1)}
                 </td>
               );
             })}

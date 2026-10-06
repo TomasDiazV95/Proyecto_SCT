@@ -15,6 +15,12 @@ function formatPct(value) {
   return `${Number(value || 0).toFixed(2)}%`;
 }
 
+
+// Los cumplimientos de meta se muestran sin decimales.
+function formatCumpl(value) {
+  return `${Number(value || 0).toFixed(0)}%`;
+}
+
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", {
     minimumFractionDigits: 0,
@@ -227,7 +233,7 @@ export default function GmPage() {
                   <td className="pd-num">{formatPct(row.porcentaje_contencion)}</td>
                   <td className="pd-num">{formatPct(row.porcentaje_normalizado)}</td>
                   <td className="pd-num">
-                    <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                    <span className={cumplimientoClass(row.cumplimiento_final)}>{formatCumpl(row.cumplimiento_final)}</span>
                   </td>
                 </tr>
               ))}
@@ -240,7 +246,7 @@ export default function GmPage() {
                   <td className="pd-num">{formatPct(bucketTotalRow.porcentaje_contencion)}</td>
                   <td className="pd-num">{formatPct(bucketTotalRow.porcentaje_normalizado)}</td>
                   <td className="pd-num">
-                    <span className="pd-status pd-status-none">{formatPct(bucketTotalRow.cumplimiento_final)}</span>
+                    <span className="pd-status pd-status-none">{formatCumpl(bucketTotalRow.cumplimiento_final)}</span>
                   </td>
                 </tr>
               )}
@@ -416,7 +422,7 @@ export default function GmPage() {
                       <td className="pd-num">{row.bucket === "Total general" ? "-" : formatPct(row.meta_contencion_pct)}</td>
                       <td className="pd-num">{row.bucket === "Total general" ? "-" : formatPct(row.meta_normalizacion_pct)}</td>
                       <td className="pd-num">
-                        <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                        <span className={cumplimientoClass(row.cumplimiento_final)}>{formatCumpl(row.cumplimiento_final)}</span>
                       </td>
                     </tr>
                   ))}

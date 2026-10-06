@@ -4,8 +4,10 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pandas as pd
@@ -17,6 +19,8 @@ from dotenv import load_dotenv
 CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
 CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
 ASIGNACION_TABLE = "dbo.tmp_BIT_asignacion"
+ASIGNACION_MENSUAL_TABLE = "dbo.tmp_BIT_asignacion_mensual"
+ASIGNACION_REMOTE_DIR = "/Entrada/Carga_Cobranza"
 DEFAULT_BIT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\AUTOMATIZACION\BIT")
 CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6}|\d{8})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
 CONTENCION_PATTERN = re.compile(r"^Seguimiento_Metas_PHOENIX_(\d{8})\.xlsx$", re.IGNORECASE)
@@ -783,6 +787,7 @@ def insert_dynamic_sheet(
     numeric_columns: set[str] | None = None,
     skip_null_column: str | None = None,
     include_source_file: bool = True,
+    replace_period: bool = True,
 ) -> tuple[int, int]:
     excel_columns, added_columns = ensure_dynamic_table(
         cur,
@@ -791,7 +796,8 @@ def insert_dynamic_sheet(
         numeric_columns,
         include_source_file=include_source_file,
     )
-    cur.execute(f"DELETE FROM {table_name} WHERE periodo = ?", (periodo,))
+    if replace_period:
+        cur.execute(f"DELETE FROM {table_name} WHERE periodo = ?", (periodo,))
 
     insert_columns = ["periodo"] + (["source_file"] if include_source_file else []) + excel_columns
     values_sql = ", ".join("?" for _ in insert_columns)
@@ -825,6 +831,127 @@ def insert_dynamic_sheet(
         print(f"{table_name}: columnas nuevas detectadas y agregadas: {', '.join(added_columns)}")
 
     return len(rows), skipped_rows
+
+
+def _connect_bit_sftp():
+    import paramiko
+
+    host = (os.getenv("BIT_SFTP_HOST") or os.getenv("SFTP_HOST") or "").strip()
+    port = int((os.getenv("BIT_SFTP_PORT") or os.getenv("SFTP_PORT") or "22").strip() or "22")
+    user = (os.getenv("BIT_SFTP_USER") or os.getenv("SFTP_USER") or "").strip()
+    password = (os.getenv("BIT_SFTP_PASSWORD") or os.getenv("SFTP_PASSWORD") or "").strip()
+    if not host or not user or not password:
+        raise RuntimeError("Faltan variables BIT_SFTP_HOST, BIT_SFTP_USER o BIT_SFTP_PASSWORD en .env")
+
+    transport = paramiko.Transport((host, port))
+    transport.connect(username=user, password=password)
+    return transport, paramiko.SFTPClient.from_transport(transport)
+
+
+def sync_asignacion_cierre(periodos: list[str] | None = None) -> None:
+    """Sincroniza desde el SFTP la asignacion de los meses con recupero castigo cargado.
+
+    - ASIGNACION_TABLE: cada mes cerrado queda con la ultima asignacion diaria del mes (la del ultimo dia).
+    - ASIGNACION_MENSUAL_TABLE: consolidado del mes con todo RUT asignado algun dia; cada RUT queda con las
+      filas del ultimo archivo diario en que aparece (los que pagan salen de la asignacion antes del cierre).
+    Solo descarga cuando el ultimo archivo del mes en el SFTP no es el que esta cargado.
+    """
+    periodo_actual = date.today().strftime("%Y-%m")
+
+    with connect() as cn:
+        cn.autocommit = False
+        cur = cn.cursor()
+
+        if periodos is None:
+            cur.execute(f"SELECT DISTINCT periodo FROM {CASTIGO_TABLE} WHERE periodo IS NOT NULL")
+            periodos = [str(row[0]).strip() for row in cur.fetchall()]
+        pendientes = sorted({p for p in periodos if p})
+        if not pendientes:
+            return
+
+        def loaded_files(table_name: str) -> dict[str, set[str]]:
+            loaded: dict[str, set[str]] = {}
+            if get_table_columns(cur, table_name):
+                cur.execute(f"SELECT DISTINCT periodo, source_file FROM {table_name}")
+                for row in cur.fetchall():
+                    loaded.setdefault(str(row[0]).strip(), set()).add(str(row[1]).strip().upper())
+            return loaded
+
+        cargados = loaded_files(ASIGNACION_TABLE)
+        cargados_mensual = loaded_files(ASIGNACION_MENSUAL_TABLE)
+
+        transport, sftp = _connect_bit_sftp()
+        try:
+            archivos_por_periodo: dict[str, list[str]] = {}
+            for entry in sftp.listdir_attr(ASIGNACION_REMOTE_DIR):
+                match = ASIGNACION_PATTERN.match(entry.filename)
+                if not match:
+                    continue
+                raw_date = match.group(1)
+                archivos_por_periodo.setdefault(f"{raw_date[:4]}-{raw_date[4:6]}", []).append(entry.filename)
+
+            for periodo in pendientes:
+                # El nombre termina en YYYYMMDD: el orden alfabetico (sin mayusculas) es el cronologico.
+                archivos = sorted(archivos_por_periodo.get(periodo, []), key=str.upper)
+                if not archivos:
+                    print(f"Advertencia: no hay ASIGNACION_PHOENIX_*.csv de {periodo} en el SFTP; no se actualizo la asignacion.")
+                    continue
+                cierre = archivos[-1]
+                falta_cierre = periodo < periodo_actual and cargados.get(periodo) != {cierre.upper()}
+                falta_mensual = cierre.upper() not in cargados_mensual.get(periodo, set())
+                if not falta_cierre and not falta_mensual:
+                    continue
+
+                diarios: list[pd.DataFrame] = []
+                with TemporaryDirectory() as tmp_dir:
+                    for archivo in archivos if falta_mensual else [cierre]:
+                        local_path = Path(tmp_dir) / archivo
+                        sftp.get(f"{ASIGNACION_REMOTE_DIR}/{archivo}", str(local_path))
+                        diario = load_csv(local_path)
+                        diario["__ARCHIVO"] = archivo
+                        diarios.append(diario)
+
+                if falta_cierre:
+                    rows, _ = insert_dynamic_sheet(
+                        cur,
+                        ASIGNACION_TABLE,
+                        periodo,
+                        diarios[-1].drop(columns="__ARCHIVO"),
+                        cierre,
+                        numeric_columns=ASIGNACION_NUMERIC_COLUMNS,
+                    )
+                    print(f"Asignacion de cierre {periodo} cargada desde {cierre}: {rows} filas.")
+
+                if falta_mensual:
+                    todo = pd.concat(diarios, ignore_index=True).fillna("")
+                    todo["__RUT"] = todo["RUT"].astype(str).str.strip()
+                    todo = todo[todo["__RUT"] != ""]
+                    ultimo_archivo = todo.groupby("__RUT")["__ARCHIVO"].transform("max")
+                    todo = todo[todo["__ARCHIVO"] == ultimo_archivo]
+
+                    rows = 0
+                    replace_period = True
+                    for archivo, grupo in todo.groupby("__ARCHIVO", sort=True):
+                        inserted, _ = insert_dynamic_sheet(
+                            cur,
+                            ASIGNACION_MENSUAL_TABLE,
+                            periodo,
+                            grupo.drop(columns=["__ARCHIVO", "__RUT"]),
+                            str(archivo),
+                            numeric_columns=ASIGNACION_NUMERIC_COLUMNS,
+                            replace_period=replace_period,
+                        )
+                        replace_period = False
+                        rows += inserted
+                    print(
+                        f"Asignacion mensual {periodo} consolidada desde {len(archivos)} archivos "
+                        f"({archivos[0]} a {cierre}): {rows} filas, {todo['__RUT'].nunique()} RUT."
+                    )
+
+                cn.commit()
+        finally:
+            sftp.close()
+            transport.close()
 
 
 def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> None:
@@ -876,6 +1003,12 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
         f"periodo_asignacion={sources.asignacion_period or 'none'}, asignacion={asignacion_rows}"
     )
 
+    # Asignacion de cierre de los meses cerrados y consolidado mensual; lo que falte se trae del SFTP.
+    try:
+        sync_asignacion_cierre()
+    except Exception as exc:
+        print(f"Advertencia: no se pudo sincronizar la asignacion de cierre: {exc}")
+
 
 if __name__ == "__main__":
     load_env_files()
@@ -886,6 +1019,14 @@ if __name__ == "__main__":
         required=False,
         help="Periodo YYYY-MM solo para contencion. Si se omite, se infiere del nombre del archivo.",
     )
+    parser.add_argument(
+        "--asignacion-cierre",
+        action="store_true",
+        help="Solo sincroniza desde el SFTP la asignacion de cierre y el consolidado mensual.",
+    )
     args = parser.parse_args()
-    run(args.periodo, args.file, str(DEFAULT_BIT_FOLDER))
+    if args.asignacion_cierre:
+        sync_asignacion_cierre()
+    else:
+        run(args.periodo, args.file, str(DEFAULT_BIT_FOLDER))
 

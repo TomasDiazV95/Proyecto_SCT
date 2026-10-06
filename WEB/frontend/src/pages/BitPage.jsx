@@ -14,8 +14,14 @@ function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
 }
 
+
+// Los cumplimientos de meta se muestran sin decimales.
+function formatCumpl(value) {
+  return `${(Number(value || 0) * 100).toFixed(0)}%`;
+}
+
 function formatPctOrNd(value) {
-  return value === null || value === undefined ? "N/D" : formatPct(value);
+  return value === null || value === undefined ? "N/D" : formatCumpl(value);
 }
 
 function capCumplMeta(value) {
@@ -211,7 +217,7 @@ export default function BitPage() {
               <td className="pd-num">${formatMoney(row.monto_contenido)}</td>
               <td className="pd-num">{formatPct(row.pct_contiene ?? row.pct_contencion)}</td>
               <td className="pd-num">
-                <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatPct(capCumplMeta(row.pct_cumpl_meta))}</span>
+                <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatCumpl(capCumplMeta(row.pct_cumpl_meta))}</span>
               </td>
             </tr>
           ))}

@@ -402,7 +402,7 @@ export default function ScTardiaPage() {
                   {row.bloques[block] === undefined ? (
                     <span className="pd-cell-muted">—</span>
                   ) : (
-                    <span className={metricClass(row.bloques[block])}>{formatPct(row.bloques[block], 1)}</span>
+                    <span className={metricClass(row.bloques[block])}>{formatPct(row.bloques[block], 0)}</span>
                   )}
                 </td>
               ))}
@@ -410,11 +410,11 @@ export default function ScTardiaPage() {
                 {row.bloques["TOTAL F1 - F4"] === undefined ? (
                   <span className="pd-cell-muted">—</span>
                 ) : (
-                  <span className={metricClass(row.bloques["TOTAL F1 - F4"])}>{formatPct(row.bloques["TOTAL F1 - F4"], 1)}</span>
+                  <span className={metricClass(row.bloques["TOTAL F1 - F4"])}>{formatPct(row.bloques["TOTAL F1 - F4"], 0)}</span>
                 )}
               </td>
               <td className="pd-num pd-group-start">
-                <span className={metricClass(row.cumplimiento_operativo)}>{formatPct(row.cumplimiento_operativo)}</span>
+                <span className={metricClass(row.cumplimiento_operativo)}>{formatPct(row.cumplimiento_operativo, 0)}</span>
               </td>
             </tr>
           ))}
@@ -486,7 +486,7 @@ export default function ScTardiaPage() {
                 <button key={block} type="button" className={`pd-select-card${selectedBlock === block ? " active" : ""}`} aria-pressed={selectedBlock === block} onClick={() => setSelectedBlock(block)}>
                   <div className="pd-select-card-top">
                     <span className="pd-eyebrow"><i className={`bi ${meta.icon} me-1`} aria-hidden="true" />{block}</span>
-                    <span className={`pd-status pd-status-${summary.status}`}>{formatPct(summary.cumplimiento)}</span>
+                    <span className={`pd-status pd-status-${summary.status}`}>{formatPct(summary.cumplimiento, 0)}</span>
                   </div>
                   <span className="pd-select-card-title">{meta.title}</span>
                   <span className="pd-small pd-muted">{meta.subtitle} · {formatMoneyShort(summary.deuda)} asignado</span>
@@ -529,7 +529,7 @@ export default function ScTardiaPage() {
                       {showNormalizationColumns && <td className="pd-num">{row.monto_meta_norm ? formatMoney(row.monto_meta_norm) : "-"}</td>}
                       {showNormalizationColumns && <td className="pd-num">{row.normalizado ? formatMoney(row.normalizado) : "-"}</td>}
                       {showNormalizationColumns && <td className="pd-num"><span className={metricClass(row.pct_normalizacion)}>{row.monto_meta_norm ? formatPct(row.pct_normalizacion) : "-"}</span></td>}
-                      {showNormalizationColumns && <td className="pd-num"><span className={metricClass(row.cumplimiento_operativo)}>{formatPct(row.cumplimiento_operativo)}</span></td>}
+                      {showNormalizationColumns && <td className="pd-num"><span className={metricClass(row.cumplimiento_operativo)}>{formatPct(row.cumplimiento_operativo, 0)}</span></td>}
                       <td className="pd-num">{num(row.cantidad_casos).toLocaleString("es-CL")}</td>
                     </tr>
                   ))}

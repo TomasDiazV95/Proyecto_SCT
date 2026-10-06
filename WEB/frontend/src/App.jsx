@@ -7,6 +7,7 @@ import BitCastigoPage from "./pages/BitCastigoPage";
 import ChangePasswordPage from "./pages/ChangePasswordPage";
 import ContactabilidadItauVencidaPage from "./pages/ContactabilidadItauVencidaPage";
 import BitPage from "./pages/BitPage";
+import EstrategiaItauCastigoPage from "./pages/estrategia/EstrategiaItauCastigoPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import GestionesDiariasSctPage from "./pages/GestionesDiariasSctPage";
 import GmPage from "./pages/GmPage";
@@ -56,6 +57,8 @@ export default function App() {
       <Route path="/factura" element={<ProtectedRoute moduleCode="factura"><PanelPage panelCode="factura" emptyTitle="Panel de Factura en preparacion" emptyDescription="Este modulo esta reservado para simular facturas" /></ProtectedRoute>} />
       <Route path="/administrativas" element={<ProtectedRoute><PanelPage panelCode="administrativas" /></ProtectedRoute>} />
       <Route path="/administrativas/itau" element={<ProtectedRoute moduleCode="administrativas"><ItauAdministrativasPage /></ProtectedRoute>} />
+      <Route path="/estrategia-asignacion" element={<ProtectedRoute moduleCode="estrategia-asignacion"><PanelPage panelCode="estrategia-asignacion" /></ProtectedRoute>} />
+      <Route path="/estrategia-asignacion/itau-castigo" element={<ProtectedRoute moduleCode="estrategia-asignacion"><EstrategiaItauCastigoPage /></ProtectedRoute>} />
       <Route path="/admin/permisos" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Permisos" description="Administracion avanzada de permisos." /></ProtectedRoute>} />
       <Route path="/admin/configuracion" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Configuracion" description="Configuracion general de la plataforma." /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

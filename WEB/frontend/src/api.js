@@ -622,6 +622,22 @@ export async function downloadItauCuotasPagadas(periodo) {
   );
 }
 
+export async function fetchEstrategiaItauCastigoPeriodos() {
+  const res = await apiFetch(`${API_BASE}/api/estrategia-asignacion/itau-castigo/periodos`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron cargar los periodos de la asignación");
+  }
+  return body;
+}
+
+export async function downloadEstrategiaItauCastigo(periodo, ejecutivos) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/estrategia-asignacion/itau-castigo/export`, { periodo, ejecutivos }),
+    `Estrategia_Asignacion_Itau_Castigo_${periodo || "periodo"}.xlsx`
+  );
+}
+
 export async function fetchContactabilidadItauFilters(periodo = "", options = {}) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/contactabilidad/itau-vencida/filtros`, { periodo }), options);
   const body = await res.json().catch(() => ({}));

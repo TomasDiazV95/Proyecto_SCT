@@ -168,6 +168,14 @@ def _castigo_config() -> dict[str, str]:
     }
 
 
+def _asignacion_table() -> str:
+    # Consolidado mensual (todo RUT asignado algun dia del mes, con su ultima deuda); si el ETL aun no lo
+    # ha creado en el ambiente, se usa la asignacion de cierre.
+    if _list_table_columns("tmp_BIT_asignacion_mensual"):
+        return "dbo.tmp_BIT_asignacion_mensual"
+    return "dbo.tmp_BIT_asignacion"
+
+
 def _meta_source_sql() -> str:
     return """
     SELECT
@@ -272,6 +280,18 @@ WITH carterizado_unico AS (
     GROUP BY
         {cast_periodo},
         {_rut_join_key_sql(cast_rut)}
+), asignacion_rut AS (
+    SELECT
+        periodo,
+        {_rut_join_key_sql("RUT")} AS rut_key,
+        SUM(COALESCE(CAST(DEUDA_TOTAL AS float), 0)) AS mto_asignado
+    FROM {_asignacion_table()}
+    WHERE UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%'
+      AND RUT IS NOT NULL
+      AND LTRIM(RTRIM(RUT)) <> ''
+    GROUP BY
+        periodo,
+        {_rut_join_key_sql("RUT")}
 ), bit_castigo_data AS (
     SELECT
         b.periodo,
@@ -289,6 +309,25 @@ WITH carterizado_unico AS (
        AND cu.rn = 1
     LEFT JOIN metas_periodo m
         ON m.periodo = b.periodo
+), bit_asignacion_data AS (
+    -- Efectividad sobre lo asignado: base = asignacion castigo, cruzada por RUT con el recupero y el carterizado.
+    SELECT
+        a.periodo,
+        a.rut_key AS rut,
+        COALESCE(cu.usuario, 'Phoenix') AS ejecutivo,
+        a.mto_asignado,
+        COALESCE(r.mto_recupero_final, 0) AS mto_recupero_asignado,
+        COALESCE(m.meta, 0) AS meta_final
+    FROM asignacion_rut a
+    LEFT JOIN castigo_rut r
+        ON r.periodo = a.periodo
+       AND r.rut_key = a.rut_key
+    LEFT JOIN carterizado_unico cu
+        ON cu.periodo = a.periodo
+       AND cu.rut_key = a.rut_key
+       AND cu.rn = 1
+    LEFT JOIN metas_periodo m
+        ON m.periodo = a.periodo
 )
 """
 
@@ -345,7 +384,11 @@ def get_filter_values(periodo: str | None = None) -> dict:
         sql = f"""
         {_bit_castigo_cte(_meta_source_sql())}
         SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS v
-        FROM bit_castigo_data
+        FROM (
+            SELECT periodo, ejecutivo FROM bit_castigo_data
+            UNION
+            SELECT periodo, ejecutivo FROM bit_asignacion_data
+        ) src
         WHERE ejecutivo IS NOT NULL
           AND LTRIM(RTRIM(ejecutivo)) <> ''
           {"AND periodo = ?" if periodo else ""}
@@ -369,8 +412,18 @@ def get_general(filters: dict) -> dict:
         ejecutivo,
         SUM(COALESCE(CAST(mto_inicial AS float), 0)) AS monto_inicial,
         SUM(COALESCE(CAST(mto_contenido AS float), 0)) AS monto_contenido,
-        MAX(COALESCE(CAST(meta_final AS float), 0)) AS meta_final
-    FROM bit_castigo_data
+        MAX(COALESCE(CAST(meta_final AS float), 0)) AS meta_final,
+        SUM(COALESCE(CAST(mto_asignado AS float), 0)) AS monto_asignado,
+        SUM(COALESCE(CAST(mto_recupero_asignado AS float), 0)) AS recupero_asignado
+    FROM (
+        SELECT periodo, ejecutivo, mto_inicial, mto_contenido, meta_final,
+               0 AS mto_asignado, 0 AS mto_recupero_asignado
+        FROM bit_castigo_data
+        UNION ALL
+        SELECT periodo, ejecutivo, 0, 0, meta_final,
+               mto_asignado, mto_recupero_asignado
+        FROM bit_asignacion_data
+    ) src
     WHERE {where_sql}
     GROUP BY ejecutivo
     ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo
@@ -395,12 +448,16 @@ def get_general(filters: dict) -> dict:
     rows: list[dict] = []
     total_inicial = 0.0
     total_contenido = 0.0
+    total_asignado = 0.0
+    total_recupero_asignado = 0.0
     meta_periodo = 0.0
 
     for row in agg_rows:
         monto_inicial = _safe_float(row.get("monto_inicial"))
         monto_contenido = _safe_float(row.get("monto_contenido"))
         meta_final = _safe_float(row.get("meta_final"))
+        monto_asignado = _safe_float(row.get("monto_asignado"))
+        recupero_asignado = _safe_float(row.get("recupero_asignado"))
         pct_contencion = _safe_div(monto_contenido, monto_inicial)
         pct_cumpl_meta = _cap_cumpl_meta(_safe_div(monto_contenido, meta_final))
 
@@ -412,11 +469,16 @@ def get_general(filters: dict) -> dict:
                 "pct_contencion": pct_contencion,
                 "pct_contiene": pct_contencion,
                 "pct_cumpl_meta": pct_cumpl_meta,
+                "monto_asignado": monto_asignado,
+                "recupero_asignado": recupero_asignado,
+                "pct_efectividad": _safe_div(recupero_asignado, monto_asignado),
             }
         )
 
         total_inicial += monto_inicial
         total_contenido += monto_contenido
+        total_asignado += monto_asignado
+        total_recupero_asignado += recupero_asignado
         meta_periodo = max(meta_periodo, meta_final)
 
     return {
@@ -432,5 +494,8 @@ def get_general(filters: dict) -> dict:
             "pct_contencion": _safe_div(total_contenido, total_inicial),
             "pct_contiene": _safe_div(total_contenido, total_inicial),
             "pct_cumpl_meta": _cap_cumpl_meta(_safe_div(total_contenido, meta_periodo)),
+            "monto_asignado": total_asignado,
+            "recupero_asignado": total_recupero_asignado,
+            "pct_efectividad": _safe_div(total_recupero_asignado, total_asignado),
         },
     }

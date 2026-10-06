@@ -156,6 +156,7 @@ export default function MediblesItauCard() {
   return (
     <SectionCard
       title="Casos medibles"
+      className="pd-medibles-card"
       description="Solo los casos con los valores agregados aquí cuentan para el cumplimiento del mes. El resto queda como no medible."
       actions={
         <label className="pd-field pd-medibles-periodo">

@@ -24,9 +24,9 @@ USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
-DEFAULT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\ITAU CASTIGO")
-ASIGNACION_FOLDER = Path(os.getenv("ASIGNACION_ITAU_CASTIGO_FOLDER") or DEFAULT_FOLDER)
-ASIGNACION_FILENAME = os.getenv("ASIGNACION_ITAU_CASTIGO_FILENAME") or "Asignacion_Phoenix.xlsx"
+# Ruta del Excel de asignacion: se define en .env (carpeta y nombre de archivo).
+ASIGNACION_FOLDER = (os.getenv("ASIGNACION_ITAU_CASTIGO_FOLDER") or "").strip()
+ASIGNACION_FILENAME = (os.getenv("ASIGNACION_ITAU_CASTIGO_FILENAME") or "").strip()
 SHEET_NAME = "Asignacion Phoenix"
 
 TABLE = "dbo.tmp_itau_castigo_asignacion"
@@ -232,7 +232,18 @@ def ensure_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> list[str]:
 
 
 def main() -> None:
-    excel_path = ASIGNACION_FOLDER / ASIGNACION_FILENAME
+    missing = [
+        name
+        for name, value in {
+            "ASIGNACION_ITAU_CASTIGO_FOLDER": ASIGNACION_FOLDER,
+            "ASIGNACION_ITAU_CASTIGO_FILENAME": ASIGNACION_FILENAME,
+        }.items()
+        if not value
+    ]
+    if missing:
+        raise RuntimeError("Faltan variables en .env: " + ", ".join(missing))
+
+    excel_path = Path(ASIGNACION_FOLDER) / ASIGNACION_FILENAME
     source_file = excel_path.name
     print(f"Archivo asignacion ITAU castigo: {excel_path}")
 
