@@ -40,25 +40,24 @@ def _filtro(periodo: str, columna: str, valor: str) -> tuple[str, str, str]:
 
 
 def _valores_contencion(periodo: str) -> dict[str, list[str]]:
-    """Valores distintos de cada columna en la contencion Phoenix del mes (o la ultima carga si el mes no tiene)."""
+    """Valores distintos de cada columna en la ultima contencion Phoenix cargada en el mes (o la ultima carga si el mes no tiene)."""
     fechas = run_query(
         """
-        SELECT MIN(fecha_carga) AS desde, MAX(fecha_carga) AS hasta
+        SELECT MAX(fecha_carga) AS fecha
         FROM dbo.contencion_itau_vencida
         WHERE GESTOR = ?
           AND CONVERT(char(7), fecha_carga, 126) = ?
         """,
         (GESTOR_PHOENIX, periodo),
     )
-    desde = fechas[0].get("desde") if fechas else None
-    hasta = fechas[0].get("hasta") if fechas else None
-    if not desde:
+    fecha = fechas[0].get("fecha") if fechas else None
+    if not fecha:
         ultima = run_query(
             "SELECT MAX(fecha_carga) AS fecha FROM dbo.contencion_itau_vencida WHERE GESTOR = ?",
             (GESTOR_PHOENIX,),
         )
-        desde = hasta = ultima[0].get("fecha") if ultima else None
-    if not desde:
+        fecha = ultima[0].get("fecha") if ultima else None
+    if not fecha:
         return {columna: [] for columna in COLUMNAS}
 
     valores: dict[str, list[str]] = {}
@@ -70,11 +69,11 @@ def _valores_contencion(periodo: str) -> dict[str, list[str]]:
                 SELECT DISTINCT LTRIM(RTRIM([{columna}])) AS valor
                 FROM dbo.contencion_itau_vencida
                 WHERE GESTOR = ?
-                  AND fecha_carga BETWEEN ? AND ?
+                  AND CAST(fecha_carga AS date) = CAST(? AS date)
                   AND NULLIF(LTRIM(RTRIM([{columna}])), '') IS NOT NULL
                 ORDER BY valor
                 """,
-                (GESTOR_PHOENIX, desde, hasta),
+                (GESTOR_PHOENIX, fecha),
             )
             if r.get("valor")
         ]

@@ -126,19 +126,43 @@ def _cortes(hoy: date) -> list[tuple[str, date]]:
 # ------------------------------------------------------------
 # Filtros
 # ------------------------------------------------------------
+def _valores(filters: dict, field: str) -> list[str]:
+    """Valores elegidos de un filtro (admite uno o varios), sin vacios ni repetidos."""
+    raw = filters.get(field)
+    if raw is None or isinstance(raw, str):
+        raw = [raw]
+    out: list[str] = []
+    for item in raw:
+        value = _clean(item)
+        if value and value not in out:
+            out.append(value)
+    return out
+
+
+def _unico(filters: dict, field: str) -> str:
+    """El valor del filtro cuando se eligio exactamente uno; con ninguno o varios, ''."""
+    valores = _valores(filters, field)
+    return valores[0] if len(valores) == 1 else ""
+
+
 def _dimension_filters(filters: dict, alias: str, include: tuple[str, ...] = DIMENSIONES) -> tuple[str, list]:
     """Filtros de mandante/cartera/tramo/producto/zona (mismas columnas en asignacion y pagos)."""
     clauses: list[str] = []
     params: list = []
     for field in include:
-        value = _clean(filters.get(field))
-        if not value:
+        valores = _valores(filters, field)
+        if not valores:
             continue
-        if field == "producto" and value == SIN_PRODUCTO:
-            clauses.append(f"{alias}.producto IS NULL")
-            continue
-        clauses.append(f"{alias}.{field} = ?")
-        params.append(value)
+        sin_producto = field == "producto" and SIN_PRODUCTO in valores
+        if sin_producto:
+            valores = [v for v in valores if v != SIN_PRODUCTO]
+        partes = []
+        if valores:
+            partes.append(f"{alias}.{field} IN ({', '.join('?' for _ in valores)})")
+            params.extend(valores)
+        if sin_producto:
+            partes.append(f"{alias}.producto IS NULL")
+        clauses.append(partes[0] if len(partes) == 1 else f"({' OR '.join(partes)})")
     return "".join(f" AND {c}" for c in clauses), params
 
 
@@ -178,7 +202,7 @@ def _combinaciones(periodo: str) -> list[dict]:
 
 def _coincide(row: dict, filters: dict, include: tuple[str, ...] = DIMENSIONES) -> bool:
     """Mismo criterio que _dimension_filters (producto 'Sin producto' = NULL, ya normalizado en la consulta)."""
-    return all(row.get(f) == _clean(filters.get(f)) for f in include if _clean(filters.get(f)))
+    return all(row.get(f) in _valores(filters, f) for f in include if _valores(filters, f))
 
 
 def _hay_asignacion(periodo: str, filters: dict) -> bool:
@@ -199,8 +223,9 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
     def distinct(field: str, include: tuple[str, ...]) -> set[str]:
         return {row[field] for row in combinaciones if row.get(field) and _coincide(row, filters, include)}
 
-    mandante = _clean(filters.get("mandante"))
-    cartera = _clean(filters.get("cartera"))
+    # Los filtros especificos solo aplican con un unico mandante elegido.
+    mandante = _unico(filters, "mandante")
+    carteras = _valores(filters, "cartera")
     out = {
         "periodo_actual": periodo_actual,
         "mandantes": _ordered(list(SEGMENTACION), distinct("mandante", ())),
@@ -224,14 +249,14 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
 
     if config.get("tramos_por_cartera"):
         por_cartera = config["tramos_por_cartera"]
-        tramos = por_cartera.get(cartera, []) if cartera else _union(por_cartera.values())
+        tramos = _union(por_cartera.get(c, []) for c in carteras) if carteras else _union(por_cartera.values())
     else:
         tramos = config.get("tramos", [])
     if tramos:
         out["visibles"]["tramo"] = True
         out["tramos"] = _ordered(tramos, distinct("tramo", ("mandante", "cartera")) & set(tramos))
 
-    productos = config.get("productos_por_cartera", {}).get(cartera, []) if cartera else []
+    productos = _union(config.get("productos_por_cartera", {}).get(c, []) for c in carteras)
     if productos:
         out["visibles"]["producto"] = True
         out["productos"] = _ordered(productos, distinct("producto", ("mandante", "cartera", "tramo")) & set(productos))
@@ -247,8 +272,8 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
 # ------------------------------------------------------------
 def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     hoy = hoy or date.today()
-    filters = {k: _clean(filters.get(k)) for k in DIMENSIONES}
-    mandante = filters["mandante"]
+    filters = {k: _valores(filters, k) for k in DIMENSIONES}
+    mandante = _unico(filters, "mandante")
     periodo_en_curso = _cortes(hoy)[0][0]
     # Sin asignacion del mes en curso (p. ej. primeros dias del mes): se muestra el mes anterior, ya cerrado.
     mes_anterior = not _hay_asignacion(periodo_en_curso, filters)
@@ -261,7 +286,7 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     cortes_values = ", ".join("(?, ?)" for _ in cortes)
     # Fechas como texto ISO: el driver ODBC "SQL Server" no enlaza parametros date.
     cortes_params = [v for periodo, corte in cortes for v in (periodo, corte.isoformat())]
-    # Con mandante se desglosa por cartera y tramo; sin mandante, por mandante.
+    # Con un mandante se desglosa por cartera y tramo; con ninguno o varios, por mandante.
     seg_cols = "mandante, cartera, tramo" if mandante else "mandante"
     seg_cols_a = ", ".join(f"a.{c}" for c in seg_cols.split(", "))
     seg_cols_p = ", ".join(f"p.{c}" for c in seg_cols.split(", "))
@@ -524,7 +549,7 @@ def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, se
 
     # Segmentos: una fila por segmento con los 4 meses.
     segmentos: dict[tuple, dict] = {}
-    keys = ("mandante", "cartera", "tramo") if filters["mandante"] else ("mandante",)
+    keys = ("mandante", "cartera", "tramo") if _unico(filters, "mandante") else ("mandante",)
     for row in seg_asig:
         key = tuple(row.get(k) for k in keys)
         item = segmentos.setdefault(key, {**dict(zip(keys, key)), "meses": {}})
@@ -540,7 +565,7 @@ def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, se
         for mes in item["meses"].values():
             mes["recuperacion"] = _safe_div(mes["pagos"], mes["saldo"])
         seg_rows.append(item)
-    seg_rows.sort(key=_segment_order(filters["mandante"]))
+    seg_rows.sort(key=_segment_order(_unico(filters, "mandante")))
 
     # Proyeccion de cierre: pagos a hoy + tubo del mes x cumplimiento en monto de los 3 meses cerrados.
     cerrados = [p for p, m in zip(periodos[1:], meses[1:]) if m["con_datos"]]

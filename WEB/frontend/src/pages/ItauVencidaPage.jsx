@@ -5,7 +5,7 @@ import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, 
 
 
 function formatMoney(value) {
-  return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
+  return `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0) / 1e6)} M`;
 }
 
 
@@ -14,6 +14,15 @@ function formatPct(value) {
     return "N/D";
   }
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
+}
+
+
+// Los cumplimientos de meta se muestran sin decimales.
+function formatCumpl(value) {
+  if (value === null || value === undefined) {
+    return "N/D";
+  }
+  return `${(Number(value || 0) * 100).toFixed(0)}%`;
 }
 
 
@@ -223,7 +232,7 @@ export default function ItauVencidaPage() {
         <td className="pd-num">${formatMoney(row[`${producto}_saldo_cont`])}</td>
         <td className="pd-num">${formatMoney(row[`${producto}_meta_monto`])}</td>
         <td className="pd-num">
-          <span className={cumplimientoFraccionClass(row[`${producto}_cumplimiento`])}>{formatPct(row[`${producto}_cumplimiento`])}</span>
+          <span className={cumplimientoFraccionClass(row[`${producto}_cumplimiento`])}>{formatCumpl(row[`${producto}_cumplimiento`])}</span>
         </td>
       </>
     );
@@ -236,7 +245,7 @@ export default function ItauVencidaPage() {
         {renderGroupCells(row, "consumo")}
         {renderGroupCells(row, "hipotecario")}
         <td className="pd-num pd-group-start">
-          <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
+          <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatCumpl(row.cumplimiento)}</span>
         </td>
       </tr>
     );
@@ -260,7 +269,7 @@ export default function ItauVencidaPage() {
           <span className="pd-cell-sub">meta {formatPct(fase[`${producto}_meta_pct`])}</span>
         </td>
         <td className="pd-num">
-          <span className={cumplimientoFraccionClass(fase[`${producto}_cumplimiento`])}>{formatPct(fase[`${producto}_cumplimiento`])}</span>
+          <span className={cumplimientoFraccionClass(fase[`${producto}_cumplimiento`])}>{formatCumpl(fase[`${producto}_cumplimiento`])}</span>
         </td>
       </>
     );
@@ -288,7 +297,7 @@ export default function ItauVencidaPage() {
         {renderGroupCells(row, "consumo")}
         {renderGroupCells(row, "hipotecario")}
         <td className="pd-num pd-group-start">
-          <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
+          <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatCumpl(row.cumplimiento)}</span>
         </td>
       </tr>,
     ];

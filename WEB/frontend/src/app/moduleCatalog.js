@@ -160,6 +160,22 @@ export const modulePanels = [
     ],
   },
   {
+    code: "estrategia-asignacion",
+    title: "Panel Estrategia de Asignación",
+    description: "Reparto equilibrado de la asignación entre ejecutivos.",
+    path: "/estrategia-asignacion",
+    accent: "violet",
+    modules: [
+      {
+        code: "estrategia-asignacion",
+        title: "Itaú Castigo",
+        description: "Reparte la asignación Phoenix del mes entre los ejecutivos, parejos en saldo, operaciones, contactabilidad, MOB y nota.",
+        path: "/estrategia-asignacion/itau-castigo",
+        buttonLabel: "Abrir Itaú Castigo",
+      },
+    ],
+  },
+  {
     code: "admin",
     title: "Panel Admin",
     description: "Administracion de usuarios, permisos y configuracion de la plataforma.",

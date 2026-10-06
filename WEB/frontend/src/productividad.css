@@ -1363,6 +1363,11 @@
   margin-bottom: var(--pd-space-3);
 }
 
+/* El selector de valores se despliega por fuera de la tarjeta: sin esto .pd-card lo recorta. */
+.pd-medibles-card {
+  overflow: visible;
+}
+
 .pd-medibles-periodo {
   min-width: 180px;
 }

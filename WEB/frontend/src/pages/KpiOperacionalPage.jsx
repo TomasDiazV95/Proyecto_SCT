@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchKpiOperacionalDashboard, fetchKpiOperacionalFilters } from "../api";
@@ -20,7 +20,10 @@ const C = {
 };
 
 const FILTER_ORDER = ["mandante", "cartera", "tramo", "producto", "zona"];
-const emptyFilters = { mandante: "", cartera: "", tramo: "", producto: "", zona: "" };
+// Cada filtro guarda los valores elegidos; vacio = todos.
+const emptyFilters = { mandante: [], cartera: [], tramo: [], producto: [], zona: [] };
+// Con mas opciones que esto, el filtro deja elegir varias (salvo el mandante, que es de a uno).
+const MAX_OPCIONES_SIMPLE = 2;
 const emptyOptions = { mandantes: [], labels: {}, visibles: {}, carteras: [], tramos: [], productos: [], zonas: [] };
 
 // ------------------------------------------------------------
@@ -349,18 +352,88 @@ function Section({ num, title, desc, children }) {
   );
 }
 
-function Select({ id, label, value, options, allLabel, onChange }) {
+function Select({ id, label, value, options, allLabel, onChange, multiple = true }) {
+  if (multiple && options.length > MAX_OPCIONES_SIMPLE) {
+    return <MultiSelect id={id} label={label} value={value} options={options} allLabel={allLabel} onChange={onChange} />;
+  }
+  const actual = value[0] || "";
   return (
     <div className="kpo-field">
       <label htmlFor={id}>{label}</label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
+      <select id={id} value={actual} onChange={(e) => onChange(e.target.value ? [e.target.value] : [])}>
         <option value="">{allLabel}</option>
         {options.map((option) => (
-          <option key={option.valor} value={option.valor} disabled={!option.con_datos && option.valor !== value}>
+          <option key={option.valor} value={option.valor} disabled={!option.con_datos && option.valor !== actual}>
             {option.valor}{option.con_datos ? "" : " (sin datos)"}
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function MultiSelect({ id, label, value, options, allLabel, onChange }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function closeOnOutside(event) {
+      if (rootRef.current && !rootRef.current.contains(event.target)) setOpen(false);
+    }
+    function closeOnEscape(event) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  function toggle(valor) {
+    // Se conserva el orden de las opciones, no el de los clics.
+    const next = value.includes(valor) ? value.filter((item) => item !== valor) : [...value, valor];
+    onChange(options.map((option) => option.valor).filter((item) => next.includes(item)));
+  }
+
+  let summary = allLabel;
+  if (value.length > 2) summary = `${value.length} seleccionados`;
+  else if (value.length) summary = value.join(", ");
+
+  return (
+    <div className="kpo-field kpo-multi" ref={rootRef}>
+      <label id={`${id}-label`} htmlFor={id}>{label}</label>
+      <button
+        type="button"
+        id={id}
+        className="kpo-multi-trigger"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-labelledby={`${id}-label ${id}`}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{summary}</span>
+        <span className="kpo-multi-chevron" aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="kpo-multi-panel" role="group" aria-labelledby={`${id}-label`}>
+          <label className="kpo-multi-option kpo-multi-all">
+            <input type="checkbox" checked={value.length === 0} onChange={() => onChange([])} />
+            {allLabel}
+          </label>
+          {options.map((option) => {
+            const checked = value.includes(option.valor);
+            return (
+              <label key={option.valor} className={`kpo-multi-option${option.con_datos || checked ? "" : " is-disabled"}`}>
+                <input type="checkbox" checked={checked} disabled={!option.con_datos && !checked} onChange={() => toggle(option.valor)} />
+                {option.valor}{option.con_datos ? "" : " (sin datos)"}
+              </label>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -404,7 +477,7 @@ export default function KpiOperacionalPage() {
       const next = { ...prev, [field]: value };
       // Al cambiar un filtro se limpian los que dependen de el.
       FILTER_ORDER.slice(FILTER_ORDER.indexOf(field) + 1).forEach((key) => {
-        next[key] = "";
+        next[key] = [];
       });
       return next;
     });
@@ -417,8 +490,16 @@ export default function KpiOperacionalPage() {
   const actual = meses[0]?.periodo;
   const anterior = meses[1]?.periodo;
   const prevMonth = anterior ? monthName(anterior) : "el mes anterior";
-  const tramoLabel = filters.mandante ? labels.tramo || "Tramo" : "Mandante";
-  const alcance = [filters.mandante || "Todos los mandantes", filters.cartera, filters.producto, filters.tramo, filters.zona && `Zona ${filters.zona}`]
+  // Los filtros especificos y el detalle por tramo solo aplican con un unico mandante elegido.
+  const mandante = filters.mandante.length === 1 ? filters.mandante[0] : "";
+  const tramoLabel = mandante ? labels.tramo || "Tramo" : "Mandante";
+  const alcance = [
+    filters.mandante.join(", ") || "Todos los mandantes",
+    filters.cartera.join(", "),
+    filters.producto.join(", "),
+    filters.tramo.join(", "),
+    filters.zona.length > 0 && `Zona ${filters.zona.join(", ")}`,
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -426,7 +507,7 @@ export default function KpiOperacionalPage() {
   const aproximados = meses.filter((m) => m.con_datos && m.aproximado);
   const sinDatos = meses.filter((m) => !m.con_datos);
   // Sin mandante: mandantes sin datos este mes pero si en los anteriores (el total no es comparable).
-  const mandantesSinMes = !filters.mandante
+  const mandantesSinMes = !mandante
     ? segmentos.filter((s) => !s.meses[actual] && meses.slice(1).some((m) => s.meses[m.periodo])).map((s) => s.mandante)
     : [];
 
@@ -486,7 +567,7 @@ export default function KpiOperacionalPage() {
       </header>
 
       <section className="kpo-filters" aria-label="Filtros">
-        <Select id="kpo-mandante" label="Mandante" value={filters.mandante} options={options.mandantes} allLabel="Todos" onChange={(v) => onFilter("mandante", v)} />
+        <Select id="kpo-mandante" label="Mandante" value={filters.mandante} options={options.mandantes} allLabel="Todos" multiple={false} onChange={(v) => onFilter("mandante", v)} />
         {visibles.cartera && (
           <Select id="kpo-cartera" label={labels.cartera} value={filters.cartera} options={options.carteras} allLabel="Todas" onChange={(v) => onFilter("cartera", v)} />
         )}
@@ -669,8 +750,8 @@ export default function KpiOperacionalPage() {
                       };
                       const tP = trend(dPagos, 1);
                       const tR = trend(dRecup, 1);
-                      const name = filters.mandante ? s.tramo || s.cartera : s.mandante;
-                      const detail = filters.mandante && !filters.cartera && s.tramo !== s.cartera ? s.cartera : "";
+                      const name = mandante ? s.tramo || s.cartera : s.mandante;
+                      const detail = mandante && filters.cartera.length !== 1 && s.tramo !== s.cartera ? s.cartera : "";
                       return (
                         <tr key={`${s.mandante}|${s.cartera}|${s.tramo}`}>
                           <td>

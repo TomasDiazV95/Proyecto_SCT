@@ -13,10 +13,10 @@ def _filters(mandante, cartera, tramo, producto, zona) -> dict:
 
 @router.get("/filtros")
 def filtros(
-    mandante: str | None = Query(default=None),
-    cartera: str | None = Query(default=None),
-    tramo: str | None = Query(default=None),
-    producto: str | None = Query(default=None),
+    mandante: list[str] | None = Query(default=None),
+    cartera: list[str] | None = Query(default=None),
+    tramo: list[str] | None = Query(default=None),
+    producto: list[str] | None = Query(default=None),
 ) -> dict:
     try:
         return get_filter_values(_filters(mandante, cartera, tramo, producto, None))
@@ -26,11 +26,11 @@ def filtros(
 
 @router.get("/dashboard")
 def dashboard(
-    mandante: str | None = Query(default=None),
-    cartera: str | None = Query(default=None),
-    tramo: str | None = Query(default=None),
-    producto: str | None = Query(default=None),
-    zona: str | None = Query(default=None),
+    mandante: list[str] | None = Query(default=None),
+    cartera: list[str] | None = Query(default=None),
+    tramo: list[str] | None = Query(default=None),
+    producto: list[str] | None = Query(default=None),
+    zona: list[str] | None = Query(default=None),
 ) -> dict:
     """Mes en curso (hasta hoy) vs el cierre de los 3 meses anteriores (sin filtro de periodo)."""
     try:

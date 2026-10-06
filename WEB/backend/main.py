@@ -8,6 +8,7 @@ from routers.bench import router as bench_router
 from routers.auth import router as auth_router
 from routers.bit_castigo import router as bit_castigo_router
 from routers.bit import router as bit_router
+from routers.estrategia_asignacion import router as estrategia_asignacion_router
 from routers.gm import router as gm_router
 from routers.gestiones_diarias_sct import router as gestiones_diarias_sct_router
 from routers.kpi_avance_phoenix import router as kpi_avance_phoenix_router
@@ -69,3 +70,4 @@ app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users_router, prefix="/api/admin", tags=["admin-users"])
 app.include_router(administrativas_router, prefix="/api/administrativas", tags=["administrativas"])
 app.include_router(contactabilidad_router, prefix="/api/contactabilidad", tags=["contactabilidad"])
+app.include_router(estrategia_asignacion_router, prefix="/api/estrategia-asignacion", tags=["estrategia-asignacion"])

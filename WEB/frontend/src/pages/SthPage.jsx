@@ -28,6 +28,15 @@ function formatPct(value) {
   return `${Number(value || 0).toFixed(1)}%`;
 }
 
+
+// Los cumplimientos de meta se muestran sin decimales.
+function formatCumpl(value) {
+  if (value === null || value === undefined) {
+    return "-";
+  }
+  return `${Number(value || 0).toFixed(0)}%`;
+}
+
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", {
     minimumFractionDigits: 0,
@@ -360,14 +369,14 @@ export default function SthPage() {
                             {row[h.key] === null || row[h.key] === undefined ? (
                               <span className="pd-cell-muted">—</span>
                             ) : (
-                              <span className={cumplimientoClass(row[h.key])}>{formatPct(row[h.key])}</span>
+                              <span className={cumplimientoClass(row[h.key])}>{formatCumpl(row[h.key])}</span>
                             )}
                           </td>
                         ))}
                         <td className="pd-group-start">{row.producto_trabajado ? productLabel[row.producto_trabajado] || row.producto_trabajado : "-"}</td>
                         <td>{row.tramo_trabajado || "-"}</td>
                         <td className="pd-num pd-group-start">
-                          <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                          <span className={cumplimientoClass(row.cumplimiento_final)}>{formatCumpl(row.cumplimiento_final)}</span>
                         </td>
                       </tr>
                     );
@@ -422,13 +431,13 @@ export default function SthPage() {
                                     {item && <span className="pd-cell-sub">${formatMM(item.saldo_contenido)} MM cont.</span>}
                                   </td>
                                   <td className="pd-num">
-                                    {item ? <span className={cumplimientoClass(item.cumplimiento_meta)}>{formatPct(item.cumplimiento_meta)}</span> : ""}
+                                    {item ? <span className={cumplimientoClass(item.cumplimiento_meta)}>{formatCumpl(item.cumplimiento_meta)}</span> : ""}
                                   </td>
                                 </Fragment>
                               );
                             })}
                             <td className="pd-num pd-group-start">
-                              <span className={cumplimientoClass(row.cumplimiento_final)}>{formatPct(row.cumplimiento_final)}</span>
+                              <span className={cumplimientoClass(row.cumplimiento_final)}>{formatCumpl(row.cumplimiento_final)}</span>
                             </td>
                           </tr>
                         ))}
@@ -444,13 +453,13 @@ export default function SthPage() {
                                   {tot && <span className="pd-cell-sub">${formatMM(tot.saldo_contenido)} MM cont.</span>}
                                 </td>
                                 <td className="pd-num">
-                                  {tot ? <span className={cumplimientoClass(tot.cumplimiento_meta)}>{formatPct(tot.cumplimiento_meta)}</span> : ""}
+                                  {tot ? <span className={cumplimientoClass(tot.cumplimiento_meta)}>{formatCumpl(tot.cumplimiento_meta)}</span> : ""}
                                 </td>
                               </Fragment>
                             );
                           })}
                           <td className="pd-num pd-group-start">
-                            <span className={cumplimientoClass(block.cumplimiento_final_bloque)}>{formatPct(block.cumplimiento_final_bloque)}</span>
+                            <span className={cumplimientoClass(block.cumplimiento_final_bloque)}>{formatCumpl(block.cumplimiento_final_bloque)}</span>
                           </td>
                         </tr>
                       </tbody>

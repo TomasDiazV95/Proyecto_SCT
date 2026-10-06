@@ -14,6 +14,35 @@ function formatPct(value) {
 }
 
 
+// Los cumplimientos de meta se muestran sin decimales.
+function formatCumpl(value) {
+  return `${(Number(value || 0) * 100).toFixed(0)}%`;
+}
+
+
+// Sin asignacion cargada para el mes no hay base para calcular la efectividad.
+function formatEfectividad(row) {
+  return Number(row.monto_asignado || 0) > 0 ? formatPct(row.pct_efectividad) : "N/D";
+}
+
+
+// Cobertura de gestion: RUT asignados con gestion telefonica o en terreno hasta el dia habil de corte.
+function formatCobertura(row) {
+  return Number(row.ruts_asignados || 0) > 0 ? `${Math.round(Number(row.pct_cobertura || 0) * 100)}%` : "N/D";
+}
+
+
+// Contencion cruce vigente: saldo contenido / saldo inicial de la contencion Itau Vencida (canal cruce vigente).
+function formatContencionCruce(row) {
+  return Number(row.cruce_saldo_ini || 0) > 0 ? formatPct(row.pct_contencion_cruce) : "N/D";
+}
+
+
+function contencionCruceTitle(row) {
+  return `Contenido $${formatMoney(row.cruce_saldo_cont)} de $${formatMoney(row.cruce_saldo_ini)}`;
+}
+
+
 function formatDate(value) {
   if (!value) {
     return "";
@@ -37,7 +66,7 @@ export default function ItauCastigoPage() {
   const [filters, setFilters] = useState({ fecha_carga: "", ejecutivo: "" });
   const [options, setOptions] = useState({ fechas_carga: [], ejecutivos: [], productos: [] });
   const [rows, setRows] = useState([]);
-  const [metadata, setMetadata] = useState({ fecha_carga: "", periodo: "" });
+  const [metadata, setMetadata] = useState({ fecha_carga: "", periodo: "", corte_cobertura: "", contencion_cruce_fecha: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [metasOpen, setMetasOpen] = useState(false);
@@ -81,7 +110,12 @@ export default function ItauCastigoPage() {
       try {
         const data = await fetchItauCastigoGeneral(filters);
         setRows(data.rows || []);
-        setMetadata({ fecha_carga: data.fecha_carga || filters.fecha_carga, periodo: data.periodo || "" });
+        setMetadata({
+          fecha_carga: data.fecha_carga || filters.fecha_carga,
+          periodo: data.periodo || "",
+          corte_cobertura: data.corte_cobertura || "",
+          contencion_cruce_fecha: data.contencion_cruce_fecha || "",
+        });
       } catch (err) {
         setError(err.message);
       } finally {
@@ -96,7 +130,8 @@ export default function ItauCastigoPage() {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
 
-  // Pestañas Phoenix / Phoenix MCV: cada ejecutivo cae en la del cobrador donde tiene mas casos (cobrador_vista).
+  // Pestañas Phoenix / Phoenix MCV: cada ejecutivo va en el cobrador donde tiene mas RUT; el resto de los RUT
+  // de ese cobrador (otros ejecutivos o sin carterizar) queda en la fila grupal PHOENIX.
   const productoTabs = [
     { value: "Phoenix", label: "Phoenix" },
     { value: "Phoenix MCV", label: "Phoenix MCV" },
@@ -115,11 +150,25 @@ export default function ItauCastigoPage() {
     const deuda = tabRows.reduce((acc, row) => acc + Number(row.deuda_total || 0), 0);
     const recupero = tabRows.reduce((acc, row) => acc + Number(row.recupero_total || 0), 0);
     const meta = tabRows.reduce((acc, row) => acc + Number(row.meta_recupero || 0), 0);
+    const asignado = tabRows.reduce((acc, row) => acc + Number(row.monto_asignado || 0), 0);
+    const recuperoAsignado = tabRows.reduce((acc, row) => acc + Number(row.recupero_asignado || 0), 0);
+    const rutsAsignados = tabRows.reduce((acc, row) => acc + Number(row.ruts_asignados || 0), 0);
+    const rutsGestionados = tabRows.reduce((acc, row) => acc + Number(row.ruts_gestionados || 0), 0);
+    const cruceIni = tabRows.reduce((acc, row) => acc + Number(row.cruce_saldo_ini || 0), 0);
+    const cruceCont = tabRows.reduce((acc, row) => acc + Number(row.cruce_saldo_cont || 0), 0);
     return {
       ejecutivo: "Total general",
       deuda_total: deuda,
       recupero_total: recupero,
-      pct_efectividad: deuda ? recupero / deuda : 0,
+      monto_asignado: asignado,
+      recupero_asignado: recuperoAsignado,
+      pct_efectividad: asignado ? recuperoAsignado / asignado : 0,
+      ruts_asignados: rutsAsignados,
+      ruts_gestionados: rutsGestionados,
+      pct_cobertura: rutsAsignados ? rutsGestionados / rutsAsignados : 0,
+      cruce_saldo_ini: cruceIni,
+      cruce_saldo_cont: cruceCont,
+      pct_contencion_cruce: cruceIni ? cruceCont / cruceIni : 0,
       meta_recupero: meta,
       cumplimiento: meta ? Math.min(recupero / meta, 1.3) : 0,
     };
@@ -172,6 +221,12 @@ export default function ItauCastigoPage() {
 
   function renderGeneralTable() {
     const groupClass = productoTab === "Phoenix" ? 1 : 2;
+    // Phoenix MCV suma la contencion cruce vigente.
+    const esMcv = productoTab === "Phoenix MCV";
+    const columnas = ["Deuda Asignada", "Recupero", "% Efectividad", "% Cobertura gestión 4° día hábil"];
+    if (esMcv) {
+      columnas.push("% Contención cruce vigente");
+    }
     return (
       <>
         <div className="pd-card-toolbar">
@@ -183,11 +238,11 @@ export default function ItauCastigoPage() {
             <thead>
               <tr>
                 <th rowSpan={2}>Ejecutivo</th>
-                <th colSpan={4} className={`pd-th-group-${groupClass} pd-group-start`}>{productoTab}</th>
-                <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento</th>
+                <th colSpan={columnas.length} className={`pd-th-group-${groupClass} pd-group-start`}>{productoTab}</th>
+                <th rowSpan={2} className="pd-num pd-th-key pd-group-start">% Cumplimiento meta</th>
               </tr>
               <tr>
-                {["Total Deuda", "Recupero Total", "% Efectividad", "Meta $"].map((label, idx) => (
+                {columnas.map((label, idx) => (
                   <th key={label} className={`pd-num pd-th-sub-${groupClass}${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
                 ))}
               </tr>
@@ -196,25 +251,27 @@ export default function ItauCastigoPage() {
               {phoenixGrupalAlFinal(tabRows).map((row, idx) => (
                 <tr key={`itau-general-${row.ejecutivo}-${idx}`}>
                   <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
-                  <td className="pd-num pd-group-start">${formatMoney(row.deuda_total)}</td>
-                  <td className="pd-num">${formatMoney(row.recupero_total)}</td>
-                  <td className="pd-num">{formatPct(row.pct_efectividad)}</td>
-                  <td className="pd-num">${formatMoney(row.meta_recupero)}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(row.monto_asignado)}</td>
+                  <td className="pd-num">${formatMoney(row.recupero_asignado)}</td>
+                  <td className="pd-num">{formatEfectividad(row)}</td>
+                  <td className="pd-num" title={`${row.ruts_gestionados || 0} de ${row.ruts_asignados || 0} RUT`}>{formatCobertura(row)}</td>
+                  {esMcv && <td className="pd-num" title={contencionCruceTitle(row)}>{formatContencionCruce(row)}</td>}
                   <td className="pd-num pd-group-start">
-                    <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatPct(row.cumplimiento)}</span>
+                    <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatCumpl(row.cumplimiento)}</span>
                   </td>
                 </tr>
               ))}
-              {!tabRows.length && <EmptyRow colSpan={6} text={`Sin ejecutivos en ${productoTab} para los filtros seleccionados.`} />}
+              {!tabRows.length && <EmptyRow colSpan={columnas.length + 2} text={`Sin ejecutivos en ${productoTab} para los filtros seleccionados.`} />}
               {tabTotal && (
                 <tr className="pd-row-total">
                   <td>{tabTotal.ejecutivo}</td>
-                  <td className="pd-num pd-group-start">${formatMoney(tabTotal.deuda_total)}</td>
-                  <td className="pd-num">${formatMoney(tabTotal.recupero_total)}</td>
-                  <td className="pd-num">{formatPct(tabTotal.pct_efectividad)}</td>
-                  <td className="pd-num">${formatMoney(tabTotal.meta_recupero)}</td>
+                  <td className="pd-num pd-group-start">${formatMoney(tabTotal.monto_asignado)}</td>
+                  <td className="pd-num">${formatMoney(tabTotal.recupero_asignado)}</td>
+                  <td className="pd-num">{formatEfectividad(tabTotal)}</td>
+                  <td className="pd-num" title={`${tabTotal.ruts_gestionados} de ${tabTotal.ruts_asignados} RUT`}>{formatCobertura(tabTotal)}</td>
+                  {esMcv && <td className="pd-num" title={contencionCruceTitle(tabTotal)}>{formatContencionCruce(tabTotal)}</td>}
                   <td className="pd-num pd-group-start">
-                    <span className="pd-status pd-status-none">{formatPct(tabTotal.cumplimiento)}</span>
+                    <span className="pd-status pd-status-none">{formatCumpl(tabTotal.cumplimiento)}</span>
                   </td>
                 </tr>
               )}
@@ -239,7 +296,7 @@ export default function ItauCastigoPage() {
 
       <FilterBar
         actions={<MetasButton onClick={() => setMetasOpen(true)} />}
-        note={`Base: ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} · Mes metas/carterizado: ${formatDate(metadata.periodo) || "N/D"}`}>
+        note={`Base: ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} · Mes metas/carterizado: ${formatDate(metadata.periodo) || "N/D"} · Corte cobertura gestión: ${formatDate(metadata.corte_cobertura) || "N/D"}`}>
         <Field label="Fecha de carga">
           <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>
             {options.fechas_carga.map((value) => (

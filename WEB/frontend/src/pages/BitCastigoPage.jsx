@@ -14,6 +14,18 @@ function formatPct(value) {
 }
 
 
+// Los cumplimientos de meta se muestran sin decimales.
+function formatCumpl(value) {
+  return `${(Number(value || 0) * 100).toFixed(0)}%`;
+}
+
+
+// Sin asignacion cargada para el periodo no hay base para calcular la efectividad.
+function formatEfectividad(row) {
+  return Number(row.monto_asignado || 0) > 0 ? formatPct(row.pct_efectividad) : "N/D";
+}
+
+
 function capCumplMeta(value) {
   return Math.min(Number(value || 0), 1.3);
 }
@@ -179,36 +191,33 @@ export default function BitCastigoPage() {
             <table className="pd-table">
               <thead>
                 <tr>
-                  <th rowSpan={2}>Ejecutivo</th>
-                  <th colSpan={3} className="pd-th-group-1 pd-group-start">Recupero Castigo</th>
-                  <th rowSpan={2} className="pd-num pd-th-key pd-group-start">% Cumplimiento meta</th>
-                </tr>
-                <tr>
-                  <th className="pd-num pd-th-sub-1 pd-group-start">Mto Inicial</th>
-                  <th className="pd-num pd-th-sub-1">Recupero</th>
-                  <th className="pd-num pd-th-sub-1">% Recupero</th>
+                  <th>Ejecutivo</th>
+                  <th className="pd-num pd-group-start">Deuda Asignada</th>
+                  <th className="pd-num">Recupero</th>
+                  <th className="pd-num">% Efectividad</th>
+                  <th className="pd-num pd-th-key pd-group-start">% Cumplimiento meta</th>
                 </tr>
               </thead>
               <tbody>
                 {phoenixGrupalAlFinal(rows).map((row, idx) => (
                   <tr key={`bit-castigo-${row.ejecutivo}-${idx}`}>
                     <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
-                    <td className="pd-num pd-group-start">${formatMoney(row.monto_inicial)}</td>
-                    <td className="pd-num">${formatMoney(row.monto_contenido)}</td>
-                    <td className="pd-num">{formatPct(row.pct_contencion)}</td>
+                    <td className="pd-num pd-group-start">${formatMoney(row.monto_asignado)}</td>
+                    <td className="pd-num">${formatMoney(row.recupero_asignado)}</td>
+                    <td className="pd-num">{formatEfectividad(row)}</td>
                     <td className="pd-num pd-group-start">
-                      <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatPct(capCumplMeta(row.pct_cumpl_meta))}</span>
+                      <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatCumpl(capCumplMeta(row.pct_cumpl_meta))}</span>
                     </td>
                   </tr>
                 ))}
                 {totalRow && (
                   <tr className="pd-row-total">
                     <td>{totalRow.ejecutivo}</td>
-                    <td className="pd-num pd-group-start">${formatMoney(totalRow.monto_inicial)}</td>
-                    <td className="pd-num">${formatMoney(totalRow.monto_contenido)}</td>
-                    <td className="pd-num">{formatPct(totalRow.pct_contencion)}</td>
+                    <td className="pd-num pd-group-start">${formatMoney(totalRow.monto_asignado)}</td>
+                    <td className="pd-num">${formatMoney(totalRow.recupero_asignado)}</td>
+                    <td className="pd-num">{formatEfectividad(totalRow)}</td>
                     <td className="pd-num pd-group-start">
-                      <span className="pd-status pd-status-none">{formatPct(totalRow.pct_cumpl_meta)}</span>
+                      <span className="pd-status pd-status-none">{formatCumpl(totalRow.pct_cumpl_meta)}</span>
                     </td>
                   </tr>
                 )}
