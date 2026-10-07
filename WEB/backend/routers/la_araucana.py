@@ -4,7 +4,7 @@ from io import BytesIO
 
 from auth.dependencies import require_module, require_roles
 from services.la_araucana_auditoria import build_auditoria_workbook
-from services.la_araucana_service import get_filtros, get_resumen, get_validacion
+from services.la_araucana_service import get_filtros, get_negocios, get_resumen, get_validacion
 
 
 router = APIRouter(dependencies=[Depends(require_module("la-araucana"))])
@@ -69,6 +69,17 @@ def productividad_detalle(
                 }
             ),
         }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/negocios")
+def negocios(
+    periodo: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return {"periodo": periodo, "cartera_crm": 531, **get_negocios({"periodo": periodo, "ejecutivo": ejecutivo})}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

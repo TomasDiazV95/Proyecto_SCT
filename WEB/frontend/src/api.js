@@ -144,6 +144,14 @@ export async function fetchLaAraucanaResumen(filters) {
   return res.json();
 }
 
+export async function fetchLaAraucanaNegocios(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/negocios`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los negocios de La Araucana");
+  }
+  return res.json();
+}
+
 export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
   const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/export`, { periodo, tipo_cartera: tipoCartera }));
   if (!res.ok) {
@@ -284,6 +292,14 @@ export async function fetchBitTramos(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/bit/tramos`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por tramo de BIT");
+  }
+  return res.json();
+}
+
+export async function fetchBitNegocios(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/negocios`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista de negocios de BIT");
   }
   return res.json();
 }

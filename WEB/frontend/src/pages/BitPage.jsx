@@ -1,10 +1,15 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 
-import { fetchBitFilters, fetchBitGeneral, fetchBitTramos } from "../api";
+import { fetchBitFilters, fetchBitGeneral, fetchBitNegocios, fetchBitTramos } from "../api";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const TRAMOS = ["30-90", "90+"];
 const TRAMO_GROUP_CLASS = { "30-90": "1", "90+": "2" };
+// Negocios segun tipo_cont de la contencion: PC20 = refinanciamiento, PC07 = renegociacion.
+const NEGOCIO_TIPOS = [
+  { key: "refinanciamiento", label: "Refinanciamiento" },
+  { key: "renegociacion", label: "Renegociación" },
+];
 
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -40,6 +45,7 @@ export default function BitPage() {
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
   const [general, setGeneral] = useState({ rows: [], total: null, metas: [] });
   const [tramoData, setTramoData] = useState({ rows: [] });
+  const [negocios, setNegocios] = useState({ rows: [], total: null });
   const [contencionFile, setContencionFile] = useState("");
   const [metasOpen, setMetasOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -83,6 +89,10 @@ export default function BitPage() {
         if (view === "general") {
           const data = await fetchBitGeneral(filters);
           setGeneral({ rows: data.rows || [], total: data.total || null, metas: data.metas || [] });
+          setContencionFile(data.contencion_file || "");
+        } else if (view === "negocios") {
+          const data = await fetchBitNegocios(filters);
+          setNegocios({ rows: data.rows || [], total: data.total || null });
           setContencionFile(data.contencion_file || "");
         } else {
           const data = await fetchBitTramos(filters);
@@ -231,6 +241,49 @@ export default function BitPage() {
     );
   }
 
+  function renderNegocioRow(row, key, isTotal = false) {
+    return (
+      <tr key={key} className={isTotal ? "pd-row-total" : undefined}>
+        <td className={isTotal ? undefined : "pd-cell-ejecutivo"}>{row.ejecutivo}</td>
+        {[...NEGOCIO_TIPOS, { key: "total" }].map((tipo) => (
+          <td key={tipo.key} className="pd-num">{formatMoney(row[tipo.key]?.cantidad)}</td>
+        ))}
+      </tr>
+    );
+  }
+
+  function renderNegociosTable() {
+    return (
+      <table className="pd-table">
+        <thead>
+          <tr>
+            <th>Ejecutivo</th>
+            {NEGOCIO_TIPOS.map((tipo) => (
+              <th key={tipo.key} className="pd-num">{tipo.label}</th>
+            ))}
+            <th className="pd-num pd-th-key">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {phoenixGrupalAlFinal(negocios.rows).map((row, idx) => renderNegocioRow(row, `bit-negocios-${row.ejecutivo}-${idx}`))}
+          {!negocios.rows.length && (
+            <tr>
+              <td colSpan={4} className="pd-empty">Sin negocios para los filtros seleccionados.</td>
+            </tr>
+          )}
+          {negocios.total && negocios.rows.length > 0 && renderNegocioRow(negocios.total, "bit-negocios-total", true)}
+        </tbody>
+      </table>
+    );
+  }
+
+  function renderActiveTable() {
+    if (view === "general") {
+      return renderGeneralTable();
+    }
+    return view === "negocios" ? renderNegociosTable() : renderTramoTable();
+  }
+
   function renderMetasDrawer() {
     if (!metasOpen) {
       return null;
@@ -319,6 +372,7 @@ export default function BitPage() {
           options={[
             { value: "general", label: "Vista General" },
             { value: "tramo", label: "Vista Tramo" },
+            { value: "negocios", label: "Negocios" },
           ]}
         />
         <SectionCard
@@ -326,12 +380,12 @@ export default function BitPage() {
           bodyClassName=""
           footer={
             <>
-              <StatusLegend items={cumplimientoLegendItems} />
+              {view !== "negocios" && <StatusLegend items={cumplimientoLegendItems} />}
               <span>Archivo: {contencionFile || "N/D"}</span>
             </>
           }
         >
-          {loading ? <LoadingState /> : <div className="pd-table-scroll">{view === "general" ? renderGeneralTable() : renderTramoTable()}</div>}
+          {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderActiveTable()}</div>}
         </SectionCard>
       </div>
     </div>

@@ -174,6 +174,7 @@ def get_general(filters: dict) -> dict:
     # Cada ejecutivo pertenece a un solo cobrador: aquel donde tiene mas RUT. Los RUT que tiene carterizados
     # en el otro cobrador, y los no carterizados, se suman a la fila grupal PHOENIX de su cobrador, asi el
     # total de cada pestaña calza con la asignacion.
+    # El cumplimiento de meta es distinto: cuenta todo lo que recupero el ejecutivo, sea Phoenix o Phoenix MCV.
     sql = f"""
     WITH asig AS (
         -- Efectividad sobre lo asignado: base = asignacion del mes, cruzada por RUT con el recupero y el carterizado.
@@ -245,6 +246,22 @@ def get_general(filters: dict) -> dict:
         WHERE fecha_carga = ?
           AND source_file = ?
         GROUP BY RUT
+    ), rec_meta AS (
+        -- Recupero para la meta: todo lo recuperado por el ejecutivo, sin importar el cobrador del RUT, en su
+        -- cobrador hogar. Lo no carterizado queda en la fila grupal PHOENIX del cobrador del RUT.
+        SELECT
+            COALESCE(h.Ejecutivo_Cart, '{DEFAULT_EXECUTIVE}') AS Ejecutivo,
+            COALESCE(h.Cobrador, rc.Cobrador) AS Cobrador,
+            SUM(rr.Recupero) AS Recupero_Meta
+        FROM rut_cart rc
+        INNER JOIN rec_rut rr
+            ON rr.RUT = rc.RUT
+        LEFT JOIN hogar h
+            ON h.Ejecutivo_Cart = rc.Ejecutivo_Cart
+           AND h.rn = 1
+        GROUP BY
+            COALESCE(h.Ejecutivo_Cart, '{DEFAULT_EXECUTIVE}'),
+            COALESCE(h.Cobrador, rc.Cobrador)
     ), gest AS (
         -- RUT con al menos una gestion telefonica o en terreno hasta el dia habil de corte de la cobertura.
         SELECT DISTINCT TRY_CAST(g.rut AS bigint) AS RUT
@@ -301,12 +318,15 @@ def get_general(filters: dict) -> dict:
         SELECT Ejecutivo, Cobrador FROM agg
         UNION
         SELECT Ejecutivo, Cobrador FROM asig_ej
+        UNION
+        SELECT Ejecutivo, Cobrador FROM rec_meta
     )
     SELECT
         k.Ejecutivo,
         k.Cobrador AS Cobrador_Vista,
         COALESCE(g.Deuda_Total, 0) AS Deuda_Total,
         COALESCE(g.Recupero_Total, 0) AS Recupero_Total,
+        COALESCE(rm.Recupero_Meta, 0) AS Recupero_Meta,
         COALESCE(ae.Monto_Asignado, 0) AS Monto_Asignado,
         COALESCE(ae.Recupero_Asignado, 0) AS Recupero_Asignado,
         COALESCE(ae.Ruts_Asignados, 0) AS Ruts_Asignados,
@@ -314,8 +334,9 @@ def get_general(filters: dict) -> dict:
         COALESCE(ce.Cruce_Saldo_Ini, 0) AS Cruce_Saldo_Ini,
         COALESCE(ce.Cruce_Saldo_Cont, 0) AS Cruce_Saldo_Cont,
         MAX(COALESCE(CAST(me.meta_recupero AS float), CAST(m.meta_recupero AS float), 0)) AS Meta_Recupero,
+        MAX(COALESCE(CAST(m.meta_recupero AS float), 0)) AS Meta_Cobrador,
         CAST(
-            COALESCE(g.Recupero_Total, 0)
+            COALESCE(rm.Recupero_Meta, 0)
             / NULLIF(MAX(COALESCE(CAST(me.meta_recupero AS float), CAST(m.meta_recupero AS float), 0)), 0)
         AS DECIMAL(18, 6)) AS Cumplimiento
     FROM llaves k
@@ -337,6 +358,9 @@ def get_general(filters: dict) -> dict:
     LEFT JOIN asig_ej ae
         ON ae.Ejecutivo = k.Ejecutivo
        AND ae.Cobrador = k.Cobrador
+    LEFT JOIN rec_meta rm
+        ON rm.Ejecutivo = k.Ejecutivo
+       AND rm.Cobrador = k.Cobrador
     LEFT JOIN cruce_ej ce
         ON ce.Ejecutivo = k.Ejecutivo
        AND ce.Cobrador = k.Cobrador
@@ -347,6 +371,7 @@ def get_general(filters: dict) -> dict:
         k.Cobrador,
         g.Deuda_Total,
         g.Recupero_Total,
+        rm.Recupero_Meta,
         ae.Monto_Asignado,
         ae.Recupero_Asignado,
         ae.Ruts_Asignados,
@@ -365,6 +390,8 @@ def get_general(filters: dict) -> dict:
     total_deuda = 0.0
     total_recupero = 0.0
     total_meta = 0.0
+    # La meta es del cobrador: en el total se cuenta una sola vez por cobrador, no por fila.
+    metas_cobrador: dict[str, float] = {}
     total_asignado = 0.0
     total_recupero_asignado = 0.0
     total_ruts_asignados = 0
@@ -389,6 +416,8 @@ def get_general(filters: dict) -> dict:
         deuda = float(row.get("Deuda_Total") or 0)
         recupero = float(row.get("Recupero_Total") or 0)
         meta = float(row.get("Meta_Recupero") or 0)
+        meta_cobrador = float(row.get("Meta_Cobrador") or 0)
+        cobrador_vista = row.get("Cobrador_Vista") or ""
         asignado = float(row.get("Monto_Asignado") or 0)
         recupero_asignado = float(row.get("Recupero_Asignado") or 0)
         ruts_asignados = int(row.get("Ruts_Asignados") or 0)
@@ -398,9 +427,10 @@ def get_general(filters: dict) -> dict:
         rows.append(
             {
                 "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
-                "cobrador_vista": row.get("Cobrador_Vista") or "",
+                "cobrador_vista": cobrador_vista,
                 "deuda_total": deuda,
                 "recupero_total": recupero,
+                "recupero_meta": float(row.get("Recupero_Meta") or 0),
                 "monto_asignado": asignado,
                 "recupero_asignado": recupero_asignado,
                 "pct_efectividad": _safe_div(recupero_asignado, asignado),
@@ -411,6 +441,7 @@ def get_general(filters: dict) -> dict:
                 "cruce_saldo_cont": cruce_cont,
                 "pct_contencion_cruce": _safe_div(cruce_cont, cruce_ini),
                 "meta_recupero": meta,
+                "meta_cobrador": meta_cobrador,
                 "cumplimiento": _cap(float(row.get("Cumplimiento") or 0)),
             }
         )
@@ -423,6 +454,11 @@ def get_general(filters: dict) -> dict:
         total_deuda += deuda
         total_recupero += recupero
         total_meta += meta
+        if meta_cobrador:
+            metas_cobrador[cobrador_vista] = meta_cobrador
+
+    if metas_cobrador:
+        total_meta = sum(metas_cobrador.values())
 
     return {
         "fecha_carga": fecha_carga,

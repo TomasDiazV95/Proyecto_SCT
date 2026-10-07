@@ -1,6 +1,26 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from database import run_query
+from feriados_chile import es_habil
+
+
+# Cartera Banco Internacional en el CRM de gestiones (dbo.tmp_GEST_CRM).
+CRM_CARTERA = 532
+DIAS_HABILES_COBERTURA = 4
+
+
+def _dia_habil_del_mes(periodo: str, n: int) -> str:
+    """Fecha ISO del n-esimo dia habil del mes del periodo (YYYY-MM)."""
+    cursor = date.fromisoformat(f"{periodo[:7]}-01")
+    habiles = 0
+    while True:
+        if es_habil(cursor):
+            habiles += 1
+            if habiles == n:
+                return cursor.isoformat()
+        cursor += timedelta(days=1)
 
 
 def _clean_text(value: object) -> str:
@@ -165,6 +185,7 @@ def _castigo_config() -> dict[str, str]:
             ["source_file", "SOURCE_FILE"],
             contains_any=["SOURCE_FILE"],
         ),
+        "tipo_col": _optional_existing_column("tmp_BIT_castigo", ["TIPO", "tipo"]),
     }
 
 
@@ -218,7 +239,39 @@ def _meta_source_sql_fallback() -> str:
     """
 
 
-def _bit_castigo_cte(meta_sql: str) -> str:
+def _hay_gestiones_desde(inicio: str) -> bool:
+    # El CRM solo tiene gestiones desde cierta fecha: si no cubre el inicio del mes no hay cobertura que medir.
+    rows = run_query(
+        "SELECT CONVERT(char(10), MIN(GestionFecha), 126) AS primera FROM dbo.tmp_GEST_CRM WHERE cartera = ?",
+        (CRM_CARTERA,),
+    )
+    primera = _clean_text(rows[0].get("primera")) if rows else ""
+    return bool(primera) and primera <= inicio
+
+
+def _bit_castigo_cte(meta_sql: str, cobertura: tuple[str, str] | None = None) -> str:
+    # cobertura = (inicio, corte): ventana de gestiones para la cobertura al dia habil de corte.
+    # Las fechas las calcula el servicio (ISO), no vienen del usuario.
+    if cobertura:
+        gestiones_cte = f"""
+), gestiones_rut AS (
+    -- RUT con al menos una gestion telefonica o en terreno hasta el dia habil de corte.
+    SELECT DISTINCT {_rut_join_key_sql("g.rut")} AS rut_key
+    FROM dbo.tmp_GEST_CRM g
+    INNER JOIN dbo.kpi_accion_canal ac
+        ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
+       AND ac.canal IN ('LLAMADA', 'TERRENO')
+    WHERE g.cartera = {CRM_CARTERA}
+      AND g.GestionFecha >= '{cobertura[0]}'
+      AND g.GestionFecha <= '{cobertura[1]}'"""
+        gestionado_sql = "CASE WHEN ge.rut_key IS NOT NULL THEN 1 ELSE 0 END"
+        gestiones_join = """
+    LEFT JOIN gestiones_rut ge
+        ON ge.rut_key = k.rut_key"""
+    else:
+        gestiones_cte = ""
+        gestionado_sql = "0"
+        gestiones_join = ""
     cart = _cart_config()
     cast = _castigo_config()
     cart_rut = f"c.{cart['rut_col']}"
@@ -228,6 +281,23 @@ def _bit_castigo_cte(meta_sql: str) -> str:
     cast_total_rut = cast["total_rut_col"]
     cast_recupero = cast["recupero_col"]
     cast_periodo = cast["periodo_col"]
+    # Nuevos convenios: registros del recupero cuyo TIPO es 'Nuevo Convenio'.
+    nuevos_convenios_sql = (
+        f"SUM(CASE WHEN UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), {cast['tipo_col']}), '')))) = 'NUEVO CONVENIO' THEN 1 ELSE 0 END)"
+        if cast.get("tipo_col")
+        else "0"
+    )
+    # Abono inicial: recupero de esos mismos registros 'Nuevo Convenio'.
+    abono_inicial_sql = (
+        f"""SUM(CASE
+            WHEN UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), {cast['tipo_col']}), '')))) <> 'NUEVO CONVENIO' THEN 0
+            WHEN {cast_recupero} IS NULL THEN 0
+            WHEN ISNUMERIC(CONVERT(VARCHAR(255), {cast_recupero})) = 1 THEN CAST({cast_recupero} AS float)
+            ELSE 0
+        END)"""
+        if cast.get("tipo_col")
+        else "0"
+    )
     cartera_filter = (
         f"""
           AND UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), {cart_cartera}), '')))) = 'CASTIGO'
@@ -271,7 +341,9 @@ WITH carterizado_unico AS (
             WHEN {cast_recupero} IS NULL THEN 0
             WHEN ISNUMERIC(CONVERT(VARCHAR(255), {cast_recupero})) = 1 THEN CAST({cast_recupero} AS float)
             ELSE 0
-        END) AS mto_recupero_final
+        END) AS mto_recupero_final,
+        {nuevos_convenios_sql} AS nuevos_convenios,
+        {abono_inicial_sql} AS abono_inicial
     FROM dbo.tmp_BIT_castigo
     WHERE {cast_periodo} IS NOT NULL
       AND LTRIM(RTRIM({cast_periodo})) <> ''
@@ -284,10 +356,11 @@ WITH carterizado_unico AS (
     SELECT
         periodo,
         {_rut_join_key_sql("RUT")} AS rut_key,
-        SUM(COALESCE(CAST(DEUDA_TOTAL AS float), 0)) AS mto_asignado
+        -- La deuda asignada es solo la de campañas castigo; la cobertura no mira la campaña.
+        SUM(CASE WHEN UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%' THEN COALESCE(CAST(DEUDA_TOTAL AS float), 0) ELSE 0 END) AS mto_asignado,
+        MAX(CASE WHEN UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%' THEN 1 ELSE 0 END) AS es_castigo
     FROM {_asignacion_table()}
-    WHERE UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%'
-      AND RUT IS NOT NULL
+    WHERE RUT IS NOT NULL
       AND LTRIM(RTRIM(RUT)) <> ''
     GROUP BY
         periodo,
@@ -301,6 +374,8 @@ WITH carterizado_unico AS (
         COALESCE(m.meta, 0) AS meta,
         b.total_rut AS mto_inicial,
         b.mto_recupero_final AS mto_contenido,
+        b.nuevos_convenios,
+        b.abono_inicial,
         COALESCE(m.meta, 0) AS meta_final
     FROM castigo_rut b
     LEFT JOIN carterizado_unico cu
@@ -308,26 +383,31 @@ WITH carterizado_unico AS (
        AND cu.rut_key = b.rut_key
        AND cu.rn = 1
     LEFT JOIN metas_periodo m
-        ON m.periodo = b.periodo
+        ON m.periodo = b.periodo{gestiones_cte}
 ), bit_asignacion_data AS (
     -- Efectividad sobre lo asignado: base = asignacion castigo, cruzada por RUT con el recupero y el carterizado.
+    -- Cobertura: base = carterizado de castigo (asignacion RIGHT JOIN carterizado), sin filtrar por campaña.
     SELECT
-        a.periodo,
-        a.rut_key AS rut,
+        k.periodo,
+        k.rut_key AS rut,
         COALESCE(cu.usuario, 'Phoenix') AS ejecutivo,
-        a.mto_asignado,
-        COALESCE(r.mto_recupero_final, 0) AS mto_recupero_asignado,
+        COALESCE(a.mto_asignado, 0) AS mto_asignado,
+        CASE WHEN a.es_castigo = 1 THEN COALESCE(r.mto_recupero_final, 0) ELSE 0 END AS mto_recupero_asignado,
+        CASE WHEN cu.rut_key IS NOT NULL THEN 1 ELSE 0 END AS rut_asignado,
+        CASE WHEN cu.rut_key IS NOT NULL THEN {gestionado_sql} ELSE 0 END AS rut_gestionado,
         COALESCE(m.meta, 0) AS meta_final
     FROM asignacion_rut a
-    LEFT JOIN castigo_rut r
-        ON r.periodo = a.periodo
-       AND r.rut_key = a.rut_key
-    LEFT JOIN carterizado_unico cu
+    FULL JOIN (SELECT periodo, rut_key, usuario FROM carterizado_unico WHERE rn = 1) cu
         ON cu.periodo = a.periodo
        AND cu.rut_key = a.rut_key
-       AND cu.rn = 1
+    CROSS APPLY (SELECT COALESCE(cu.periodo, a.periodo) AS periodo, COALESCE(cu.rut_key, a.rut_key) AS rut_key) k
+    LEFT JOIN castigo_rut r
+        ON r.periodo = k.periodo
+       AND r.rut_key = k.rut_key{gestiones_join}
     LEFT JOIN metas_periodo m
-        ON m.periodo = a.periodo
+        ON m.periodo = k.periodo
+    WHERE a.es_castigo = 1
+       OR cu.rut_key IS NOT NULL
 )
 """
 
@@ -386,7 +466,8 @@ def get_filter_values(periodo: str | None = None) -> dict:
         SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS v
         FROM (
             SELECT periodo, ejecutivo FROM bit_castigo_data
-            UNION
+            -- UNION ALL: el DISTINCT de afuera ya deduplica, y con UNION el plan pasa de <1s a ~40s.
+            UNION ALL
             SELECT periodo, ejecutivo FROM bit_asignacion_data
         ) src
         WHERE ejecutivo IS NOT NULL
@@ -414,20 +495,28 @@ def get_general(filters: dict) -> dict:
         SUM(COALESCE(CAST(mto_contenido AS float), 0)) AS monto_contenido,
         MAX(COALESCE(CAST(meta_final AS float), 0)) AS meta_final,
         SUM(COALESCE(CAST(mto_asignado AS float), 0)) AS monto_asignado,
-        SUM(COALESCE(CAST(mto_recupero_asignado AS float), 0)) AS recupero_asignado
+        SUM(COALESCE(CAST(mto_recupero_asignado AS float), 0)) AS recupero_asignado,
+        SUM(COALESCE(nuevos_convenios, 0)) AS nuevos_convenios,
+        SUM(COALESCE(CAST(abono_inicial AS float), 0)) AS abono_inicial,
+        SUM(ruts_asignados) AS ruts_asignados,
+        SUM(ruts_gestionados) AS ruts_gestionados
     FROM (
         SELECT periodo, ejecutivo, mto_inicial, mto_contenido, meta_final,
-               0 AS mto_asignado, 0 AS mto_recupero_asignado
+               0 AS mto_asignado, 0 AS mto_recupero_asignado, nuevos_convenios, abono_inicial,
+               0 AS ruts_asignados, 0 AS ruts_gestionados
         FROM bit_castigo_data
         UNION ALL
         SELECT periodo, ejecutivo, 0, 0, meta_final,
-               mto_asignado, mto_recupero_asignado
+               mto_asignado, mto_recupero_asignado, 0, 0,
+               rut_asignado, rut_gestionado
         FROM bit_asignacion_data
     ) src
     WHERE {where_sql}
     GROUP BY ejecutivo
     ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo
     """
+    corte_cobertura = _dia_habil_del_mes(periodo, DIAS_HABILES_COBERTURA)
+    hay_cobertura = _hay_gestiones_desde(f"{periodo[:7]}-01")
     attempts = [
         _meta_source_sql,
         _meta_source_sql_fallback,
@@ -436,7 +525,7 @@ def get_general(filters: dict) -> dict:
     agg_rows = None
     for meta_sql_builder in attempts:
         try:
-            cte_sql = _bit_castigo_cte(meta_sql_builder())
+            cte_sql = _bit_castigo_cte(meta_sql_builder(), (f"{periodo[:7]}-01", corte_cobertura))
             agg_rows = run_query(f"{cte_sql}\n{sql_body}", tuple(params))
             last_error = None
             break
@@ -450,6 +539,10 @@ def get_general(filters: dict) -> dict:
     total_contenido = 0.0
     total_asignado = 0.0
     total_recupero_asignado = 0.0
+    total_nuevos_convenios = 0
+    total_abono_inicial = 0.0
+    total_ruts_asignados = 0
+    total_ruts_gestionados = 0
     meta_periodo = 0.0
 
     for row in agg_rows:
@@ -458,6 +551,10 @@ def get_general(filters: dict) -> dict:
         meta_final = _safe_float(row.get("meta_final"))
         monto_asignado = _safe_float(row.get("monto_asignado"))
         recupero_asignado = _safe_float(row.get("recupero_asignado"))
+        nuevos_convenios = int(_safe_float(row.get("nuevos_convenios")))
+        abono_inicial = _safe_float(row.get("abono_inicial"))
+        ruts_asignados = int(_safe_float(row.get("ruts_asignados")))
+        ruts_gestionados = int(_safe_float(row.get("ruts_gestionados")))
         pct_contencion = _safe_div(monto_contenido, monto_inicial)
         pct_cumpl_meta = _cap_cumpl_meta(_safe_div(monto_contenido, meta_final))
 
@@ -472,6 +569,11 @@ def get_general(filters: dict) -> dict:
                 "monto_asignado": monto_asignado,
                 "recupero_asignado": recupero_asignado,
                 "pct_efectividad": _safe_div(recupero_asignado, monto_asignado),
+                "nuevos_convenios": nuevos_convenios,
+                "abono_inicial": abono_inicial,
+                "ruts_asignados": ruts_asignados,
+                "ruts_gestionados": ruts_gestionados,
+                "pct_cobertura": _safe_div(ruts_gestionados, ruts_asignados) if hay_cobertura else None,
             }
         )
 
@@ -479,10 +581,15 @@ def get_general(filters: dict) -> dict:
         total_contenido += monto_contenido
         total_asignado += monto_asignado
         total_recupero_asignado += recupero_asignado
+        total_nuevos_convenios += nuevos_convenios
+        total_abono_inicial += abono_inicial
+        total_ruts_asignados += ruts_asignados
+        total_ruts_gestionados += ruts_gestionados
         meta_periodo = max(meta_periodo, meta_final)
 
     return {
         "periodo": periodo,
+        "corte_cobertura": corte_cobertura,
         "contencion_file": _get_source_file(periodo),
         # Meta de recupero del periodo (tramo CASTIGO en tmp_BIT_metas), en pesos.
         "meta": meta_periodo or None,
@@ -497,5 +604,10 @@ def get_general(filters: dict) -> dict:
             "monto_asignado": total_asignado,
             "recupero_asignado": total_recupero_asignado,
             "pct_efectividad": _safe_div(total_recupero_asignado, total_asignado),
+            "nuevos_convenios": total_nuevos_convenios,
+            "abono_inicial": total_abono_inicial,
+            "ruts_asignados": total_ruts_asignados,
+            "ruts_gestionados": total_ruts_gestionados,
+            "pct_cobertura": _safe_div(total_ruts_gestionados, total_ruts_asignados) if hay_cobertura else None,
         },
     }

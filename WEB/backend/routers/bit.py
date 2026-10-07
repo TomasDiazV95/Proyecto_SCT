@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth.dependencies import require_module
-from services.bit_service import get_detalle, get_filter_values, get_general, get_tramos
+from services.bit_service import get_detalle, get_filter_values, get_general, get_negocios, get_tramos
 
 
 router = APIRouter(dependencies=[Depends(require_module("bit"))])
@@ -40,6 +40,17 @@ def tramos(
 ) -> dict:
     try:
         return get_tramos({"periodo": periodo, "ejecutivo": ejecutivo, "tramo": tramo})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/negocios")
+def negocios(
+    periodo: str = Query(...),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return get_negocios({"periodo": periodo, "ejecutivo": ejecutivo})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

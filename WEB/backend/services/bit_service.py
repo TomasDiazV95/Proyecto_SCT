@@ -426,6 +426,52 @@ def get_tramos(filters: dict) -> dict:
     }
 
 
+# Negocios: operaciones contenidas via producto, segun tipo_cont de la contencion.
+NEGOCIO_TIPOS = {"PC20": "refinanciamiento", "PC07": "renegociacion"}
+
+
+def get_negocios(filters: dict) -> dict:
+    periodo = str(filters.get("periodo") or "").strip()
+    where_sql, params = _base_where(filters)
+    codigos = ", ".join(f"'{codigo}'" for codigo in NEGOCIO_TIPOS)
+    sql = f"""
+    {BIT_DATA_CTE}
+    SELECT
+        ejecutivo,
+        UPPER(LTRIM(RTRIM(tipo_cont))) AS tipo_cont,
+        COUNT(1) AS cantidad,
+        SUM(COALESCE(CAST(mto_contenido AS float), 0)) AS monto
+    FROM bit_data
+    WHERE {where_sql}
+      AND UPPER(LTRIM(RTRIM(COALESCE(tipo_cont, '')))) IN ({codigos})
+    GROUP BY ejecutivo, UPPER(LTRIM(RTRIM(tipo_cont)))
+    """
+    agg_rows = run_query(sql, tuple(params))
+
+    def empty() -> dict:
+        return {tipo: {"cantidad": 0, "monto": 0.0} for tipo in (*NEGOCIO_TIPOS.values(), "total")}
+
+    por_ejecutivo: dict[str, dict] = {}
+    total = empty()
+    for r in agg_rows:
+        tipo = NEGOCIO_TIPOS.get(str(r.get("tipo_cont") or "").strip())
+        if not tipo:
+            continue
+        nombre = r.get("ejecutivo") or "Phoenix"
+        acc = por_ejecutivo.setdefault(nombre, empty())
+        for target in (acc[tipo], acc["total"], total[tipo], total["total"]):
+            target["cantidad"] += int(r.get("cantidad") or 0)
+            target["monto"] += float(r.get("monto") or 0)
+
+    orden = sorted(por_ejecutivo, key=lambda nombre: (nombre == "Phoenix", nombre))
+    return {
+        "periodo": periodo,
+        "contencion_file": _get_contencion_source_file(periodo),
+        "rows": [{"ejecutivo": nombre, **por_ejecutivo[nombre]} for nombre in orden],
+        "total": {"ejecutivo": "Total general", **total},
+    }
+
+
 def get_detalle(filters: dict) -> dict:
     where_sql, params = _base_where(filters)
     sql = f"""

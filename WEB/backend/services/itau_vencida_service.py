@@ -107,7 +107,8 @@ WITH carterizado AS (
         COALESCE(CAST(b.SALDO_INI AS float), 0) AS SALDO_INI,
         COALESCE(CAST(b.SALDO_CONT AS float), 0) AS SALDO_CONT
     FROM dbo.contencion_itau_vencida b
-    LEFT JOIN carterizado car
+    -- HASH: sin el hint SQL Server recalcula el carterizado por cada fila de la contencion (~20 s).
+    LEFT HASH JOIN carterizado car
         ON car.rut = CONVERT(varchar(20), b.RUT)
        AND car.rn = 1
     WHERE b.fecha_carga = ?

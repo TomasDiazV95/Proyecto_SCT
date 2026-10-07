@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchBitCastigoFilters, fetchBitCastigoGeneral } from "../api";
-import { Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import { Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 
 function formatMoney(value) {
@@ -26,6 +26,15 @@ function formatEfectividad(row) {
 }
 
 
+// Cobertura de gestion: RUT asignados con gestion telefonica o en terreno hasta el 4to dia habil.
+function formatCobertura(row) {
+  if (row.pct_cobertura === null || row.pct_cobertura === undefined || !(Number(row.ruts_asignados || 0) > 0)) {
+    return "N/D";
+  }
+  return `${Math.round(Number(row.pct_cobertura) * 100)}%`;
+}
+
+
 function capCumplMeta(value) {
   return Math.min(Number(value || 0), 1.3);
 }
@@ -45,6 +54,7 @@ export default function BitCastigoPage() {
   const [contencionFile, setContencionFile] = useState("");
   const [meta, setMeta] = useState(null);
   const [metasOpen, setMetasOpen] = useState(false);
+  const [view, setView] = useState("general");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -120,6 +130,83 @@ export default function BitCastigoPage() {
     };
   }, [rows, total]);
 
+  function renderGeneralTable() {
+    return (
+      <table className="pd-table pd-table-equal">
+        <thead>
+          <tr>
+            <th>Ejecutivo</th>
+            <th className="pd-num pd-group-start">Deuda Asignada</th>
+            <th className="pd-num">Recupero</th>
+            <th className="pd-num">% Efectividad</th>
+            <th className="pd-num">Nuevos Convenios</th>
+            <th className="pd-num">% Cobertura gestión 4° día hábil</th>
+            <th className="pd-num pd-th-key pd-group-start">% Cumplimiento meta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {phoenixGrupalAlFinal(rows).map((row, idx) => (
+            <tr key={`bit-castigo-${row.ejecutivo}-${idx}`}>
+              <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+              <td className="pd-num pd-group-start">${formatMoney(row.monto_asignado)}</td>
+              <td className="pd-num">${formatMoney(row.recupero_asignado)}</td>
+              <td className="pd-num">{formatEfectividad(row)}</td>
+              <td className="pd-num">{Number(row.nuevos_convenios || 0)}</td>
+              <td className="pd-num" title={`${row.ruts_gestionados || 0} de ${row.ruts_asignados || 0} RUT`}>{formatCobertura(row)}</td>
+              <td className="pd-num pd-group-start">
+                <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatCumpl(capCumplMeta(row.pct_cumpl_meta))}</span>
+              </td>
+            </tr>
+          ))}
+          {totalRow && (
+            <tr className="pd-row-total">
+              <td>{totalRow.ejecutivo}</td>
+              <td className="pd-num pd-group-start">${formatMoney(totalRow.monto_asignado)}</td>
+              <td className="pd-num">${formatMoney(totalRow.recupero_asignado)}</td>
+              <td className="pd-num">{formatEfectividad(totalRow)}</td>
+              <td className="pd-num">{Number(totalRow.nuevos_convenios || 0)}</td>
+              <td className="pd-num" title={`${totalRow.ruts_gestionados || 0} de ${totalRow.ruts_asignados || 0} RUT`}>{formatCobertura(totalRow)}</td>
+              <td className="pd-num pd-group-start">
+                <span className="pd-status pd-status-none">{formatCumpl(totalRow.pct_cumpl_meta)}</span>
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    );
+  }
+
+  // Negocios: convenios nuevos del periodo y su abono inicial (recupero de esos convenios).
+  function renderNegociosTable() {
+    return (
+      <table className="pd-table">
+        <thead>
+          <tr>
+            <th>Ejecutivo</th>
+            <th className="pd-num pd-group-start">Nuevos Convenios</th>
+            <th className="pd-num">Abono Inicial</th>
+          </tr>
+        </thead>
+        <tbody>
+          {phoenixGrupalAlFinal(rows).map((row, idx) => (
+            <tr key={`bit-castigo-negocios-${row.ejecutivo}-${idx}`}>
+              <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+              <td className="pd-num pd-group-start">{Number(row.nuevos_convenios || 0)}</td>
+              <td className="pd-num">${formatMoney(row.abono_inicial)}</td>
+            </tr>
+          ))}
+          {totalRow && (
+            <tr className="pd-row-total">
+              <td>{totalRow.ejecutivo}</td>
+              <td className="pd-num pd-group-start">{Number(totalRow.nuevos_convenios || 0)}</td>
+              <td className="pd-num">${formatMoney(totalRow.abono_inicial)}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    );
+  }
+
   return (
     <div className="pd-page">
       <PageHeader title="Banco Internacional Castigo" subtitle="Seguimiento y cumplimiento de Banco Internacional, cartera castigo." />
@@ -174,58 +261,28 @@ export default function BitCastigoPage() {
         
       </MetasDrawer>
 
-      <SectionCard
-        exportName={exportFileName("BIT-Castigo", filters.periodo)}
-        bodyClassName=""
-        footer={
-          <>
-            <StatusLegend items={cumplimientoLegendItems} />
-            <span>Archivo: {contencionFile || "N/D"}</span>
-          </>
-        }
-      >
-        {loading ? (
-          <LoadingState />
-        ) : (
-          <div className="pd-table-scroll">
-            <table className="pd-table">
-              <thead>
-                <tr>
-                  <th>Ejecutivo</th>
-                  <th className="pd-num pd-group-start">Deuda Asignada</th>
-                  <th className="pd-num">Recupero</th>
-                  <th className="pd-num">% Efectividad</th>
-                  <th className="pd-num pd-th-key pd-group-start">% Cumplimiento meta</th>
-                </tr>
-              </thead>
-              <tbody>
-                {phoenixGrupalAlFinal(rows).map((row, idx) => (
-                  <tr key={`bit-castigo-${row.ejecutivo}-${idx}`}>
-                    <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
-                    <td className="pd-num pd-group-start">${formatMoney(row.monto_asignado)}</td>
-                    <td className="pd-num">${formatMoney(row.recupero_asignado)}</td>
-                    <td className="pd-num">{formatEfectividad(row)}</td>
-                    <td className="pd-num pd-group-start">
-                      <span className={cumplimientoFraccionClass(row.pct_cumpl_meta)}>{formatCumpl(capCumplMeta(row.pct_cumpl_meta))}</span>
-                    </td>
-                  </tr>
-                ))}
-                {totalRow && (
-                  <tr className="pd-row-total">
-                    <td>{totalRow.ejecutivo}</td>
-                    <td className="pd-num pd-group-start">${formatMoney(totalRow.monto_asignado)}</td>
-                    <td className="pd-num">${formatMoney(totalRow.recupero_asignado)}</td>
-                    <td className="pd-num">{formatEfectividad(totalRow)}</td>
-                    <td className="pd-num pd-group-start">
-                      <span className="pd-status pd-status-none">{formatCumpl(totalRow.pct_cumpl_meta)}</span>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </SectionCard>
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "general", label: "Vista General" },
+            { value: "negocios", label: "Negocios" },
+          ]}
+        />
+        <SectionCard
+          exportName={exportFileName("BIT-Castigo", view, filters.periodo)}
+          bodyClassName=""
+          footer={
+            <>
+              {view === "general" && <StatusLegend items={cumplimientoLegendItems} />}
+              <span>Archivo: {contencionFile || "N/D"}</span>
+            </>
+          }
+        >
+          {loading ? <LoadingState /> : <div className="pd-table-scroll">{view === "general" ? renderGeneralTable() : renderNegociosTable()}</div>}
+        </SectionCard>
+      </div>
     </div>
   );
 }

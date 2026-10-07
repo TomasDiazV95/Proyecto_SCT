@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 
-import { downloadLaAraucanaExcel, fetchLaAraucanaFilters, fetchLaAraucanaResumen } from "../api";
-import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import { downloadLaAraucanaExcel, fetchLaAraucanaFilters, fetchLaAraucanaNegocios, fetchLaAraucanaResumen } from "../api";
+import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -71,6 +71,23 @@ function pivotRows(rows) {
   );
 }
 
+function formatFecha(value) {
+  const [year, month, day] = String(value || "").slice(0, 10).split("-");
+  return day ? `${day}-${month}-${year}` : "";
+}
+
+// Negocios: una fila por ejecutivo con la cantidad de reprogramaciones y su monto.
+function pivotNegocios(rows) {
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const current = grouped.get(row.ejecutivo) || { ejecutivo: row.ejecutivo, q_negocios: 0, monto: 0 };
+    current.q_negocios += Number(row.q_negocios || 0);
+    current.monto += Number(row.monto || 0);
+    grouped.set(row.ejecutivo, current);
+  });
+  return Array.from(grouped.values()).sort((a, b) => a.ejecutivo.localeCompare(b.ejecutivo));
+}
+
 function totalByCartera(rows) {
   return Object.fromEntries(
     CARTERAS.map(({ key }) => {
@@ -91,7 +108,9 @@ export default function LaAraucanaPage() {
   const { user } = useAuth();
   const [filters, setFilters] = useState({ periodos: [], ejecutivos: [] });
   const [selected, setSelected] = useState({ periodo: "", cartera_crm: 531, ejecutivo: "" });
+  const [view, setView] = useState("productividad");
   const [rows, setRows] = useState([]);
+  const [negocios, setNegocios] = useState({ rows: [], detalle: [], sin_gestion: null });
   const [loadingFilters, setLoadingFilters] = useState(true);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -113,6 +132,12 @@ export default function LaAraucanaPage() {
       return [key, { p33: percentile(values, 0.33), p66: percentile(values, 0.66) }];
     })
   );
+  const negocioRows = pivotNegocios(negocios.rows);
+  const negocioTotal = {
+    q_negocios: negocioRows.reduce((acc, row) => acc + row.q_negocios, 0),
+    monto: negocioRows.reduce((acc, row) => acc + row.monto, 0),
+  };
+  const sinGestion = negocios.sin_gestion;
   const ejecutivoOptions = Array.from(new Set([...(filters.ejecutivos || []), "PHOENIX"]));
 
   useEffect(() => {
@@ -157,20 +182,38 @@ export default function LaAraucanaPage() {
     if (!selected.periodo) {
       return;
     }
+    // Evita que una respuesta antigua pise la de la pestana o filtro actual.
+    let cancelled = false;
     async function loadResumen() {
       setLoading(true);
       setError("");
       try {
-        const data = await fetchLaAraucanaResumen(selected);
-        setRows(data.rows || []);
+        if (view === "negocios") {
+          const data = await fetchLaAraucanaNegocios({ periodo: selected.periodo, ejecutivo: selected.ejecutivo });
+          if (!cancelled) {
+            setNegocios({ rows: data.rows || [], detalle: data.detalle || [], sin_gestion: data.sin_gestion || null });
+          }
+        } else {
+          const data = await fetchLaAraucanaResumen(selected);
+          if (!cancelled) {
+            setRows(data.rows || []);
+          }
+        }
       } catch (err) {
-        setError(err.message);
+        if (!cancelled) {
+          setError(err.message);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
     loadResumen();
-  }, [selected]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, view]);
 
   function onFilter(name, value) {
     setSelected((prev) => ({ ...prev, [name]: value }));
@@ -256,6 +299,16 @@ export default function LaAraucanaPage() {
 
       {error && <div className="alert alert-danger">{error}</div>}
 
+      <div className="pd-tabbed">
+        <ViewTabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "productividad", label: "Productividad" },
+            { value: "negocios", label: "Negocios" },
+          ]}
+        />
+      {view === "productividad" && (
       <SectionCard exportName={exportFileName("La-Araucana", selected.periodo)} bodyClassName="" footer={<StatusLegend title="Aporte" items={aporteLegendItems} />}>
         {loading ? (
           <LoadingState />
@@ -305,6 +358,96 @@ export default function LaAraucanaPage() {
           </div>
         )}
       </SectionCard>
+      )}
+      {view === "negocios" && (
+      <SectionCard exportName={exportFileName("La-Araucana", "Negocios", selected.periodo)} bodyClassName="">
+        {loading ? (
+          <LoadingState />
+        ) : (
+          <div className="pd-table-scroll">
+            <table className="pd-table pd-table-compact pd-table-fit">
+              <thead>
+                <tr>
+                  <th>Ejecutivo</th>
+                  <th className="pd-num">Reprogramación</th>
+                  <th className="pd-num">Monto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {phoenixGrupalAlFinal(negocioRows).map((row) => (
+                  <tr key={row.ejecutivo}>
+                    <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                    <td className="pd-num">{formatMoney(row.q_negocios)}</td>
+                    <td className="pd-num">{formatRecovero(row.monto)}</td>
+                  </tr>
+                ))}
+                {!negocioRows.length && <EmptyRow colSpan={3} />}
+                {negocioRows.length > 0 && (
+                  <tr className="pd-row-total">
+                    <td>Total</td>
+                    <td className="pd-num">{formatMoney(negocioTotal.q_negocios)}</td>
+                    <td className="pd-num">{formatRecovero(negocioTotal.monto)}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+      )}
+      </div>
+
+      {view === "negocios" && !loading && (
+        <SectionCard
+          title="Detalle de negocios"
+          description={
+            "Pagos NE-REPRO del mes, asignados a la ejecutiva de la mejor gestion del RUT." +
+            (sinGestion && Number(sinGestion.q_negocios) > 0 && !selected.ejecutivo
+              ? ` Fuera del resumen: ${formatMoney(sinGestion.q_negocios)} negocios sin gestion en el mes (${formatRecovero(sinGestion.monto)}).`
+              : "")
+          }
+          exportName={exportFileName("La-Araucana", "Negocios-detalle", selected.periodo)}
+          bodyClassName=""
+        >
+          <div className="pd-table-scroll">
+            <table className="pd-table pd-table-compact pd-table-plain">
+              <thead>
+                <tr>
+                  <th>Ejecutivo</th>
+                  <th>Folio</th>
+                  <th>RUT</th>
+                  <th>Cartera</th>
+                  <th>Fecha negocio</th>
+                  <th className="pd-num">Monto</th>
+                  <th>Usuario</th>
+                  <th>Contacto</th>
+                  <th>Respuesta</th>
+                  <th>Fecha gestion</th>
+                  <th>Criterio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {negocios.detalle.map((row, idx) => (
+                  <tr key={`${row.contrato}-${idx}`}>
+                    <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                    <td>{row.contrato}</td>
+                    <td>{row.rut}</td>
+                    <td>{row.tipo_cartera}</td>
+                    <td>{formatFecha(row.fecha_pago)}</td>
+                    <td className="pd-num">{formatRecovero(row.monto)}</td>
+                    <td>{row.usuario}</td>
+                    <td>{row.contacto}</td>
+                    <td>{row.respuesta}</td>
+                    <td>{formatFecha(row.fecha_gestion)}</td>
+                    <td>{row.criterio}</td>
+                  </tr>
+                ))}
+                {!negocios.detalle.length && <EmptyRow colSpan={11} />}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
+      )}
     </div>
   );
 }
