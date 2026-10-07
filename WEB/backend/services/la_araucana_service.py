@@ -13,6 +13,8 @@ EJECUTIVOS_TABLE = "dbo.tmp_ejecutivos"
 
 CARTERA_CRM = 531
 TIPOS_PAGO_VALIDOS = ["E-ACTSEGCES", "E-MANUAL", "E-INTER-CC", "E-CC"]
+# Los negocios (reprogramaciones) vienen en la misma tabla de pagos con este tipo de pago.
+TIPOS_PAGO_NEGOCIO = ["NE-REPRO"]
 
 
 def _columns(table_name: str) -> set[str]:
@@ -253,7 +255,7 @@ def _pagos_period_sql(c: dict) -> str:
     return f"AND CAST(p.{c['fecha_negocio_pago']} AS date) >= CAST(? AS date) AND CAST(p.{c['fecha_negocio_pago']} AS date) <= CAST(? AS date)"
 
 
-def _atribucion_sql(c: dict, periodo: str) -> tuple[str, list, str]:
+def _atribucion_sql(c: dict, periodo: str, tipos_pago_validos: list[str] | None = None) -> tuple[str, list, str]:
     """Lote SQL que deja en #base una fila por pago valido con la gestion que se lo lleva.
 
     Solo cuentan las gestiones del mes seleccionado (quedan en #gest). Regla: la mejor gestion del
@@ -266,7 +268,7 @@ def _atribucion_sql(c: dict, periodo: str) -> tuple[str, list, str]:
     ejecutivas = _ejecutivas(periodo)
     selected_mes_proceso = _to_mes_proceso(periodo)
     period_month, _period_day, month_start, month_end, _file_tokens = _parse_period(selected_mes_proceso)
-    tipos_pago = ", ".join(f"'{t}'" for t in TIPOS_PAGO_VALIDOS)
+    tipos_pago = ", ".join(f"'{t}'" for t in (tipos_pago_validos or TIPOS_PAGO_VALIDOS))
     gestion_id_expr = f"g.{c['id_gest']}" if c["id_gest"] else "CAST(NULL AS bigint)"
     # Las tablas temporales evitan recalcular pagos y gestiones del mes en cada referencia.
     sql = f"""SET NOCOUNT ON;
@@ -607,6 +609,70 @@ def get_resumen(filters: dict) -> dict:
         },
         "rows": rows,
         "total": total,
+    }
+
+
+def get_negocios(filters: dict) -> dict:
+    """Negocios del mes (pagos NE-REPRO) asignados a la ejecutiva de la mejor gestion del RUT.
+
+    Usa la misma regla de atribucion que el recupero. Los negocios sin gestion en el mes no se
+    asignan a nadie: quedan fuera del resumen y se informan aparte en `sin_gestion`.
+    """
+    c = _resolved_cols()
+    periodo = str(filters.get("periodo") or "")
+    base_sql, base_params, _period_month = _atribucion_sql(c, periodo, TIPOS_PAGO_NEGOCIO)
+    where = ["b.ejecutivo IS NOT NULL"]
+    params: list = []
+    if filters.get("ejecutivo"):
+        where.append("UPPER(LTRIM(RTRIM(b.ejecutivo))) = UPPER(LTRIM(RTRIM(?)))")
+        params.append(str(filters["ejecutivo"]))
+    where_sql = " AND ".join(where)
+
+    sql = f"""{base_sql}
+    SELECT
+        b.ejecutivo,
+        b.tipo_cartera,
+        COUNT(*) AS q_negocios,
+        SUM(b.recupero) AS monto,
+        CASE WHEN t.monto_total = 0 THEN 0 ELSE MAX(e.monto_ejecutivo) / t.monto_total END AS pct_aporte_final
+    FROM #base b
+    CROSS JOIN (SELECT COALESCE(SUM(recupero), 0) AS monto_total FROM #base WHERE ejecutivo IS NOT NULL) t
+    INNER JOIN (
+        SELECT ejecutivo, SUM(recupero) AS monto_ejecutivo
+        FROM #base
+        WHERE ejecutivo IS NOT NULL
+        GROUP BY ejecutivo
+    ) e ON e.ejecutivo = b.ejecutivo
+    WHERE {where_sql}
+    GROUP BY b.ejecutivo, b.tipo_cartera, t.monto_total
+    ORDER BY CASE WHEN b.ejecutivo = 'PHOENIX' THEN 1 ELSE 0 END, b.ejecutivo, b.tipo_cartera;
+
+    SELECT
+        b.contrato,
+        b.rut,
+        b.tipo_cartera,
+        b.fecha_pago,
+        b.recupero AS monto,
+        b.ejecutivo,
+        b.usuario,
+        b.contacto,
+        b.respuesta,
+        b.fecha_gestion,
+        b.criterio
+    FROM #base b
+    WHERE {where_sql}
+    ORDER BY CASE WHEN b.ejecutivo = 'PHOENIX' THEN 1 ELSE 0 END, b.ejecutivo, b.fecha_pago, b.contrato;
+
+    SELECT COUNT(*) AS q_negocios, COALESCE(SUM(b.recupero), 0) AS monto
+    FROM #base b
+    WHERE b.ejecutivo IS NULL;
+    """
+    rows, detalle, sin_gestion = run_query_sets(sql, tuple(base_params + params + params))[-3:]
+    return {
+        "rows": rows,
+        "detalle": detalle,
+        "sin_gestion": sin_gestion[0] if sin_gestion else {"q_negocios": 0, "monto": 0},
+        "tipos_pago": TIPOS_PAGO_NEGOCIO,
     }
 
 

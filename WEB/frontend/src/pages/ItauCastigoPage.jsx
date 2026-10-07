@@ -26,6 +26,12 @@ function formatEfectividad(row) {
 }
 
 
+// La efectividad se mide solo con el recupero de los RUT asignados del cobrador, que puede diferir de la columna Recupero.
+function efectividadTitle(row) {
+  return `Recupero asignado $${formatMoney(row.recupero_asignado)} de $${formatMoney(row.monto_asignado)}`;
+}
+
+
 // Cobertura de gestion: RUT asignados con gestion telefonica o en terreno hasta el dia habil de corte.
 function formatCobertura(row) {
   return Number(row.ruts_asignados || 0) > 0 ? `${Math.round(Number(row.pct_cobertura || 0) * 100)}%` : "N/D";
@@ -40,6 +46,12 @@ function formatContencionCruce(row) {
 
 function contencionCruceTitle(row) {
   return `Contenido $${formatMoney(row.cruce_saldo_cont)} de $${formatMoney(row.cruce_saldo_ini)}`;
+}
+
+
+// Recupero que se compara contra la meta: todo lo recuperado por el ejecutivo, sea Phoenix o Phoenix MCV.
+function cumplimientoTitle(row) {
+  return `Recupero $${formatMoney(row.recupero_meta)} de meta $${formatMoney(row.meta_recupero)}`;
 }
 
 
@@ -143,13 +155,15 @@ export default function ItauCastigoPage() {
   );
 
   // Total de la pestaña: se suma primero y se divide despues, igual que el total del backend (tope 130%).
+  // La meta es del cobrador, asi que se cuenta una sola vez y se compara contra todo el recupero del cobrador.
   const tabTotal = useMemo(() => {
     if (!tabRows.length) {
       return null;
     }
     const deuda = tabRows.reduce((acc, row) => acc + Number(row.deuda_total || 0), 0);
     const recupero = tabRows.reduce((acc, row) => acc + Number(row.recupero_total || 0), 0);
-    const meta = tabRows.reduce((acc, row) => acc + Number(row.meta_recupero || 0), 0);
+    const metaCobrador = Number(tabRows.find((row) => Number(row.meta_cobrador || 0) > 0)?.meta_cobrador || 0);
+    const meta = metaCobrador || tabRows.reduce((acc, row) => acc + Number(row.meta_recupero || 0), 0);
     const asignado = tabRows.reduce((acc, row) => acc + Number(row.monto_asignado || 0), 0);
     const recuperoAsignado = tabRows.reduce((acc, row) => acc + Number(row.recupero_asignado || 0), 0);
     const rutsAsignados = tabRows.reduce((acc, row) => acc + Number(row.ruts_asignados || 0), 0);
@@ -160,6 +174,7 @@ export default function ItauCastigoPage() {
       ejecutivo: "Total general",
       deuda_total: deuda,
       recupero_total: recupero,
+      recupero_meta: recupero,
       monto_asignado: asignado,
       recupero_asignado: recuperoAsignado,
       pct_efectividad: asignado ? recuperoAsignado / asignado : 0,
@@ -181,7 +196,7 @@ export default function ItauCastigoPage() {
       if (!metas.has(cobrador)) {
         metas.set(cobrador, {
           cobrador_vista: cobrador,
-          meta_recupero: Number(row.meta_recupero || 0),
+          meta_recupero: Number(row.meta_cobrador || row.meta_recupero || 0),
         });
       }
     });
@@ -252,12 +267,12 @@ export default function ItauCastigoPage() {
                 <tr key={`itau-general-${row.ejecutivo}-${idx}`}>
                   <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                   <td className="pd-num pd-group-start">${formatMoney(row.monto_asignado)}</td>
-                  <td className="pd-num">${formatMoney(row.recupero_asignado)}</td>
-                  <td className="pd-num">{formatEfectividad(row)}</td>
+                  <td className="pd-num">${formatMoney(row.recupero_meta)}</td>
+                  <td className="pd-num" title={efectividadTitle(row)}>{formatEfectividad(row)}</td>
                   <td className="pd-num" title={`${row.ruts_gestionados || 0} de ${row.ruts_asignados || 0} RUT`}>{formatCobertura(row)}</td>
                   {esMcv && <td className="pd-num" title={contencionCruceTitle(row)}>{formatContencionCruce(row)}</td>}
                   <td className="pd-num pd-group-start">
-                    <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatCumpl(row.cumplimiento)}</span>
+                    <span className={cumplimientoFraccionClass(row.cumplimiento)} title={cumplimientoTitle(row)}>{formatCumpl(row.cumplimiento)}</span>
                   </td>
                 </tr>
               ))}
@@ -266,12 +281,12 @@ export default function ItauCastigoPage() {
                 <tr className="pd-row-total">
                   <td>{tabTotal.ejecutivo}</td>
                   <td className="pd-num pd-group-start">${formatMoney(tabTotal.monto_asignado)}</td>
-                  <td className="pd-num">${formatMoney(tabTotal.recupero_asignado)}</td>
-                  <td className="pd-num">{formatEfectividad(tabTotal)}</td>
+                  <td className="pd-num">${formatMoney(tabTotal.recupero_meta)}</td>
+                  <td className="pd-num" title={efectividadTitle(tabTotal)}>{formatEfectividad(tabTotal)}</td>
                   <td className="pd-num" title={`${tabTotal.ruts_gestionados} de ${tabTotal.ruts_asignados} RUT`}>{formatCobertura(tabTotal)}</td>
                   {esMcv && <td className="pd-num" title={contencionCruceTitle(tabTotal)}>{formatContencionCruce(tabTotal)}</td>}
                   <td className="pd-num pd-group-start">
-                    <span className="pd-status pd-status-none">{formatCumpl(tabTotal.cumplimiento)}</span>
+                    <span className="pd-status pd-status-none" title={cumplimientoTitle(tabTotal)}>{formatCumpl(tabTotal.cumplimiento)}</span>
                   </td>
                 </tr>
               )}

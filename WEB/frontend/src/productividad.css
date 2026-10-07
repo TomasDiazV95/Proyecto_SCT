@@ -809,18 +809,22 @@
 /* Tablas con encabezado de dos niveles (bloques de color con subcolumnas):
    ancho fijo repartido en partes iguales, asi las subcolumnas de cada bloque miden lo mismo
    y todas las tablas con esta estructura comparten proporciones. Se detectan solas (thead con 2 filas). */
-.pd-table:has(> thead > tr + tr) {
+.pd-table:has(> thead > tr + tr),
+.pd-table.pd-table-equal {
   table-layout: fixed;
 }
 
 /* La primera columna (Ejecutivo) es la unica mas ancha, igual en todas las tablas. */
-.pd-table:has(> thead > tr + tr) > thead > tr:first-child > th:first-child {
+.pd-table:has(> thead > tr + tr) > thead > tr:first-child > th:first-child,
+.pd-table.pd-table-equal > thead > tr:first-child > th:first-child {
   width: 16%;
 }
 
 /* Con ancho fijo, el contenido hace salto de linea en vez de salirse de la celda. */
 .pd-table:has(> thead > tr + tr) th,
-.pd-table:has(> thead > tr + tr) td {
+.pd-table:has(> thead > tr + tr) td,
+.pd-table.pd-table-equal th,
+.pd-table.pd-table-equal td {
   white-space: normal;
   overflow-wrap: anywhere;
 }
