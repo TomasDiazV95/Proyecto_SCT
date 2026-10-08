@@ -5,6 +5,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
+from database import run_query
 from services import (
     bit_castigo_service,
     bit_service,
@@ -36,6 +37,20 @@ HEADERS = [
     "INSERTAR Q VARIABLES",
     "ANEXOS / RESPALDO",
     "ESTADO ANEXO / RESPALDO",
+]
+# Hoja NEGOCIOS: una fila por negocio cursado en el mes (respaldo de las variables de Q de negocios).
+NEGOCIOS_HEADERS = [
+    "MES",
+    "CLIENTE",
+    "CAMPAÑA",
+    "TIPO NEGOCIO",
+    "N° OPERACIÓN",
+    "RUT CLIENTE",
+    "EJECUTIVO",
+    "MONTO DEUDA",
+    "ABONO INICIAL",
+    "TRAMO",
+    "FECHA",
 ]
 RESUMEN_HEADERS = ["CLIENTE", "CAMPAÑA", "CORTE", "N° COLABORADORES", "CUMPLIMIENTO PROMEDIO", "ESTADO"]
 
@@ -98,6 +113,7 @@ class _Planilla:
         self.campana = f"{campana} {MESES[mes.month - 1]} {mes:%y}"
         self.corte = corte
         self.rows: list[dict] = []
+        self.negocios: list[dict] = []
 
     def zona(self, zona: str) -> "_Planilla":
         otra = _Planilla(self.mes, self.cliente, "", self.corte)
@@ -108,7 +124,25 @@ class _Planilla:
     def con_campana(self, campana: str) -> "_Planilla":
         otra = _Planilla(self.mes, self.cliente, campana, self.corte)
         otra.rows = self.rows
+        otra.negocios = self.negocios
         return otra
+
+    def add_negocio(self, tipo: str, operacion, ejecutivo: str, *, rut=None, deuda=None, abono=None, tramo=None, fecha=None) -> None:
+        self.negocios.append(
+            {
+                "MES": self.mes,
+                "CLIENTE": self.cliente,
+                "CAMPAÑA": self.campana,
+                "TIPO NEGOCIO": tipo,
+                "N° OPERACIÓN": str(operacion or "").strip(),
+                "RUT CLIENTE": str(rut or "").strip(),
+                "EJECUTIVO": str(ejecutivo).strip(),
+                "MONTO DEUDA": NA if deuda is None else deuda,
+                "ABONO INICIAL": NA if abono is None else abono,
+                "TRAMO": tramo or NA,
+                "FECHA": fecha or "",
+            }
+        )
 
     def add(self, variable: str, colaborador: str, *, individual=None, aporte=None, grupal=None, q=None) -> None:
         # Una variable sin ningun valor calculado no se informa.
@@ -137,7 +171,6 @@ class _Planilla:
 # ---------------------------------------------------------------------------
 
 SC_TARDIA_BLOQUES = [
-    ("C3", "Cumplimiento C3"),
     ("C5", "Cumplimiento C5"),
     ("C6", "Cumplimiento C6"),
     ("SUSCEPTIBLE CV", "Cumplimiento SCV al cierre de mes"),
@@ -181,6 +214,10 @@ def _sc_temprana(p: _Planilla) -> None:
             p.add(f"Aporte Individual {tramo.upper()}", row["ejecutivo"], aporte=_pct(row[f"{tramo}_porc_aporte"]))
 
 
+# Bucket del panel -> variable de la planilla (el ultimo tramo se informa como 91-120).
+GM_BUCKETS = {"6 a 30": "Contención 6-30", "31 a 60": "Contención 31-60", "61 a 90": "Contención 61-90", "91 a 150": "Contención 91-120"}
+
+
 def _gm(p: _Planilla) -> None:
     buckets = [b for b in gm_service.get_bucket_view({"periodo": p.corte}) if b["bucket"] in gm_service.BUCKET_ORDER]
     for row in gm_service.get_general_view({"periodo": p.corte, "ejecutivo": None}):
@@ -189,29 +226,50 @@ def _gm(p: _Planilla) -> None:
         p.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=_pct(row["cumplimiento_final"]))
         # La contencion por bucket es de toda la campaña: el mismo valor para cada colaborador.
         for bucket in buckets:
-            p.add(f"Contención {bucket['bucket'].replace(' a ', '-')}", row["ejecutivo"], grupal=_pct(bucket["porcentaje_contencion"]))
+            p.add(GM_BUCKETS.get(bucket["bucket"], f"Contención {bucket['bucket']}"), row["ejecutivo"], grupal=_pct(bucket["porcentaje_contencion"]))
+
+
+def _ejecutivos_itau_vigente() -> set[str]:
+    """Ejecutivos de Itau Vigente con el nombre que llevan en el carterizado de castigo (cambia entre meses)."""
+    rows = run_query(
+        """
+        SELECT a.nombre_carterizado
+        FROM dbo.itau_vigente_ejecutivos_castigo a
+        INNER JOIN dbo.itau_vigente_ejecutivos e
+            ON e.usuario = a.usuario
+           AND e.activo = 1
+        """
+    )
+    return {str(row["nombre_carterizado"] or "").strip().upper() for row in rows}
 
 
 def _itau_castigo(p: _Planilla) -> None:
     # Terreno y MCV son campañas distintas: se separan por el cobrador del ejecutivo.
     campanas = {"Phoenix MCV": p.con_campana("Banco Itau MCV")}
+    # Los ejecutivos de Itau Vigente se pagan por esa campaña: no van en castigo.
+    vigente = _ejecutivos_itau_vigente()
     for row in itau_castigo_service.get_general({"fecha_carga": p.corte})["rows"]:
-        if not _es_colaborador(row["ejecutivo"]):
+        if not _es_colaborador(row["ejecutivo"]) or str(row["ejecutivo"]).strip().upper() in vigente:
             continue
-        campana = campanas.get(row.get("cobrador_vista"), p)
+        mcv = row.get("cobrador_vista") in campanas
+        campana = campanas[row["cobrador_vista"]] if mcv else p
         campana.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=row["cumplimiento"])
         campana.add("Efectividad Sobre Saldo Asignado", row["ejecutivo"], individual=row["pct_efectividad"])
-        campana.add("Cobertura Gestión", row["ejecutivo"], individual=row["pct_cobertura"])
+        if mcv:
+            # Contencion cruce vigente del panel; sin saldo en el cruce no se informa.
+            if row["cruce_saldo_ini"]:
+                campana.add("Contención Vigente", row["ejecutivo"], individual=row["pct_contencion_cruce"])
+            campana.add("Cobertura Gestión al 4to día hábil", row["ejecutivo"], individual=row["pct_cobertura"])
+        else:
+            campana.add("Cobertura Gestión", row["ejecutivo"], individual=row["pct_cobertura"])
 
 
 def _itau_contencion(p: _Planilla, data: dict) -> None:
-    """Variables comunes de Itau Vencida e Itau Vigente (contencion por producto)."""
+    """Cumplimiento individual de Itau Vencida e Itau Vigente."""
     for row in data["rows"]:
         if not _es_colaborador(row["ejecutivo"]):
             continue
         p.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=row.get("cumplimiento"))
-        p.add("Cumplimiento Consumo", row["ejecutivo"], individual=row.get("consumo_cumplimiento"))
-        p.add("Cumplimiento Hipotecario", row["ejecutivo"], individual=row.get("hipotecario_cumplimiento"))
 
 
 def _itau_vencida(p: _Planilla) -> None:
@@ -245,13 +303,23 @@ def _itau_vigente(p: _Planilla) -> None:
             )
 
 
+BIT_TIPOS_NEGOCIO = {"PC20": "Refinanciamiento", "PC07": "Renegociación"}
+
+
 def _bit(p: _Planilla) -> None:
+    # Negocios cursados en el mes (refinanciamientos + renegociaciones), como en la vista Negocios del panel.
+    negocios = {row["ejecutivo"]: row["total"]["cantidad"] for row in bit_service.get_negocios({"periodo": p.corte})["rows"]}
     for row in bit_service.get_general({"periodo": p.corte})["rows"]:
         if not _es_colaborador(row["ejecutivo"]):
             continue
         p.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=row["cumplimiento"])
-        for tramo in bit_service.TRAMOS:
-            p.add(f"Cumplimiento {tramo}", row["ejecutivo"], individual=row["tramos"][tramo]["cumplimiento"])
+        p.add("Refinanciamientos, Renegociaciones, Extensiones (GMF)", row["ejecutivo"], q=negocios.get(row["ejecutivo"], 0))
+    # Detalle: las operaciones contenidas via producto que cuenta la variable anterior.
+    for row in bit_service.get_detalle({"periodo": p.corte})["rows"]:
+        tipo = BIT_TIPOS_NEGOCIO.get(str(row["tipo_cont"] or "").strip().upper())
+        if tipo and _es_colaborador(row["ejecutivo"]):
+            rut = f"{row['rut']}-{row['dv']}" if row.get("dv") else row["rut"]
+            p.add_negocio(tipo, row["con_no"], row["ejecutivo"], rut=rut, deuda=row["mto_contenido"], tramo=row["tramo"])
 
 
 def _bit_castigo(p: _Planilla) -> None:
@@ -262,6 +330,17 @@ def _bit_castigo(p: _Planilla) -> None:
         p.add("Nuevos Convenios", row["ejecutivo"], q=row["nuevos_convenios"])
         p.add("Efectividad Sobre Saldo Asignado", row["ejecutivo"], individual=row["pct_efectividad"])
         p.add("Cobertura Gestión", row["ejecutivo"], individual=row["pct_cobertura"])
+    # El recupero de castigo viene por RUT: se informan las operaciones castigo asignadas de ese RUT.
+    for row in bit_castigo_service.get_nuevos_convenios({"periodo": p.corte}):
+        if _es_colaborador(row["ejecutivo"]):
+            p.add_negocio(
+                "Nuevo Convenio",
+                " / ".join(row["operaciones"]),
+                row["ejecutivo"],
+                rut=row["rut"],
+                deuda=row["deuda"],
+                abono=row["abono_inicial"],
+            )
 
 
 def _sth(p: _Planilla) -> None:
@@ -269,8 +348,10 @@ def _sth(p: _Planilla) -> None:
         if not _es_colaborador(row["ejecutivo"]):
             continue
         p.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=_pct(row["cumplimiento_final"]))
-        for producto in sth_service.PRODUCT_ORDER:
-            p.add(f"Cumplimiento {producto.capitalize()}", row["ejecutivo"], individual=_pct(row.get(producto)))
+
+
+LA_ARAUCANA_NEGOCIOS = "Reprogramaciones (Vigente) / Nuevos Convenios (Castigo) Deuda"
+LA_ARAUCANA_TRAMOS = [("MENOR", "<= $1.000.000"), ("MAYOR", "> $1.000.000")]
 
 
 def _la_araucana(p: _Planilla) -> None:
@@ -279,8 +360,33 @@ def _la_araucana(p: _Planilla) -> None:
     for row in la_araucana_service.get_resumen({"periodo": p.corte})["rows"]:
         if _es_colaborador(row["ejecutivo"]):
             aportes.setdefault(row["ejecutivo"], float(row["pct_aporte_final"] or 0))
-    for nombre, aporte in aportes.items():
-        p.add("Aporte Individual", nombre, aporte=aporte)
+    # Negocios del mes (pagos NE-REPRO) por tramo de deuda del folio, como en la vista Negocios del panel.
+    negocios: dict[tuple[str, str], int] = {}
+    data = la_araucana_service.get_negocios({"periodo": p.corte})
+    for row in data["rows"]:
+        if _es_colaborador(row["ejecutivo"]):
+            negocios[(row["ejecutivo"], row["tramo_deuda"])] = int(row["q_negocios"] or 0)
+    tramos = dict(LA_ARAUCANA_TRAMOS)
+    for row in data["detalle"]:
+        if not _es_colaborador(row["ejecutivo"]):
+            continue
+        # Vigente = reprogramacion (va con la deuda); castigo y +365 = nuevo convenio (va ademas con el abono).
+        vigente = str(row["tipo_cartera"] or "").strip().upper() == "VIGENTE"
+        p.add_negocio(
+            "Reprogramación" if vigente else f"Nuevo Convenio ({str(row['tipo_cartera']).strip()})",
+            row["contrato"],
+            row["ejecutivo"],
+            rut=row["rut"],
+            deuda=float(row["deuda"] or 0),
+            abono=None if vigente else float(row["recupero"] or 0),
+            tramo=tramos.get(row["tramo_deuda"]),
+            fecha=row["fecha_pago"],
+        )
+
+    for nombre in dict.fromkeys([*aportes, *(ejecutivo for ejecutivo, _tramo in negocios)]):
+        p.add("Aporte Individual", nombre, aporte=aportes.get(nombre))
+        for tramo, etiqueta in LA_ARAUCANA_TRAMOS:
+            p.add(f"{LA_ARAUCANA_NEGOCIOS} {etiqueta}", nombre, q=negocios.get((nombre, tramo), 0))
 
 
 def _fechas_itau_contencion() -> list[str]:
@@ -375,6 +481,10 @@ def _negocio(codigo: str) -> dict:
     return negocio
 
 
+def _permitidos(codigos: set[str] | None) -> list[str]:
+    return [codigo for codigo in NEGOCIOS if codigos is None or codigo in codigos]
+
+
 def get_periodos() -> list[str]:
     hoy = date.today()
     periodos = []
@@ -384,7 +494,8 @@ def get_periodos() -> list[str]:
     return periodos
 
 
-def get_negocios(periodo: str | None) -> list[dict]:
+def get_negocios(periodo: str | None, codigos: set[str] | None = None) -> list[dict]:
+    """codigos: negocios que puede ver el usuario; None = todos."""
     mes = _parse_periodo(periodo)
 
     def resolver(codigo: str) -> dict:
@@ -398,7 +509,7 @@ def get_negocios(periodo: str | None) -> list[dict]:
         return item
 
     with ThreadPoolExecutor(max_workers=CONSOLIDADO_WORKERS) as pool:
-        return list(pool.map(resolver, NEGOCIOS))
+        return list(pool.map(resolver, _permitidos(codigos)))
 
 
 def get_planilla(periodo: str | None, codigo: str) -> dict:
@@ -415,6 +526,7 @@ def get_planilla(periodo: str | None, codigo: str) -> dict:
         "periodo": f"{mes:%Y-%m}",
         "corte": corte,
         "rows": planilla.rows,
+        "negocios": planilla.negocios,
     }
 
 
@@ -440,17 +552,17 @@ def _resumen(rows: list[dict], corte: str) -> list[dict]:
     ]
 
 
-def get_consolidado(periodo: str | None) -> dict:
+def get_consolidado(periodo: str | None, codigos: set[str] | None = None) -> dict:
     """Todas las campañas del mes. Un negocio sin datos o con error no bota el consolidado: queda en el resumen."""
     mes = _parse_periodo(periodo)
 
-    def cargar(codigo: str) -> tuple[list[dict], list[dict]]:
+    def cargar(codigo: str) -> tuple[list[dict], list[dict], list[dict]]:
         negocio = NEGOCIOS[codigo]
         try:
             data = get_planilla(periodo, codigo)
             estado = None if data["rows"] else "SIN DATOS"
         except Exception as exc:
-            data = {"rows": [], "campana": negocio["campana"], "corte": None}
+            data = {"rows": [], "negocios": [], "campana": negocio["campana"], "corte": None}
             estado = f"ERROR: {exc}"
         if estado:
             sin_datos = {
@@ -461,13 +573,15 @@ def get_consolidado(periodo: str | None) -> dict:
                 "CUMPLIMIENTO PROMEDIO": NA,
                 "ESTADO": estado,
             }
-            return [], [sin_datos]
-        return data["rows"], _resumen(data["rows"], data["corte"])
+            return [], [sin_datos], []
+        return data["rows"], _resumen(data["rows"], data["corte"]), data["negocios"]
 
     rows: list[dict] = []
     resumen: list[dict] = []
+    negocios: list[dict] = []
     with ThreadPoolExecutor(max_workers=CONSOLIDADO_WORKERS) as pool:
-        for filas, lineas in pool.map(cargar, NEGOCIOS):
+        for filas, lineas, detalle in pool.map(cargar, _permitidos(codigos)):
             rows += filas
             resumen += lineas
-    return {"periodo": f"{mes:%Y-%m}", "rows": rows, "resumen": resumen}
+            negocios += detalle
+    return {"periodo": f"{mes:%Y-%m}", "rows": rows, "resumen": resumen, "negocios": negocios}

@@ -354,13 +354,13 @@ export default function GmPage() {
                     <tbody>
                       <tr>
                         <td>Contención</td>
-                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_contencion_pct)}</td>
-                        <td className="pd-num">{formatPct(meta?.ponderador_contencion_pct)}</td>
+                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_contencion_interna_pct ?? meta?.meta_contencion_pct)}</td>
+                        <td className="pd-num">{formatPct(meta?.ponderador_contencion_interno_pct ?? meta?.ponderador_contencion_pct)}</td>
                       </tr>
                       <tr>
                         <td>Normalización</td>
-                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_normalizacion_pct)}</td>
-                        <td className="pd-num">{formatPct(meta?.ponderador_normalizacion_pct)}</td>
+                        <td className="pd-num pd-cell-strong">{formatPct(meta?.meta_normalizacion_interna_pct ?? meta?.meta_normalizacion_pct)}</td>
+                        <td className="pd-num">{formatPct(meta?.ponderador_normalizacion_interno_pct ?? meta?.ponderador_normalizacion_pct)}</td>
                       </tr>
                     </tbody>
                   </table>

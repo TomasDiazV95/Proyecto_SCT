@@ -185,7 +185,7 @@ export const modulePanels = [
   {
     code: "rrhh",
     title: "Panel RRHH",
-    description: "Planillas de cumplimiento por negocio y consolidado para Finanzas.",
+    description: "Planillas de cumplimiento por negocio y consolidado del mes.",
     path: "/rrhh",
     accent: "indigo",
     modules: [

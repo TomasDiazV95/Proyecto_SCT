@@ -611,3 +611,58 @@ def get_general(filters: dict) -> dict:
             "pct_cobertura": _safe_div(total_ruts_gestionados, total_ruts_asignados) if hay_cobertura else None,
         },
     }
+
+
+def get_nuevos_convenios(filters: dict) -> list[dict]:
+    """Detalle de los nuevos convenios del mes: una fila por RUT con su ejecutivo, la deuda castigada,
+    el abono inicial y las operaciones castigo que tiene asignadas (el recupero no trae numero de operacion)."""
+    periodo = _resolve_period(filters.get("periodo"))
+    where_sql, params = _base_where(filters)
+    sql_body = f"""
+    SELECT
+        rut,
+        ejecutivo,
+        nuevos_convenios,
+        COALESCE(CAST(mto_inicial AS float), 0) AS deuda,
+        COALESCE(CAST(abono_inicial AS float), 0) AS abono_inicial
+    FROM bit_castigo_data
+    WHERE {where_sql}
+      AND COALESCE(nuevos_convenios, 0) > 0
+    ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo, rut
+    """
+    rows = None
+    last_error: Exception | None = None
+    for meta_sql_builder in (_meta_source_sql, _meta_source_sql_fallback):
+        try:
+            rows = run_query(f"{_bit_castigo_cte(meta_sql_builder())}\n{sql_body}", tuple(params))
+            break
+        except Exception as exc:
+            last_error = exc
+    if rows is None:
+        raise last_error if last_error is not None else RuntimeError("No se pudo cargar el detalle de nuevos convenios")
+
+    operaciones: dict[str, list[str]] = {}
+    for row in run_query(
+        f"""
+        SELECT DISTINCT {_rut_join_key_sql("RUT")} AS rut, LTRIM(RTRIM(NRO_OPERACION)) AS operacion
+        FROM {_asignacion_table()}
+        WHERE periodo = ?
+          AND UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%'
+          AND NRO_OPERACION IS NOT NULL
+        ORDER BY 2
+        """,
+        (periodo,),
+    ):
+        operaciones.setdefault(str(row["rut"]), []).append(str(row["operacion"]))
+
+    return [
+        {
+            "rut": row["rut"],
+            "ejecutivo": row["ejecutivo"],
+            "nuevos_convenios": int(row["nuevos_convenios"] or 0),
+            "deuda": float(row["deuda"] or 0),
+            "abono_inicial": float(row["abono_inicial"] or 0),
+            "operaciones": operaciones.get(str(row["rut"]), []),
+        }
+        for row in rows
+    ]

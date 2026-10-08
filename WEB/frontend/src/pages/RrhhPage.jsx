@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { downloadRrhhConsolidado, downloadRrhhPlanilla, fetchRrhhNegocios, fetchRrhhPeriodos, fetchRrhhPlanilla } from "../api";
-import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, SectionCard } from "../components/productividad/ui";
+import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, SectionCard, ViewTabs } from "../components/productividad/ui";
 import { saveDownload } from "../utils/download";
 
 const BREADCRUMB = [
@@ -18,6 +18,18 @@ const COLUMNS = [
   { key: "APORTE INDIVIDUAL", label: "Aporte individual", type: "pct" },
   { key: "CUMPLIMIENTOS GRUPALES", label: "Cumpl. grupales", type: "pct" },
   { key: "INSERTAR Q VARIABLES", label: "Q variables", type: "num" },
+];
+
+// Detalle de los negocios cursados (hoja NEGOCIOS del Excel).
+const NEGOCIO_COLUMNS = [
+  { key: "CAMPAÑA", label: "Campaña" },
+  { key: "TIPO NEGOCIO", label: "Tipo de negocio" },
+  { key: "N° OPERACIÓN", label: "N° operación" },
+  { key: "EJECUTIVO", label: "Ejecutivo" },
+  { key: "MONTO DEUDA", label: "Monto deuda", type: "num" },
+  { key: "ABONO INICIAL", label: "Abono inicial", type: "num" },
+  { key: "TRAMO", label: "Tramo" },
+  { key: "FECHA", label: "Fecha" },
 ];
 
 function formatPeriodo(periodo) {
@@ -47,6 +59,7 @@ export default function RrhhPage() {
   const [loadingNegocios, setLoadingNegocios] = useState(false);
   const [preview, setPreview] = useState(null);
   const [loadingPreview, setLoadingPreview] = useState("");
+  const [view, setView] = useState("cumplimientos");
   const [downloading, setDownloading] = useState("");
   const [error, setError] = useState("");
   const previewRef = useRef(null);
@@ -85,7 +98,9 @@ export default function RrhhPage() {
     setLoadingPreview(negocio.codigo);
     setError("");
     try {
-      setPreview(await fetchRrhhPlanilla(periodo, negocio.codigo));
+      const data = await fetchRrhhPlanilla(periodo, negocio.codigo);
+      setView("cumplimientos");
+      setPreview(data);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -107,6 +122,8 @@ export default function RrhhPage() {
     }
   }
 
+  const tieneNegocios = Boolean(preview?.negocios?.length);
+  const vistaNegocios = tieneNegocios && view === "negocios";
   const hayDisponibles = negocios.some((negocio) => negocio.disponible);
 
   return (
@@ -126,10 +143,10 @@ export default function RrhhPage() {
             disabled={!hayDisponibles || Boolean(downloading)}
           >
             <i className="bi bi-file-earmark-spreadsheet" aria-hidden="true" />{" "}
-            {downloading === "consolidado" ? "Generando consolidado..." : "Consolidado Finanzas"}
+            {downloading === "consolidado" ? "Generando consolidado..." : "Exportar consolidado"}
           </button>
         }
-        note="Cada negocio usa su último corte disponible del mes. Solo se incluyen las variables que calcula la plataforma; el RUT queda en blanco."
+        note="Cada negocio usa su último corte disponible del mes. Solo se incluyen las variables que calcula la plataforma; el RUT queda en blanco. El Excel trae además la hoja NEGOCIOS con el detalle de cada operación."
       >
         <Field label="Mes">
           <select className="form-select" value={periodo} onChange={(event) => setPeriodo(event.target.value)} disabled={Boolean(downloading)}>
@@ -183,7 +200,47 @@ export default function RrhhPage() {
       </SectionCard>
 
       {preview && (
-        <div ref={previewRef}>
+        <div ref={previewRef} className={tieneNegocios ? "pd-tabbed" : undefined}>
+        {tieneNegocios && (
+          <ViewTabs
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "cumplimientos", label: "Cumplimientos" },
+              { value: "negocios", label: `Detalle de negocios (${preview.negocios.length})` },
+            ]}
+          />
+        )}
+        {vistaNegocios ? (
+          <SectionCard
+            title={`${preview.campana} · Detalle de negocios`}
+            description={`Corte ${preview.corte || "N/D"} · ${preview.negocios.length} negocios cursados en el mes, con su operación y ejecutivo.`}
+            bodyClassName=""
+          >
+            <div className="pd-table-scroll">
+              <table className="pd-table pd-table-compact">
+                <thead>
+                  <tr>
+                    {NEGOCIO_COLUMNS.map((column) => (
+                      <th key={column.key} className={column.type ? "pd-num" : undefined}>{column.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {preview.negocios.map((row, idx) => (
+                    <tr key={`${row["N° OPERACIÓN"]}-${row["RUT CLIENTE"]}-${idx}`}>
+                      {NEGOCIO_COLUMNS.map((column) => (
+                        <td key={column.key} className={column.type ? "pd-num" : column.key === "EJECUTIVO" ? "pd-cell-ejecutivo" : undefined}>
+                          {formatValue(row[column.key], column.type)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
+        ) : (
         <SectionCard title={preview.campana} description={`Corte ${preview.corte || "N/D"} · ${preview.rows.length} filas`} bodyClassName="">
           <div className="pd-table-scroll">
             <table className="pd-table pd-table-compact">
@@ -209,6 +266,7 @@ export default function RrhhPage() {
             </table>
           </div>
         </SectionCard>
+        )}
         </div>
       )}
     </div>
