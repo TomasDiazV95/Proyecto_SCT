@@ -259,16 +259,21 @@ def sql_type_for(kind: str) -> str:
     return "NVARCHAR(MAX) NULL"
 
 
-def get_input_excel_path() -> Path:
+def get_input_excel_paths() -> list[Path]:
+    """Archivos a procesar, del mas antiguo al mas nuevo segun su carga en el visor.
+
+    La descarga deja el bench mas reciente y, los primeros dias del mes, el pre-cierre y el
+    cierre del mes anterior (aunque el nombre venga escrito de otra forma). Los ya cargados se omiten.
+    """
     if not BENCH_FOLDER.exists():
         raise FileNotFoundError(f"La carpeta no existe: {BENCH_FOLDER}")
 
-    files = [p for p in BENCH_FOLDER.glob(BENCH_PATTERN) if not p.name.startswith("~$")]
+    files = bench_recarga.archivos_bench(BENCH_FOLDER, BENCH_PATTERN)
     if not files:
         raise FileNotFoundError(
             f"No se encontro ningun archivo que cumpla el patron '{BENCH_PATTERN}' en {BENCH_FOLDER}"
         )
-    return max(files, key=lambda p: p.stat().st_mtime)
+    return files
 
 
 def read_excel(path: Path) -> pd.DataFrame:
@@ -334,8 +339,11 @@ def ensure_table() -> None:
 
 def should_skip_load(current_source_file: str, fecha_visor: datetime) -> bool:
     # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
+    # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
     with connect() as cn:
-        cargar = bench_recarga.debe_cargar(cn.cursor(), TABLE, current_source_file, fecha_visor)
+        cargar = bench_recarga.debe_cargar(
+            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True
+        )
         cn.commit()
     return not cargar
 
@@ -399,7 +407,11 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
 
 
 def main() -> None:
-    excel_path = get_input_excel_path()
+    for excel_path in get_input_excel_paths():
+        cargar_archivo(excel_path)
+
+
+def cargar_archivo(excel_path: Path) -> None:
     source_file = excel_path.name
 
     print(f"Archivo SC Castigo: {excel_path}")

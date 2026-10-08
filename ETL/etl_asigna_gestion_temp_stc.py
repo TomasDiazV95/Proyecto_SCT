@@ -139,6 +139,11 @@ def refresh_assignment_table() -> None:
         cur.execute(f"TRUNCATE TABLE {OUT_TABLE}")
         cn.commit()
 
+        # El bench de fin de mes guarda dos cargas del mismo archivo (bench_recarga.py):
+        # aqui solo entra la vigente, no la marcada como pre-cierre.
+        cur.execute("SELECT COL_LENGTH(?, 'version_carga')", (BENCH_TABLE,))
+        solo_vigente = "WHERE b.version_carga IS NULL" if cur.fetchone()[0] is not None else ""
+
         sql_insert = f"""
         ;WITH gest_validas AS (
             SELECT
@@ -191,6 +196,7 @@ def refresh_assignment_table() -> None:
                 b.meta_normalizacion_pct,
                 UPPER(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(CONVERT(varchar(50), b.fld_RUT), '.', ''), '-', ''), ' ', '')))) AS rut_key
             FROM {BENCH_TABLE} b
+            {solo_vigente}
         )
         INSERT INTO {OUT_TABLE} (
             source_file,

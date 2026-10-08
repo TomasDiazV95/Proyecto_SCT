@@ -172,6 +172,16 @@ def registrar_descarga(nombre_logico: str, nombre_archivo: str) -> None:
 # CONFIGURACION DESCARGAS
 # ============================================================
 
+# Las descargas con "fin_de_mes" traen, ademas del archivo mas reciente, el ultimo bench
+# del mes anterior en todas sus cargas (pre-cierre y cierre), aunque el nombre venga
+# escrito de otra forma. Se buscan los primeros dias del mes; los ETL omiten lo ya cargado.
+DIAS_BUSQUEDA_FIN_DE_MES = int(
+    os.getenv(
+        "FIN_DE_MES_DIAS_BUSQUEDA",
+        "15",
+    )
+)
+
 DESCARGAS = [
     {
         "nombre":
@@ -185,6 +195,9 @@ DESCARGAS = [
                 "BENCH_SC_CASTIGO_PATTERN",
                 BENCH_SC_CASTIGO_PATTERN,
             ),
+
+        "fin_de_mes":
+            True,
     },
 
     {
@@ -199,6 +212,9 @@ DESCARGAS = [
                 "BENCH_STC_PATTERN",
                 BENCH_STC_PATTERN,
             ),
+
+        "fin_de_mes":
+            True,
     },
 
     {
@@ -213,6 +229,9 @@ DESCARGAS = [
                 "BENCH_TEMP_PATTERN",
                 BENCH_TEMP_PATTERN,
             ),
+
+        "fin_de_mes":
+            True,
     },
 
     # Asignacion de apertura mensual: YYYYMM - ASIGNACION_APERTURA - PHOENIX[ (TELEFONIA)].XLSX
@@ -252,6 +271,9 @@ DESCARGAS_JUDICIAL = [
 
         "patron_archivo":
             "BENCH BENCH JUDICIAL - P&S",
+
+        "fin_de_mes":
+            True,
     },
 ]
 
@@ -763,6 +785,108 @@ def buscar_fila_ultima_carga(
 
 
 # ============================================================
+# BUSCAR PRE-CIERRE Y CIERRE DEL MES ANTERIOR
+# ============================================================
+
+def tokens_bench(nombre: str) -> frozenset:
+    # Palabras que identifican un bench, sin fecha, extension ni separadores:
+    # "20260930 - BENCH CASTIGO - PHOENIX.XLSX" y "20260930_BENCH CASTIGO_PHOENIX.XLSX"
+    # dan lo mismo. Misma regla que ETL/bench_recarga.py.
+    base = re.sub(
+        r"\.xlsx?\s*$",
+        "",
+        nombre.strip(),
+        flags=re.IGNORECASE,
+    )
+
+    palabras = re.findall(
+        r"[A-Z0-9&]+",
+        base.upper(),
+    )
+
+    return frozenset(
+        palabra
+        for palabra in palabras
+        if not re.fullmatch(r"\d{6,8}", palabra)
+    )
+
+
+def nombres_fin_de_mes(
+    frame,
+    patron_archivo: str,
+    hoy: datetime | None = None,
+) -> list[str]:
+
+    hoy = hoy or datetime.now()
+
+    if hoy.day > DIAS_BUSQUEDA_FIN_DE_MES:
+        return []
+
+    mes_anterior = (
+        hoy.replace(day=1)
+        - timedelta(days=1)
+    ).strftime("%Y%m")
+
+    esperado = tokens_bench(patron_archivo)
+
+    textos = (
+        frame
+        .locator("tr")
+        .filter(
+            has_text=mes_anterior
+        )
+        .all_inner_texts()
+    )
+
+    candidatas = []
+
+    for texto in textos:
+
+        match_carga = REGEX_FECHA_CARGA.search(texto)
+        fecha_carga = fecha_carga_fila(texto)
+
+        if fecha_carga is None or not match_carga:
+            continue
+
+        nombre = texto[:match_carga.start()].strip()
+
+        match_nombre = re.match(
+            r"(\d{8})(?!\d)",
+            nombre,
+        )
+
+        if (
+            not match_nombre
+            or not match_nombre.group(1).startswith(mes_anterior)
+            or tokens_bench(nombre) != esperado
+        ):
+            continue
+
+        candidatas.append(
+            (
+                match_nombre.group(1),
+                fecha_carga,
+                nombre,
+            )
+        )
+
+    if not candidatas:
+        return []
+
+    # Solo el ultimo bench del mes; de la carga mas antigua a la mas nueva.
+    ultima_foto = max(
+        candidata[0]
+        for candidata in candidatas
+    )
+
+    return [
+        nombre
+        for foto, _, nombre in sorted(candidatas)
+        if foto == ultima_foto
+    ]
+
+
+# ============================================================
 # GUARDAR DESCARGA
 # ============================================================
 
@@ -836,7 +960,8 @@ def descargar_desde_carpeta(
     frame,
     configuracion: dict,
     abrir_carpeta: bool = True,
-) -> tuple[Path, datetime]:
+    nombre_archivo: str | None = None,
+) -> tuple[Path, datetime, str]:
 
     nombre = (
         configuracion[
@@ -906,13 +1031,23 @@ def descargar_desde_carpeta(
     # TOMAR EL ARCHIVO CON LA CARGA MAS RECIENTE
     # ========================================================
 
-    # No depende del orden de la tabla: compara la
-    # FECHA DE MODIFICACIÓN de todas las coincidencias.
-    fila = buscar_fila_ultima_carga(
-        page,
-        frame,
-        patron_archivo,
-    )
+    if nombre_archivo:
+
+        # Archivo concreto (pre-cierre o cierre del mes anterior).
+        fila = buscar_primera_fila(
+            frame,
+            nombre_archivo,
+        )
+
+    else:
+
+        # No depende del orden de la tabla: compara la
+        # FECHA DE MODIFICACIÓN de todas las coincidencias.
+        fila = buscar_fila_ultima_carga(
+            page,
+            frame,
+            patron_archivo,
+        )
 
     texto_archivo = (
         fila
@@ -1043,7 +1178,7 @@ def descargar_desde_carpeta(
         nombre,
     )
 
-    return ruta_zip, fecha_visor
+    return ruta_zip, fecha_visor, texto_archivo
 
 
 # ============================================================
@@ -1410,7 +1545,7 @@ def descargar_con_sesion(
                 f"{len(descargas)}"
             )
 
-            ruta_zip, fecha_visor = (
+            ruta_zip, fecha_visor, texto_archivo = (
                 descargar_desde_carpeta(
                     page,
                     frame,
@@ -1427,6 +1562,39 @@ def descargar_con_sesion(
             zips_descargados.append(
                 (ruta_zip, configuracion["nombre"], fecha_visor)
             )
+
+            if not configuracion.get("fin_de_mes"):
+                continue
+
+            # Pre-cierre y cierre del mes anterior, con cualquier
+            # forma de escribir el nombre. Los ETL omiten lo ya cargado.
+            for nombre_archivo in nombres_fin_de_mes(
+                frame,
+                configuracion["patron_archivo"],
+            ):
+
+                # El archivo mas reciente ya se descargo arriba.
+                if texto_archivo.startswith(nombre_archivo):
+                    continue
+
+                print()
+                print(
+                    f"FIN DE MES: {nombre_archivo}"
+                )
+
+                ruta_zip, fecha_visor, _ = (
+                    descargar_desde_carpeta(
+                        page,
+                        frame,
+                        configuracion,
+                        abrir_carpeta=False,
+                        nombre_archivo=nombre_archivo,
+                    )
+                )
+
+                zips_descargados.append(
+                    (ruta_zip, configuracion["nombre"], fecha_visor)
+                )
 
         return zips_descargados, codigo
 

@@ -21,6 +21,7 @@ class ColumnMap:
     meta_norm_col: str
     negocio_col: str | None = None
     segmento_col: str | None = None
+    version_col: str | None = None
 
 
 def _is_safe_table_name(name: str) -> bool:
@@ -44,8 +45,10 @@ def _max_source_files() -> int:
 
 
 def _latest_source_files_clause(cols: ColumnMap) -> str:
+    # El bench de fin de mes guarda dos cargas del mismo archivo; aqui solo cuenta la vigente (cierre).
+    vigente = f"{cols.table_name}.{cols.version_col} IS NULL AND " if cols.version_col else ""
     return f"""
-    {cols.table_name}.source_file IN (
+    {vigente}    {cols.table_name}.source_file IN (
         SELECT source_file
         FROM (
             SELECT TOP ({_max_source_files()}) source_file
@@ -128,6 +131,7 @@ def resolve_columns() -> ColumnMap:
         available, ["fld_NEGOCIO", "fld_NEGOCIO_NOMBRE", "fld_BUSINESS", "negocio"]
     )
     columns.segmento_col = _pick_optional(available, ["fld_SEGMENTO", "segmento"])
+    columns.version_col = _pick_optional(available, ["version_carga"])
     return columns
 
 

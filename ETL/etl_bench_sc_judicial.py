@@ -36,7 +36,7 @@ if not _folder:
     raise RuntimeError("Falta definir BENCH_SC_JUDICIAL_FOLDER o BENCH_SC_CASTIGO_FOLDER en .env")
 BENCH_FOLDER = Path(_folder)
 BENCH_PATTERN = "*BENCH BENCH JUDICIAL - P&S*.xlsx"
-FILE_DATE_PATTERN = re.compile(r"^(\d{8})\s*-\s*BENCH BENCH JUDICIAL - P&S", re.IGNORECASE)
+FILE_DATE_PATTERN = re.compile(r"^(\d{8})(?!\d)")
 SHEET_NAME = parse_sheet_name(os.getenv("BENCH_SC_JUDICIAL_SHEET_NAME", "0"))
 
 TABLE = "dbo.tmp_bench_SC_judicial"
@@ -149,19 +149,21 @@ def file_date(path: Path) -> date | None:
     return datetime.strptime(match.group(1), "%Y%m%d").date()
 
 
-def get_input_excel_path() -> Path:
+def get_input_excel_paths() -> list[Path]:
+    """Archivos a procesar, del mas antiguo al mas nuevo segun su carga en el visor.
+
+    La descarga deja el bench mas reciente y, los primeros dias del mes, el pre-cierre y el
+    cierre del mes anterior (aunque el nombre venga escrito de otra forma). Los ya cargados se omiten.
+    """
     if not BENCH_FOLDER.exists():
         raise FileNotFoundError(f"La carpeta no existe: {BENCH_FOLDER}")
 
-    files = [
-        p for p in BENCH_FOLDER.glob(BENCH_PATTERN)
-        if not p.name.startswith("~$") and file_date(p) is not None
-    ]
+    files = [p for p in bench_recarga.archivos_bench(BENCH_FOLDER, BENCH_PATTERN) if file_date(p) is not None]
     if not files:
         raise FileNotFoundError(
             f"No se encontro ningun archivo 'YYYYMMDD - BENCH BENCH JUDICIAL - P&S.xlsx' en {BENCH_FOLDER}"
         )
-    return max(files, key=lambda p: (file_date(p), p.stat().st_mtime))
+    return files
 
 
 def read_excel(path: Path) -> pd.DataFrame:
@@ -243,7 +245,11 @@ def insert_rows(cn: pyodbc.Connection, df: pd.DataFrame, source_file: str, fecha
 
 
 def main() -> None:
-    excel_path = get_input_excel_path()
+    for excel_path in get_input_excel_paths():
+        cargar_archivo(excel_path)
+
+
+def cargar_archivo(excel_path: Path) -> None:
     source_file = excel_path.name
     fecha_archivo = file_date(excel_path)
 
@@ -263,8 +269,9 @@ def main() -> None:
             print(f"{TABLE}: columnas agregadas: {', '.join(added)}")
 
         # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
+        # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
         fecha_visor = bench_recarga.fecha_visor_archivo(excel_path)
-        if not bench_recarga.debe_cargar(cur, TABLE, source_file, fecha_visor):
+        if not bench_recarga.debe_cargar(cur, TABLE, source_file, fecha_visor, conservar_precierre=True):
             return
 
         inserted = insert_rows(cn, df, source_file, fecha_archivo)

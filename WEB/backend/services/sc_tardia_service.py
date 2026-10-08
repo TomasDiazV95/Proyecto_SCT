@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 
-from database import run_query
+from database import run_query_sets
 
+
+# Altas cuantias: la meta mide C1 y C2 juntos (contencion y normalizacion, como C3);
+# por ciclo se reportan ademas C1 y C2 por separado, con la misma meta.
+ALTAS_CUANTIAS_BLOCK = "C1 - C2"
 
 BLOCK_ORDER = [
+    "C1",
+    "C2",
+    ALTAS_CUANTIAS_BLOCK,
     "C3",
     "SUSCEPTIBLE CV",
     "C5",
@@ -18,8 +27,42 @@ BLOCK_ORDER = [
     "TOTAL F1 - F4",
 ]
 
+# Bloques que entran al cumplimiento de mora tardia; castigo entra con su consolidado.
+MORA_TARDIA_BLOCKS = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO"]
+CASTIGO_TOTAL_BLOCK = "TOTAL F1 - F4"
+# Bloques cuyo cumplimiento combina contencion y normalizacion con los ponderadores nivel 3.
+BLOQUES_CON_NORMALIZACION = ("C1", "C2", ALTAS_CUANTIAS_BLOCK, "C3")
+CUMPLIMIENTO_MAX = 130.0
+
+
+# Las tablas de origen solo cambian cuando corre la carga; mientras tanto se reutiliza el resultado.
+CACHE_TTL = 300  # segundos
+_cache: dict[tuple, tuple[float, object]] = {}
+_cache_locks: dict[tuple, threading.Lock] = {}
+_cache_guard = threading.Lock()
+
+
+def _cached(key: tuple, loader):
+    """Resultado de loader() en cache por CACHE_TTL. El candado es por clave: si la tabla y los
+    filtros piden la misma fecha a la vez, la consulta corre una sola vez."""
+    with _cache_guard:
+        lock = _cache_locks.setdefault(key, threading.Lock())
+    with lock:
+        cached = _cache.get(key)
+        if cached and time.monotonic() - cached[0] < CACHE_TTL:
+            return cached[1]
+        value = loader()
+        with _cache_guard:
+            now = time.monotonic()
+            for old_key in [k for k, (created, _) in _cache.items() if now - created >= CACHE_TTL]:
+                _cache.pop(old_key, None)
+            _cache[key] = (now, value)
+        return value
+
 
 METAS_ORDER = [
+    "Contención C1_C2",
+    "Normalización C1_C2",
     "Contención C3",
     "Normalización C3",
     "Cont Suscept CV",
@@ -55,13 +98,15 @@ def _period_date(periodo: str | None) -> str:
             return text[:10]
         return text
 
-    sql = """
-    SELECT CONVERT(char(10), MAX(fecha), 126) AS periodo
-    FROM dbo.vw_stc_sabana_avance
-    WHERE fecha IS NOT NULL
-    """
-    rows = run_query(sql)
-    return (rows[0].get("periodo") if rows else None) or date.today().isoformat()
+    periodos = _filter_lists()["periodos"]
+    return periodos[0][:10] if periodos else date.today().isoformat()
+
+
+def _period_version(periodo: str | None) -> str:
+    """El bench de fin de mes tiene dos cargas; el filtro de fecha las ofrece como
+    'YYYY-MM-DD (Cierre)' y 'YYYY-MM-DD (Pre-cierre)'. Sin sufijo es la carga vigente."""
+    text = _clean_text(periodo).upper().replace("-", "")
+    return "PRECIERRE" if "PRECIERRE" in text else "CIERRE"
 
 
 def _block_index(block: str) -> int:
@@ -81,18 +126,9 @@ def _executive_key(value) -> str:
     return _clean_text(value).upper()
 
 
-def _active_blocks_by_executive(periodo: str) -> dict[str, list[str]]:
-    sql = """
-    SELECT
-        LTRIM(RTRIM(ejecutivo)) AS ejecutivo,
-        LTRIM(RTRIM(bloque)) AS bloque
-    FROM dbo.stc_bloques_ejecutivos
-    WHERE periodo = DATEFROMPARTS(YEAR(CAST(? AS DATE)), MONTH(CAST(? AS DATE)), 1)
-      AND activo = 1
-    ORDER BY ejecutivo, bloque
-    """
+def _active_blocks_by_executive(rows: list[dict]) -> dict[str, list[str]]:
     active: dict[str, list[str]] = {}
-    for row in run_query(sql, (periodo, periodo)):
+    for row in rows:
         ejecutivo = row.get("ejecutivo") or ""
         bloque = row.get("bloque") or ""
         if ejecutivo and bloque:
@@ -103,19 +139,9 @@ def _active_blocks_by_executive(periodo: str) -> dict[str, list[str]]:
     return active
 
 
-def _level_1_weights(periodo: str) -> dict[str, float]:
-    sql = """
-    SELECT
-        meta_tipo,
-        MAX(ponderador_nivel_1_pct) AS ponderador_nivel_1_pct
-    FROM dbo.stc_metas_mensuales
-    WHERE periodo = DATEFROMPARTS(YEAR(CAST(? AS DATE)), MONTH(CAST(? AS DATE)), 1)
-      AND activo = 1
-      AND meta_tipo IN ('PCT', 'STOCK')
-    GROUP BY meta_tipo
-    """
+def _level_1_weights(rows: list[dict]) -> dict[str, float]:
     weights = {"PCT": 0.0, "PTC": 0.0, "STOCK": 0.0}
-    for row in run_query(sql, (periodo, periodo)):
+    for row in rows:
         meta_tipo = row.get("meta_tipo") or ""
         if meta_tipo in weights:
             weights[meta_tipo] = float(row.get("ponderador_nivel_1_pct") or 0)
@@ -123,48 +149,79 @@ def _level_1_weights(periodo: str) -> dict[str, float]:
     return weights
 
 
-def _sc_tardia_sql(extra_where: str = "") -> str:
+def _base_zona_sql(version: str) -> str:
+    """Foto vigente de cada origen en #base_zona_original. Para el pre-cierre, el origen que
+    tenga carga de pre-cierre en la fecha consultada sale de ahi; el resto, de la carga vigente."""
+    columnas = f"""
+        v.fecha,
+        v.rut,
+        v.operacion,
+        {_zona_sql("v.zona")} AS zona,
+        v.deuda,
+        v.contenido,
+        v.normalizado,
+        LTRIM(RTRIM(v.ciclo)) AS ciclo,
+        LTRIM(RTRIM(v.apertura)) AS apertura,
+        LTRIM(RTRIM(v.ejecutivo)) AS ejecutivo,
+        v.origen"""
+    vigente = """
+    FROM dbo.vw_stc_sabana_avance v
+    INNER JOIN #ultimas_fechas uf
+        ON v.origen = uf.origen
+       AND v.fecha = uf.fecha_utilizada"""
+
+    if version != "PRECIERRE":
+        return f"""
+    SELECT{columnas}
+    INTO #base_zona_original{vigente};
+"""
     return f"""
-    WITH parametros AS (
-        SELECT CAST(? AS DATE) AS fecha_consulta
-    ),
+    SELECT{columnas}
+    INTO #base_zona_original
+    FROM dbo.vw_stc_sabana_avance_precierre v
+    WHERE v.fecha = @fecha_consulta;
 
-    periodo_meta AS (
-        SELECT
-            fecha_consulta,
-            DATEFROMPARTS(YEAR(fecha_consulta), MONTH(fecha_consulta), 1) AS periodo
-        FROM parametros
-    ),
+    INSERT INTO #base_zona_original
+    SELECT{columnas}{vigente}
+    WHERE v.origen NOT IN (SELECT origen FROM #base_zona_original);
+"""
 
-    ultimas_fechas AS (
-        SELECT
-            v.origen,
-            MAX(v.fecha) AS fecha_utilizada
-        FROM dbo.vw_stc_sabana_avance v
-        CROSS JOIN parametros p
-        WHERE v.fecha <= p.fecha_consulta
-        GROUP BY v.origen
-    ),
 
-    base_zona_original AS (
-        SELECT
-            v.fecha,
-            v.rut,
-            v.operacion,
-            {_zona_sql("v.zona")} AS zona,
-            v.deuda,
-            v.contenido,
-            v.normalizado,
-            LTRIM(RTRIM(v.ciclo)) AS ciclo,
-            LTRIM(RTRIM(v.apertura)) AS apertura,
-            LTRIM(RTRIM(v.ejecutivo)) AS ejecutivo,
-            v.origen
-        FROM dbo.vw_stc_sabana_avance v
-        INNER JOIN ultimas_fechas uf
-            ON v.origen = uf.origen
-           AND v.fecha = uf.fecha_utilizada
-    ),
+def _sc_tardia_sql(version: str = "CIERRE") -> str:
+    """Lote unico: la vista se lee una sola vez a #base_zona_original (la foto vigente de cada
+    origen) y de ahi salen los bloques activos, los ponderadores de nivel 1 y la tabla."""
+    return f"""
+    SET NOCOUNT ON;
 
+    DECLARE @fecha_consulta DATE = CAST(? AS DATE);
+    DECLARE @periodo DATE = DATEFROMPARTS(YEAR(@fecha_consulta), MONTH(@fecha_consulta), 1);
+
+    SELECT
+        v.origen,
+        MAX(v.fecha) AS fecha_utilizada
+    INTO #ultimas_fechas
+    FROM dbo.vw_stc_sabana_avance v
+    WHERE v.fecha <= @fecha_consulta
+    GROUP BY v.origen;
+{_base_zona_sql(version)}
+    SELECT
+        LTRIM(RTRIM(ejecutivo)) AS ejecutivo,
+        LTRIM(RTRIM(bloque)) AS bloque
+    FROM dbo.stc_bloques_ejecutivos
+    WHERE periodo = @periodo
+      AND activo = 1
+    ORDER BY ejecutivo, bloque;
+
+    SELECT
+        meta_tipo,
+        MAX(ponderador_nivel_1_pct) AS ponderador_nivel_1_pct
+    FROM dbo.stc_metas_mensuales
+    WHERE periodo = @periodo
+      AND activo = 1
+      AND meta_tipo IN ('PCT', 'STOCK')
+    GROUP BY meta_tipo;
+
+    WITH
     -- Cada ejecutivo queda en una sola zona: la que concentra mas operaciones.
     -- Asi una operacion suelta en otra zona no duplica al ejecutivo en la tabla.
     zona_principal_ejecutivo AS (
@@ -177,7 +234,7 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
                     PARTITION BY ejecutivo
                     ORDER BY COUNT_BIG(1) DESC, zona
                 ) AS rn
-            FROM base_zona_original
+            FROM #base_zona_original
             WHERE ISNULL(ejecutivo, '') <> ''
               AND zona IS NOT NULL
             GROUP BY ejecutivo, zona
@@ -198,7 +255,7 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             b.apertura,
             b.ejecutivo,
             b.origen
-        FROM base_zona_original b
+        FROM #base_zona_original b
         LEFT JOIN zona_principal_ejecutivo zp
             ON zp.ejecutivo = b.ejecutivo
     ),
@@ -219,6 +276,7 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             CASE
                 WHEN ciclo IN ('C6', 'C7', 'C8') AND apertura = 'SUSCEPTIBLE CASTIGO' THEN 'PRE CASTIGO'
                 WHEN ciclo = 'C6' AND ISNULL(apertura, '') <> 'SUSCEPTIBLE CASTIGO' THEN 'C6'
+                WHEN ciclo IN ('C1', 'C2') THEN ciclo
                 WHEN ciclo = 'C3' THEN 'C3'
                 WHEN apertura = 'SUSCEPTIBLE CV' THEN 'SUSCEPTIBLE CV'
                 WHEN ciclo = 'C5' THEN 'C5'
@@ -226,6 +284,16 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             END AS bloque
         FROM base
         WHERE origen = 'STC'
+    ),
+
+    -- C1 y C2 van por separado y ademas en el consolidado de altas cuantias, que es el que mide la meta.
+    stc_bloques AS (
+        SELECT ejecutivo, zona, operacion, deuda, contenido, normalizado, bloque
+        FROM stc_clasificado
+        UNION ALL
+        SELECT ejecutivo, zona, operacion, deuda, contenido, normalizado, 'C1 - C2' AS bloque
+        FROM stc_clasificado
+        WHERE bloque IN ('C1', 'C2')
     ),
 
     castigo_clasificado AS (
@@ -262,9 +330,8 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             m.ponderador_nivel_2_pct,
             m.ponderador_nivel_3_pct
         FROM dbo.stc_metas_mensuales m
-        INNER JOIN periodo_meta p
-            ON m.periodo = p.periodo
-        WHERE m.activo = 1
+        WHERE m.periodo = @periodo
+          AND m.activo = 1
     ),
 
     resultado_stc_base AS (
@@ -275,9 +342,10 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             zona,
             SUM(ISNULL(deuda, 0)) AS deuda_asignada,
             SUM(ISNULL(contenido, 0)) AS contenido,
-            CASE WHEN bloque = 'C3' THEN SUM(ISNULL(normalizado, 0)) ELSE NULL END AS normalizado,
+            CASE WHEN bloque IN ('C1', 'C2', 'C1 - C2', 'C3') THEN SUM(ISNULL(normalizado, 0)) ELSE NULL END AS normalizado,
             COUNT(DISTINCT operacion) AS cantidad_casos,
             CASE
+                WHEN bloque IN ('C1', 'C2', 'C1 - C2') THEN N'Contención C1_C2'
                 WHEN bloque = 'C3' THEN 'Contención C3'
                 WHEN bloque = 'SUSCEPTIBLE CV' THEN 'Cont Suscept CV'
                 WHEN bloque = 'C5' THEN 'Contención C5'
@@ -285,8 +353,12 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
                 WHEN bloque = 'PRE CASTIGO' THEN 'Contención Pre Castigo'
                 ELSE NULL
             END AS variable_meta_cont,
-            CASE WHEN bloque = 'C3' THEN 'Normalización C3' ELSE NULL END AS variable_meta_norm
-        FROM stc_clasificado
+            CASE
+                WHEN bloque IN ('C1', 'C2', 'C1 - C2') THEN N'Normalización C1_C2'
+                WHEN bloque = 'C3' THEN 'Normalización C3'
+                ELSE NULL
+            END AS variable_meta_norm
+        FROM stc_bloques
         WHERE bloque IS NOT NULL
         GROUP BY bloque, ejecutivo, zona
     ),
@@ -439,17 +511,18 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
             rf.pond_n3_cont,
             rf.pond_n3_norm
         FROM resultado_final rf
-        CROSS JOIN periodo_meta pm
         WHERE EXISTS (
             SELECT 1
             FROM dbo.stc_bloques_ejecutivos be
             WHERE LTRIM(RTRIM(be.ejecutivo)) = rf.ejecutivo
-              AND be.periodo = pm.periodo
+              AND be.periodo = @periodo
               AND be.activo = 1
               AND (
                     LTRIM(RTRIM(be.bloque)) = rf.bloque
                     -- La asignacion historica 'F1 - F2' habilita F1 y F2 por separado.
                  OR (LTRIM(RTRIM(be.bloque)) = 'F1 - F2' AND rf.bloque IN ('F1', 'F2'))
+                    -- Altas cuantias habilita tambien C1 y C2 por separado.
+                 OR (LTRIM(RTRIM(be.bloque)) = 'C1 - C2' AND rf.bloque IN ('C1', 'C2'))
               )
         )
     )
@@ -469,7 +542,6 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
         pond_n3_cont,
         pond_n3_norm
     FROM resultado_filtrado
-    {extra_where}
     ORDER BY
         CASE reporte
             WHEN 'STC' THEN 1
@@ -480,6 +552,9 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
         ejecutivo,
         zona,
         CASE bloque
+            WHEN 'C1' THEN -2
+            WHEN 'C2' THEN -1
+            WHEN 'C1 - C2' THEN 0
             WHEN 'C3' THEN 1
             WHEN 'SUSCEPTIBLE CV' THEN 2
             WHEN 'C5' THEN 3
@@ -495,27 +570,11 @@ def _sc_tardia_sql(extra_where: str = "") -> str:
     """
 
 
-def _rows_from_query(filters: dict) -> list[dict]:
-    periodo = _period_date(filters.get("periodo"))
-    active_blocks = _active_blocks_by_executive(periodo)
-    level_1_weights = _level_1_weights(periodo)
-    clauses: list[str] = []
-    params: list = [periodo]
-
-    if _clean_text(filters.get("zona")):
-        clauses.append("LTRIM(RTRIM(zona)) = ?")
-        params.append(_clean_text(filters.get("zona")))
-
-    if _clean_text(filters.get("ejecutivo")):
-        clauses.append("LTRIM(RTRIM(ejecutivo)) = ?")
-        params.append(_clean_text(filters.get("ejecutivo")))
-
-    if _clean_text(filters.get("ciclo")):
-        clauses.append("LTRIM(RTRIM(bloque)) = ?")
-        params.append(_clean_text(filters.get("ciclo")))
-
-    extra_where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    rows = run_query(_sc_tardia_sql(extra_where), tuple(params))
+def _load_rows(periodo: str, version: str) -> list[dict]:
+    """Todas las filas de la fecha, sin filtros de zona / ejecutivo / bloque."""
+    bloques, ponderadores, rows = run_query_sets(_sc_tardia_sql(version), (periodo,))[-3:]
+    active_blocks = _active_blocks_by_executive(bloques)
+    level_1_weights = _level_1_weights(ponderadores)
 
     response: list[dict] = []
     for row in rows:
@@ -544,12 +603,146 @@ def _rows_from_query(filters: dict) -> list[dict]:
     return response
 
 
+def _rows_from_query(filters: dict) -> list[dict]:
+    periodo = _period_date(filters.get("periodo"))
+    version = _period_version(filters.get("periodo"))
+    rows = _cached(("rows", periodo, version), lambda: _load_rows(periodo, version))
+
+    # Los filtros actuan sobre el resultado ya agregado, asi que se aplican en memoria
+    # (sin distinguir mayusculas, igual que el collation de la base).
+    for campo, valor in (
+        ("zona", filters.get("zona")),
+        ("ejecutivo", filters.get("ejecutivo")),
+        ("bloque", filters.get("ciclo")),
+    ):
+        buscado = _clean_text(valor).upper()
+        if buscado:
+            rows = [row for row in rows if row[campo].strip().upper() == buscado]
+
+    return [dict(row) for row in rows]
+
+
+def _num(value) -> float:
+    return float(value or 0)
+
+
+def _cap_pct(value: float) -> float:
+    return max(0.0, min(CUMPLIMIENTO_MAX, value))
+
+
+def _capped_pct(numerador, denominador) -> float:
+    den = _num(denominador)
+    if not den:
+        return 0.0
+    return _cap_pct(_num(numerador) / den * 100.0)
+
+
+def _row_compliance(row: dict) -> float:
+    """Cumplimiento de un bloque. C1 - C2 y C3 combinan contencion y normalizacion con los
+    ponderadores nivel 3 de la tabla de metas; el resto es solo contencion."""
+    cont = _capped_pct(row.get("contenido"), row.get("monto_meta_cont"))
+    norm = _capped_pct(row.get("normalizado"), row.get("monto_meta_norm"))
+    peso_cont = _num(row.get("pond_n3_cont"))
+    peso_norm = _num(row.get("pond_n3_norm"))
+    if row.get("bloque") in BLOQUES_CON_NORMALIZACION and _num(row.get("monto_meta_norm")) > 0 and peso_cont + peso_norm > 0:
+        return _cap_pct(((cont * peso_cont) + (norm * peso_norm)) / (peso_cont + peso_norm))
+    return cont
+
+
 def get_cycle_view(filters: dict) -> list[dict]:
-    return _rows_from_query(filters)
+    rows = _rows_from_query(filters)
+    for row in rows:
+        row["pct_contencion"] = _capped_pct(row["contenido"], row["monto_meta_cont"])
+        row["pct_normalizacion"] = _capped_pct(row["normalizado"], row["monto_meta_norm"])
+        row["cumplimiento_operativo"] = _row_compliance(row)
+    return rows
 
 
 def get_general_view(filters: dict) -> list[dict]:
-    return _rows_from_query(filters)
+    """Una fila por ejecutivo con el cumplimiento de cada bloque y el cumplimiento final."""
+    rows = _rows_from_query(filters)
+
+    # Ponderador nivel 2 de cada bloque de mora tardia (es el mismo para todos los ejecutivos del mes).
+    peso_nivel_2: dict[str, float] = {}
+    for row in rows:
+        if row.get("pond_n2") is not None:
+            peso_nivel_2[row["bloque"]] = _num(row["pond_n2"])
+
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        current = grouped.setdefault(
+            row["ejecutivo"],
+            {
+                "ejecutivo": row["ejecutivo"],
+                "casos_asignados": 0,
+                "sumas": {},
+                "bloques_activos": set(),
+                "ponderadores_nivel_1": {"PTC": 0.0, "STOCK": 0.0},
+            },
+        )
+        # C1 y C2 ya vienen sumados en el consolidado de altas cuantias.
+        if row["bloque"] not in ("C1", "C2"):
+            current["casos_asignados"] += int(row.get("cantidad_casos") or 0)
+        # Se suma primero y se divide despues: el ejecutivo puede tener el bloque en mas de una fila.
+        suma = current["sumas"].setdefault(
+            row["bloque"],
+            {
+                "bloque": row["bloque"],
+                "contenido": 0.0,
+                "monto_meta_cont": 0.0,
+                "normalizado": 0.0,
+                "monto_meta_norm": 0.0,
+                "pond_n3_cont": row.get("pond_n3_cont"),
+                "pond_n3_norm": row.get("pond_n3_norm"),
+            },
+        )
+        for campo in ("contenido", "monto_meta_cont", "normalizado", "monto_meta_norm"):
+            suma[campo] += _num(row.get(campo))
+        current["bloques_activos"].update(row.get("bloques_activos") or [])
+        current["ponderadores_nivel_1"] = row.get("ponderadores_nivel_1") or current["ponderadores_nivel_1"]
+
+    response: list[dict] = []
+    for item in grouped.values():
+        bloques = {suma["bloque"]: _row_compliance(suma) for suma in item["sumas"].values()}
+        activos = item["bloques_activos"]
+        mora_blocks = [b for b in MORA_TARDIA_BLOCKS if b in activos or b in bloques]
+        tiene_castigo = CASTIGO_TOTAL_BLOCK in activos or CASTIGO_TOTAL_BLOCK in bloques
+
+        # Mora tardia = promedio de los bloques activos ponderado por nivel 2 (se re-normaliza sobre los activos).
+        peso_total = sum(peso_nivel_2.get(b, 0.0) for b in mora_blocks)
+        if not mora_blocks:
+            mora = 0.0
+        elif peso_total > 0:
+            mora = sum(bloques.get(b, 0.0) * peso_nivel_2.get(b, 0.0) for b in mora_blocks) / peso_total
+        else:
+            mora = sum(bloques.get(b, 0.0) for b in mora_blocks) / len(mora_blocks)
+        castigo = bloques.get(CASTIGO_TOTAL_BLOCK, 0.0)
+
+        pesos = item["ponderadores_nivel_1"]
+        if ALTAS_CUANTIAS_BLOCK in activos or ALTAS_CUANTIAS_BLOCK in bloques:
+            # Altas cuantias se mide solo por su bloque (contencion + normalizacion C1_C2).
+            cumplimiento = bloques.get(ALTAS_CUANTIAS_BLOCK, 0.0)
+        elif mora_blocks and tiene_castigo:
+            cumplimiento = (mora * _num(pesos.get("PTC")) / 100.0) + (castigo * _num(pesos.get("STOCK")) / 100.0)
+        elif mora_blocks:
+            cumplimiento = mora
+        elif tiene_castigo:
+            cumplimiento = castigo
+        else:
+            cumplimiento = 0.0
+
+        response.append(
+            {
+                "ejecutivo": item["ejecutivo"],
+                "casos_asignados": item["casos_asignados"],
+                "bloques": bloques,
+                "ponderadores_nivel_1": pesos,
+                "cumplimiento_operativo": _cap_pct(cumplimiento),
+            }
+        )
+
+    response.sort(key=lambda x: x["cumplimiento_operativo"], reverse=True)
+    return response
 
 
 def get_metas(filters: dict) -> list[dict]:
@@ -577,7 +770,7 @@ def get_metas(filters: dict) -> list[dict]:
             "ponderador_nivel_2_pct": row.get("ponderador_nivel_2_pct"),
             "ponderador_nivel_3_pct": row.get("ponderador_nivel_3_pct"),
         }
-        for row in run_query(sql, (periodo, periodo))
+        for row in run_query_sets(sql, (periodo, periodo))[-1]
     ]
     # Mismo orden que la tabla de metas del negocio; las variables no listadas (castigo) van al final.
     orden = {variable: idx for idx, variable in enumerate(METAS_ORDER)}
@@ -585,36 +778,66 @@ def get_metas(filters: dict) -> list[dict]:
     return rows
 
 
-def get_filter_values(periodo: str | None = None, zona: str | None = None) -> dict:
-    sql_periodos = """
+def _load_filter_lists() -> dict:
+    """Fechas, zonas y ejecutivos de toda la sabana, en un solo viaje a la base."""
+    sql = f"""
+    SET NOCOUNT ON;
+
     SELECT DISTINCT CONVERT(char(10), fecha, 126) AS valor
     FROM dbo.vw_stc_sabana_avance
     WHERE fecha IS NOT NULL
-    ORDER BY valor DESC
-    """
-    sql_zonas = f"""
+    ORDER BY valor DESC;
+
     SELECT DISTINCT {_zona_sql("zona")} AS valor
     FROM dbo.vw_stc_sabana_avance
     WHERE zona IS NOT NULL AND LTRIM(RTRIM(zona)) <> ''
-    ORDER BY valor
+    ORDER BY valor;
+
+    SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS valor
+    FROM dbo.vw_stc_sabana_avance
+    WHERE ejecutivo IS NOT NULL AND LTRIM(RTRIM(ejecutivo)) <> ''
+    ORDER BY valor;
+
+    -- Fechas con carga de pre-cierre (la vista existe desde SQL/sct_precierre.sql).
+    IF OBJECT_ID('dbo.vw_stc_sabana_avance_precierre', 'V') IS NOT NULL
+        SELECT DISTINCT CONVERT(char(10), fecha, 126) AS valor
+        FROM dbo.vw_stc_sabana_avance_precierre
+        WHERE fecha IS NOT NULL;
+    ELSE
+        SELECT CAST(NULL AS char(10)) AS valor WHERE 1 = 0;
     """
+    periodos, zonas, ejecutivos, precierres = run_query_sets(sql)[-4:]
+    con_precierre = {r["valor"] for r in precierres if r.get("valor")}
+    fechas: list[str] = []
+    for fecha in (r["valor"] for r in periodos if r.get("valor")):
+        if fecha in con_precierre:
+            fechas += [f"{fecha} (Cierre)", f"{fecha} (Pre-cierre)"]
+        else:
+            fechas.append(fecha)
+    return {
+        "periodos": fechas,
+        "zonas": [r["valor"] for r in zonas if r.get("valor")],
+        "ejecutivos": [r["valor"] for r in ejecutivos if r.get("valor")],
+    }
+
+
+def _filter_lists() -> dict:
+    return _cached(("filtros",), _load_filter_lists)
+
+
+def get_filter_values(periodo: str | None = None, zona: str | None = None) -> dict:
+    listas = _filter_lists()
     if periodo:
         # Con fecha de consulta: exactamente los ejecutivos que aparecen en la tabla (misma fecha y zona).
         rows = _rows_from_query({"periodo": periodo, "zona": zona})
         ejecutivos = sorted({row["ejecutivo"] for row in rows if row.get("ejecutivo")})
     else:
-        sql_ejecutivos = """
-        SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS valor
-        FROM dbo.vw_stc_sabana_avance
-        WHERE ejecutivo IS NOT NULL AND LTRIM(RTRIM(ejecutivo)) <> ''
-        ORDER BY valor
-        """
-        ejecutivos = [r["valor"] for r in run_query(sql_ejecutivos) if r.get("valor")]
+        ejecutivos = list(listas["ejecutivos"])
 
     return {
-        "periodos": [r["valor"] for r in run_query(sql_periodos) if r.get("valor")],
+        "periodos": list(listas["periodos"]),
         "tramos": BLOCK_ORDER,
         "aperturas": [],
         "ejecutivos": ejecutivos,
-        "zonas": [r["valor"] for r in run_query(sql_zonas) if r.get("valor")],
+        "zonas": list(listas["zonas"]),
     }

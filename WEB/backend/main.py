@@ -14,10 +14,12 @@ from routers.gestiones_diarias_sct import router as gestiones_diarias_sct_router
 from routers.kpi_avance_phoenix import router as kpi_avance_phoenix_router
 from routers.itau_castigo import router as itau_castigo_router
 from routers.itau_vencida import router as itau_vencida_router
+from routers.itau_vigente import router as itau_vigente_router
 from routers.kpi_diario import router as kpi_diario_router
 from routers.kpi_operacional import router as kpi_operacional_router
 from routers.la_araucana import router as la_araucana_router
 from routers.porsche import router as porsche_router
+from routers.rrhh import router as rrhh_router
 from routers.sc_tardia import router as sc_tardia_router
 from routers.sc_temprana import router as sc_temprana_router
 from routers.sth import router as sth_router
@@ -60,6 +62,7 @@ app.include_router(kpi_diario_router, prefix="/api/kpi-diario", tags=["kpi-diari
 app.include_router(kpi_operacional_router, prefix="/api/kpi-operacional", tags=["kpi-operacional"])
 app.include_router(itau_castigo_router, prefix="/api/itau-castigo", tags=["itau-castigo"])
 app.include_router(itau_vencida_router, prefix="/api/itau-vencida", tags=["itau-vencida"])
+app.include_router(itau_vigente_router, prefix="/api/itau-vigente", tags=["itau-vigente"])
 app.include_router(bit_castigo_router, prefix="/api/bit-castigo", tags=["bit-castigo"])
 app.include_router(bit_router, prefix="/api/bit", tags=["bit"])
 # app.include_router(factura_router, prefix="/api/factura", tags=["factura"])
@@ -71,3 +74,4 @@ app.include_router(admin_users_router, prefix="/api/admin", tags=["admin-users"]
 app.include_router(administrativas_router, prefix="/api/administrativas", tags=["administrativas"])
 app.include_router(contactabilidad_router, prefix="/api/contactabilidad", tags=["contactabilidad"])
 app.include_router(estrategia_asignacion_router, prefix="/api/estrategia-asignacion", tags=["estrategia-asignacion"])
+app.include_router(rrhh_router, prefix="/api/rrhh", tags=["rrhh"])

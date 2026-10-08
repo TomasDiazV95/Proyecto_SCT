@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta
 
 from database import run_query, run_query_sets
@@ -15,6 +16,8 @@ CARTERA_CRM = 531
 TIPOS_PAGO_VALIDOS = ["E-ACTSEGCES", "E-MANUAL", "E-INTER-CC", "E-CC"]
 # Los negocios (reprogramaciones) vienen en la misma tabla de pagos con este tipo de pago.
 TIPOS_PAGO_NEGOCIO = ["NE-REPRO"]
+# Los negocios se separan segun la deuda del folio: hasta este monto o sobre el.
+TRAMO_DEUDA_NEGOCIO = 1000000
 
 
 def _columns(table_name: str) -> set[str]:
@@ -255,13 +258,26 @@ def _pagos_period_sql(c: dict) -> str:
     return f"AND CAST(p.{c['fecha_negocio_pago']} AS date) >= CAST(? AS date) AND CAST(p.{c['fecha_negocio_pago']} AS date) <= CAST(? AS date)"
 
 
-def _atribucion_sql(c: dict, periodo: str, tipos_pago_validos: list[str] | None = None) -> tuple[str, list, str]:
+def _atribucion_sql(
+    c: dict,
+    periodo: str,
+    tipos_pago_validos: list[str] | None = None,
+    solo_ruts_con_pago: bool = False,
+) -> tuple[str, list, str]:
     """Lote SQL que deja en #base una fila por pago valido con la gestion que se lo lleva.
 
     Solo cuentan las gestiones del mes seleccionado (quedan en #gest). Regla: la mejor gestion del
     RUT hasta la fecha de pago (mejor ranking de respuesta segun tmp_LA_respuesta; a igualdad, mejor
     contacto y luego la mas cercana al pago). Si no hay gestion previa, la primera gestion posterior
     al pago.
+
+    Tambien deja #gest_pago (gestiones de los RUT con pago, contra la que se hace el cruce) y
+    #mejor_gestion_mes (la mejor gestion de cada RUT en el mes). Ambas salen de la variable de tabla
+    @gest y no de #gest: filtrar u ordenar una tabla temporal grande obliga a SQL Server a generar
+    estadisticas de cada columna, y eso tardaba mas que la consulta misma.
+
+    Con `solo_ruts_con_pago`, #gest solo guarda las gestiones de los RUT con pago; sirve cuando
+    despues no se calcula la deuda por folio.
     """
     ranking_parts = _ranking_sql_parts(f"g.{c['resp_gest']}")
     asig = _asignacion_cols()
@@ -270,8 +286,26 @@ def _atribucion_sql(c: dict, periodo: str, tipos_pago_validos: list[str] | None 
     period_month, _period_day, month_start, month_end, _file_tokens = _parse_period(selected_mes_proceso)
     tipos_pago = ", ".join(f"'{t}'" for t in (tipos_pago_validos or TIPOS_PAGO_VALIDOS))
     gestion_id_expr = f"g.{c['id_gest']}" if c["id_gest"] else "CAST(NULL AS bigint)"
+    solo_ruts_sql = f"AND CONVERT(varchar(50), g.{c['rut_gest']}) IN (SELECT p.rut FROM #pagos p)" if solo_ruts_con_pago else ""
     # Las tablas temporales evitan recalcular pagos y gestiones del mes en cada referencia.
     sql = f"""SET NOCOUNT ON;
+    SELECT
+        p.{c['id_pago']} AS pago_id,
+        CONVERT(varchar(100), p.{c['contrato_pago']}) AS contrato,
+        {_rut_pago_expr(f"p.{c['rut_pago']}")} AS rut,
+        {_fecha_pago_expr(f"p.{c['fecha_pago']}")} AS fecha_pago,
+        {_norm_payment_expr(f"p.{c['tipo_pago']}")} AS tipo_pago,
+        COALESCE({_tipo_cartera_expr(f"a.{asig['tipo_cartera']}")}, {_tipo_cartera_expr(f"p.{c['tipo_cartera']}")}) AS tipo_cartera,
+        COALESCE(CAST(p.{c['recupero']} AS float), 0) AS recupero,
+        CAST(a.{asig['deuda']} AS float) AS deuda
+    INTO #pagos
+    FROM {PAGOS_TABLE} p
+    LEFT JOIN {ASIGNACION_TABLE} a
+        ON a.{asig['folio']} = p.{c['contrato_pago']}
+       AND a.{asig['mes_proceso']} = ?
+    WHERE {_norm_payment_expr(f"p.{c['tipo_pago']}")} IN ({tipos_pago})
+      {_pagos_period_sql(c)};
+
     {ranking_parts["cte"]}
     SELECT
         CONVERT(varchar(50), g.{c['rut_gest']}) AS rut,
@@ -289,25 +323,53 @@ def _atribucion_sql(c: dict, periodo: str, tipos_pago_validos: list[str] | None 
     WHERE g.{c['cartera_gest']} = {CARTERA_CRM}
       AND g.{c['fecha_gest']} >= CAST(? AS date)
       AND g.{c['fecha_gest']} <= CAST(? AS date)
-      AND LTRIM(RTRIM(COALESCE(g.{c['usuario_gest']}, ''))) <> '';
+      AND LTRIM(RTRIM(COALESCE(g.{c['usuario_gest']}, ''))) <> ''
+      {solo_ruts_sql};
 
-    CREATE CLUSTERED INDEX IX_gest_rut ON #gest (rut);
+    DECLARE @gest TABLE (
+        rut varchar(50),
+        usuario varchar(200),
+        contacto varchar(200),
+        respuesta varchar(300),
+        fecha_gestion date,
+        hora_gestion varchar(8),
+        telefono varchar(100),
+        id_gestion bigint,
+        respuesta_ranking int
+    );
+    INSERT INTO @gest (rut, usuario, contacto, respuesta, fecha_gestion, hora_gestion, telefono, id_gestion, respuesta_ranking)
+    SELECT rut, usuario, contacto, respuesta, fecha_gestion, hora_gestion, telefono, id_gestion, respuesta_ranking
+    FROM #gest;
 
-    SELECT
-        p.{c['id_pago']} AS pago_id,
-        CONVERT(varchar(100), p.{c['contrato_pago']}) AS contrato,
-        {_rut_pago_expr(f"p.{c['rut_pago']}")} AS rut,
-        {_fecha_pago_expr(f"p.{c['fecha_pago']}")} AS fecha_pago,
-        {_norm_payment_expr(f"p.{c['tipo_pago']}")} AS tipo_pago,
-        COALESCE({_tipo_cartera_expr(f"a.{asig['tipo_cartera']}")}, {_tipo_cartera_expr(f"p.{c['tipo_cartera']}")}) AS tipo_cartera,
-        COALESCE(CAST(p.{c['recupero']} AS float), 0) AS recupero
-    INTO #pagos
-    FROM {PAGOS_TABLE} p
-    LEFT JOIN {ASIGNACION_TABLE} a
-        ON a.{asig['folio']} = p.{c['contrato_pago']}
-       AND a.{asig['mes_proceso']} = ?
-    WHERE {_norm_payment_expr(f"p.{c['tipo_pago']}")} IN ({tipos_pago})
-      {_pagos_period_sql(c)};
+    SELECT g.*
+    INTO #gest_pago
+    FROM @gest g
+    WHERE g.rut IN (SELECT p.rut FROM #pagos p)
+    OPTION (RECOMPILE);
+
+    SELECT x.rut, x.usuario, x.contacto, x.respuesta, x.fecha_gestion, x.telefono
+    INTO #mejor_gestion_mes
+    FROM (
+        SELECT
+            g.rut,
+            g.usuario,
+            g.contacto,
+            g.respuesta,
+            g.fecha_gestion,
+            g.telefono,
+            ROW_NUMBER() OVER (
+                PARTITION BY g.rut
+                ORDER BY
+                    g.respuesta_ranking ASC,
+                    {_contacto_gestion_order_expr("g.contacto")} ASC,
+                    g.fecha_gestion DESC,
+                    g.hora_gestion DESC,
+                    g.id_gestion DESC
+            ) AS rn
+        FROM @gest g
+    ) x
+    WHERE x.rn = 1
+    OPTION (RECOMPILE);
 
     WITH gestiones AS (
         SELECT
@@ -315,7 +377,7 @@ def _atribucion_sql(c: dict, periodo: str, tipos_pago_validos: list[str] | None 
             g.*,
             CASE WHEN g.fecha_gestion <= p.fecha_pago THEN 0 ELSE 1 END AS es_posterior
         FROM #pagos p
-        INNER JOIN #gest g ON g.rut = p.rut AND p.fecha_pago IS NOT NULL
+        INNER JOIN #gest_pago g ON g.rut = p.rut AND p.fecha_pago IS NOT NULL
     ),
     gestion_elegida AS (
         SELECT
@@ -343,6 +405,7 @@ def _atribucion_sql(c: dict, periodo: str, tipos_pago_validos: list[str] | None 
         p.tipo_pago,
         p.tipo_cartera,
         p.recupero,
+        p.deuda,
         g.usuario,
         CASE WHEN g.pago_id IS NULL THEN NULL ELSE {_ejecutivo_expr("g.usuario", ejecutivas)} END AS ejecutivo,
         g.contacto,
@@ -362,8 +425,9 @@ def _atribucion_sql(c: dict, periodo: str, tipos_pago_validos: list[str] | None 
     FROM #pagos p
     LEFT JOIN gestion_elegida g ON g.pago_id = p.pago_id AND g.rn = 1;
     """
-    params: list = [month_start, month_end, selected_mes_proceso]
+    params: list = [selected_mes_proceso]
     params.extend([selected_mes_proceso] if c["mes_proceso_pago"] else [month_start, month_end])
+    params.extend([month_start, month_end])
     return sql, params, period_month
 
 
@@ -444,7 +508,7 @@ def get_filtros(periodo: str | None = None) -> dict:
 
 
 def _deuda_cte(periodo: str) -> tuple[str, list]:
-    """CTE `deuda`: deuda asignada por cartera y ejecutivo. Requiere #gest y #base.
+    """CTE `deuda`: deuda asignada por cartera y ejecutivo. Requiere #mejor_gestion_mes y #base.
 
     El folio va a quien se llevo su pago mas reciente; si no tiene pago, a la mejor gestion del
     RUT en el mes (ranking de respuesta, contacto y la mas reciente). Sin gestion no se cuenta.
@@ -453,24 +517,18 @@ def _deuda_cte(periodo: str) -> tuple[str, list]:
     ejecutivas = _ejecutivas(periodo)
     sql = f"""
     mejor_gestion_mes AS (
-        SELECT
-            g.rut,
-            g.usuario,
-            ROW_NUMBER() OVER (
-                PARTITION BY g.rut
-                ORDER BY
-                    g.respuesta_ranking ASC,
-                    {_contacto_gestion_order_expr("g.contacto")} ASC,
-                    g.fecha_gestion DESC,
-                    g.hora_gestion DESC,
-                    g.id_gestion DESC
-            ) AS rn
-        FROM #gest g
+        SELECT g.rut, g.usuario, g.contacto, g.respuesta, g.fecha_gestion, g.telefono, 1 AS rn
+        FROM #mejor_gestion_mes g
     ),
     pago_contrato AS (
         SELECT
             base.contrato,
             base.ejecutivo,
+            base.usuario,
+            base.contacto,
+            base.respuesta,
+            base.fecha_gestion,
+            base.telefono,
             ROW_NUMBER() OVER (PARTITION BY base.contrato ORDER BY base.fecha_pago DESC, base.pago_id DESC) AS rn
         FROM #base base
         WHERE base.ejecutivo IS NOT NULL
@@ -487,7 +545,12 @@ def _deuda_cte(periodo: str) -> tuple[str, list]:
                 WHEN mg.rut IS NOT NULL THEN 'MEJOR GESTION DEL MES'
                 ELSE 'SIN GESTION'
             END AS criterio,
-            CASE WHEN pc.contrato IS NULL THEN mg.usuario END AS usuario_mejor_gestion
+            CASE WHEN pc.contrato IS NULL THEN mg.usuario END AS usuario_mejor_gestion,
+            CASE WHEN pc.contrato IS NOT NULL THEN pc.usuario ELSE mg.usuario END AS usuario_gestion,
+            CASE WHEN pc.contrato IS NOT NULL THEN pc.contacto ELSE mg.contacto END AS contacto_gestion,
+            CASE WHEN pc.contrato IS NOT NULL THEN pc.respuesta ELSE mg.respuesta END AS respuesta_gestion,
+            CASE WHEN pc.contrato IS NOT NULL THEN pc.fecha_gestion ELSE mg.fecha_gestion END AS fecha_gestion,
+            CASE WHEN pc.contrato IS NOT NULL THEN pc.telefono ELSE mg.telefono END AS telefono
         FROM {ASIGNACION_TABLE} a
         LEFT JOIN pago_contrato pc ON pc.contrato = CONVERT(varchar(100), a.{asig['folio']}) AND pc.rn = 1
         LEFT JOIN mejor_gestion_mes mg ON mg.rut = CONVERT(varchar(50), a.{asig['rut']}) AND mg.rn = 1
@@ -615,51 +678,43 @@ def get_resumen(filters: dict) -> dict:
 def get_negocios(filters: dict) -> dict:
     """Negocios del mes (pagos NE-REPRO) asignados a la ejecutiva de la mejor gestion del RUT.
 
-    Usa la misma regla de atribucion que el recupero. Los negocios sin gestion en el mes no se
-    asignan a nadie: quedan fuera del resumen y se informan aparte en `sin_gestion`.
+    Usa la misma regla de atribucion que el recupero. Los negocios sin gestion en el mes se
+    cuentan en PHOENIX; `sin_gestion` informa cuantos son.
     """
     c = _resolved_cols()
     periodo = str(filters.get("periodo") or "")
-    base_sql, base_params, _period_month = _atribucion_sql(c, periodo, TIPOS_PAGO_NEGOCIO)
-    where = ["b.ejecutivo IS NOT NULL"]
+    base_sql, base_params, _period_month = _atribucion_sql(c, periodo, TIPOS_PAGO_NEGOCIO, solo_ruts_con_pago=True)
+    where = ["1 = 1"]
     params: list = []
     if filters.get("ejecutivo"):
         where.append("UPPER(LTRIM(RTRIM(b.ejecutivo))) = UPPER(LTRIM(RTRIM(?)))")
         params.append(str(filters["ejecutivo"]))
     where_sql = " AND ".join(where)
 
+    # Tramo segun la deuda asignada del folio; un folio sin asignacion cae en el tramo menor.
+    tramo = f"CASE WHEN COALESCE(b.deuda, 0) <= {TRAMO_DEUDA_NEGOCIO} THEN 'MENOR' ELSE 'MAYOR' END"
+    negocios = "(SELECT contrato, rut, tipo_cartera, fecha_pago, deuda, recupero, COALESCE(ejecutivo, 'PHOENIX') AS ejecutivo FROM #base)"
     sql = f"""{base_sql}
     SELECT
         b.ejecutivo,
-        b.tipo_cartera,
+        {tramo} AS tramo_deuda,
         COUNT(*) AS q_negocios,
-        SUM(b.recupero) AS monto,
-        CASE WHEN t.monto_total = 0 THEN 0 ELSE MAX(e.monto_ejecutivo) / t.monto_total END AS pct_aporte_final
-    FROM #base b
-    CROSS JOIN (SELECT COALESCE(SUM(recupero), 0) AS monto_total FROM #base WHERE ejecutivo IS NOT NULL) t
-    INNER JOIN (
-        SELECT ejecutivo, SUM(recupero) AS monto_ejecutivo
-        FROM #base
-        WHERE ejecutivo IS NOT NULL
-        GROUP BY ejecutivo
-    ) e ON e.ejecutivo = b.ejecutivo
+        SUM(b.recupero) AS recupero
+    FROM {negocios} b
     WHERE {where_sql}
-    GROUP BY b.ejecutivo, b.tipo_cartera, t.monto_total
-    ORDER BY CASE WHEN b.ejecutivo = 'PHOENIX' THEN 1 ELSE 0 END, b.ejecutivo, b.tipo_cartera;
+    GROUP BY b.ejecutivo, {tramo}
+    ORDER BY CASE WHEN b.ejecutivo = 'PHOENIX' THEN 1 ELSE 0 END, b.ejecutivo;
 
     SELECT
         b.contrato,
         b.rut,
         b.tipo_cartera,
         b.fecha_pago,
-        b.recupero AS monto,
-        b.ejecutivo,
-        b.usuario,
-        b.contacto,
-        b.respuesta,
-        b.fecha_gestion,
-        b.criterio
-    FROM #base b
+        b.deuda,
+        b.recupero,
+        {tramo} AS tramo_deuda,
+        b.ejecutivo
+    FROM {negocios} b
     WHERE {where_sql}
     ORDER BY CASE WHEN b.ejecutivo = 'PHOENIX' THEN 1 ELSE 0 END, b.ejecutivo, b.fecha_pago, b.contrato;
 
@@ -673,6 +728,86 @@ def get_negocios(filters: dict) -> dict:
         "detalle": detalle,
         "sin_gestion": sin_gestion[0] if sin_gestion else {"q_negocios": 0, "monto": 0},
         "tipos_pago": TIPOS_PAGO_NEGOCIO,
+    }
+
+
+# Detalle por folio ya calculado, por mes de proceso: (momento de carga, filas).
+# Paginar, buscar o filtrar dentro del mismo mes no vuelve a consultar la base.
+_DETALLE_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_DETALLE_CACHE_SEGUNDOS = 300
+
+
+def _detalle_folios(periodo: str) -> list[dict]:
+    """Una fila por folio asignado en el mes, con su recupero y la gestion que se lo lleva."""
+    mes_proceso = _to_mes_proceso(periodo)
+    cached = _DETALLE_CACHE.get(mes_proceso)
+    if cached and time.monotonic() - cached[0] < _DETALLE_CACHE_SEGUNDOS:
+        return cached[1]
+
+    c = _resolved_cols()
+    base_sql, base_params, _period_month = _atribucion_sql(c, periodo)
+    deuda_sql, deuda_params = _deuda_cte(periodo)
+    sql = f"""{base_sql}
+    WITH {deuda_sql.lstrip()},
+    recupero_folio AS (
+        SELECT base.contrato, SUM(base.recupero) AS recupero
+        FROM #base base
+        GROUP BY base.contrato
+    )
+    SELECT
+        d.folio,
+        d.rut,
+        d.tipo_cartera,
+        d.deuda,
+        COALESCE(r.recupero, 0) AS recupero,
+        d.ejecutivo,
+        d.usuario_gestion,
+        d.contacto_gestion,
+        d.respuesta_gestion,
+        d.fecha_gestion,
+        d.telefono
+    FROM deuda_folio d
+    LEFT JOIN recupero_folio r ON r.contrato = d.folio
+    ORDER BY COALESCE(r.recupero, 0) DESC, d.deuda DESC, d.folio;
+    """
+    rows = run_query_sets(sql, tuple(base_params + deuda_params))[-1]
+    _DETALLE_CACHE[mes_proceso] = (time.monotonic(), rows)
+    return rows
+
+
+def get_detalle(filters: dict) -> dict:
+    """Detalle paginado de los folios asignados en el mes. Los filtros se aplican en memoria."""
+    rows = _detalle_folios(str(filters.get("periodo") or ""))
+    usuarios = sorted({str(r["usuario_gestion"]).strip().upper() for r in rows if r["usuario_gestion"]})
+
+    def norm(value) -> str:
+        return str(value or "").strip().upper()
+
+    buscar = norm(filters.get("buscar"))
+    tipo_cartera = norm(filters.get("tipo_cartera"))
+    ejecutivo = norm(filters.get("ejecutivo"))
+    usuario = norm(filters.get("usuario_gestion"))
+    con_pago = str(filters.get("con_pago") or "").strip()
+    if buscar:
+        rows = [r for r in rows if buscar in norm(r["folio"]) or buscar in norm(r["rut"])]
+    if tipo_cartera:
+        rows = [r for r in rows if norm(r["tipo_cartera"]) == tipo_cartera]
+    if ejecutivo:
+        rows = [r for r in rows if norm(r["ejecutivo"]) == ejecutivo]
+    if usuario:
+        rows = [r for r in rows if norm(r["usuario_gestion"]) == usuario]
+    if con_pago in ("0", "1"):
+        rows = [r for r in rows if (float(r["recupero"] or 0) != 0) == (con_pago == "1")]
+
+    page = max(1, int(filters.get("page") or 1))
+    page_size = max(1, min(500, int(filters.get("page_size") or 100)))
+    start = (page - 1) * page_size
+    return {
+        "data": rows[start : start + page_size],
+        "total": len(rows),
+        "page": page,
+        "page_size": page_size,
+        "usuarios_gestion": usuarios,
     }
 
 

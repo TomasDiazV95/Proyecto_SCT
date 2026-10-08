@@ -80,9 +80,26 @@ PESO_RESPUESTA = [
 ]
 
 
+BENCH_TABLE = "dbo.tmp_bench_temp_STC"
+# El bench de fin de mes guarda dos cargas del mismo archivo (ETL/bench_recarga.py):
+# version_carga = 'PRECIERRE' en la primera y NULL en la vigente (cierre).
+VERSION_COL = "version_carga"
+_version_col_disponible = False
+
+
+def _tiene_version() -> bool:
+    """La columna se crea con SQL/sct_precierre.sql o en la primera carga del ETL."""
+    global _version_col_disponible
+    if not _version_col_disponible:
+        rows = run_query("SELECT COL_LENGTH(?, ?) AS largo", (BENCH_TABLE, VERSION_COL))
+        _version_col_disponible = bool(rows and rows[0].get("largo") is not None)
+    return _version_col_disponible
+
+
 def _normalize_period(periodo: str | None) -> str:
     if periodo:
-        value = str(periodo).strip()
+        # El filtro puede traer la version de la carga: 'YYYYMMDD (Cierre)' / 'YYYYMMDD (Pre-cierre)'.
+        value = str(periodo).strip().split(" (")[0].strip()
         if len(value) >= 10:
             return value[:10]
         return value
@@ -95,13 +112,36 @@ def _normalize_period(periodo: str | None) -> str:
     return (rows[0].get("periodo") if rows else None) or date.today().isoformat()
 
 
+def _period_version(periodo: str | None) -> str:
+    text = str(periodo or "").upper().replace("-", "")
+    return "PRECIERRE" if "PRECIERRE" in text else "CIERRE"
+
+
+def _bench_source(periodo: str, version: str) -> str:
+    """Origen del bench para las consultas: solo la carga vigente de cada foto. Para el pre-cierre,
+    la foto de la fecha consultada es la carga de pre-cierre; las demas fotos del mes, la vigente."""
+    if not _tiene_version():
+        return BENCH_TABLE
+    columnas = (
+        "id_bench_temp_stc, fld_OPERACION, fld_RUT, fld_TRAMO_MORA, fld_DEUDA_INI, "
+        "fld_CONTENIDO, fld_NORMALIZADO, fld_FEC_ULT_PAGO, fld_fecha"
+    )
+    if version != "PRECIERRE" or not periodo.isdigit():
+        return f"(SELECT {columnas} FROM {BENCH_TABLE} WHERE {VERSION_COL} IS NULL)"
+    return f"""(
+            SELECT {columnas} FROM {BENCH_TABLE}
+            WHERE ({VERSION_COL} IS NULL AND fld_fecha <> '{periodo}')
+               OR ({VERSION_COL} = 'PRECIERRE' AND fld_fecha = '{periodo}')
+        )"""
+
+
 def _safe_div(num: float, den: float) -> float:
     if den is None or den == 0:
         return 0.0
     return (num / den) * 100.0
 
 
-def _asignacion_sql(periodo: str) -> tuple[str, list]:
+def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     """Lote SQL que deja en #asig una fila por operacion del bench con la gestion que se la lleva.
 
     Fecha de pago de una operacion contenida: el ultimo pago informado en el primer bench del mes
@@ -110,6 +150,7 @@ def _asignacion_sql(periodo: str) -> tuple[str, list]:
     si no hay, la primera gestion posterior. Asi el contenido no cambia de ejecutivo al llegar
     gestiones nuevas. Las operaciones no contenidas van a la mejor gestion del mes.
     """
+    bench = _bench_source(periodo, version)
     peso_case = "\n".join(
         "                WHEN '{}' THEN {}".format(respuesta.replace("'", "''"), peso)
         for peso, respuesta in enumerate(PESO_RESPUESTA, start=1)
@@ -153,7 +194,7 @@ def _asignacion_sql(periodo: str) -> tuple[str, list]:
             b.fld_fecha AS foto,
             MAX(b.fld_FEC_ULT_PAGO) AS ult_pago,
             ROW_NUMBER() OVER (PARTITION BY b.fld_OPERACION ORDER BY b.fld_fecha) AS rn
-        FROM dbo.tmp_bench_temp_STC b
+        FROM {bench} b
         WHERE LEFT(b.fld_fecha, 6) = LEFT(?, 6)
           AND b.fld_fecha <= ?
           AND ISNULL(b.fld_CONTENIDO, 0) <> 0
@@ -172,7 +213,7 @@ def _asignacion_sql(periodo: str) -> tuple[str, list]:
         CASE WHEN ISNULL(b.fld_NORMALIZADO, 0) <> 0 THEN 1 ELSE 0 END AS normalizado,
         CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN p.fecha_pago END AS fecha_pago
     INTO #ops
-    FROM dbo.tmp_bench_temp_STC b
+    FROM {bench} b
     LEFT JOIN #pago p ON p.operacion = b.fld_OPERACION
     WHERE b.fld_fecha = ?;
 
@@ -229,7 +270,21 @@ def get_filter_values(periodo: str | None = None) -> dict:
     WHERE fld_fecha IS NOT NULL
     ORDER BY periodo DESC
     """
-    periodos = [r["periodo"] for r in run_query(sql_periodos) if r.get("periodo")]
+    con_precierre: set[str] = set()
+    if _tiene_version():
+        sql_precierres = f"""
+        SELECT DISTINCT CONVERT(char(10), fld_fecha, 126) AS periodo
+        FROM {BENCH_TABLE}
+        WHERE {VERSION_COL} = 'PRECIERRE' AND fld_fecha IS NOT NULL
+        """
+        con_precierre = {r["periodo"].strip() for r in run_query(sql_precierres) if r.get("periodo")}
+    # La fecha con pre-cierre se ofrece dos veces: la carga vigente (cierre) y la primera (pre-cierre).
+    periodos: list[str] = []
+    for fecha in (r["periodo"] for r in run_query(sql_periodos) if r.get("periodo")):
+        if fecha.strip() in con_precierre:
+            periodos += [f"{fecha.strip()} (Cierre)", f"{fecha.strip()} (Pre-cierre)"]
+        else:
+            periodos.append(fecha)
 
     ejecutivos = [USER_TO_NAME[u] for u in USER_ORDER]
     if periodo:
@@ -253,9 +308,10 @@ def get_general_view(filters: dict) -> list[dict]:
 
 def get_cycle_view(filters: dict) -> list[dict]:
     periodo = _normalize_period(filters.get("periodo"))
+    version = _period_version(filters.get("periodo"))
     ejecutivo_filter = str(filters.get("ejecutivo") or "").strip().lower()
 
-    asignacion_sql, params = _asignacion_sql(periodo)
+    asignacion_sql, params = _asignacion_sql(periodo, version)
     usuarios = ", ".join(f"'{user}'" for user in USER_ORDER)
     sql = f"""{asignacion_sql}
     SELECT
@@ -275,9 +331,9 @@ def get_cycle_view(filters: dict) -> list[dict]:
 
     raw_rows = run_query_sets(sql, tuple(params))[-1]
 
-    sql_c3_base = """
+    sql_c3_base = f"""
     SELECT COUNT_BIG(1) AS c3_casos_base
-    FROM dbo.tmp_bench_temp_STC
+    FROM {_bench_source(periodo, version)} b
     WHERE fld_fecha = ?
       AND UPPER(LTRIM(RTRIM(fld_TRAMO_MORA))) = 'C3'
     """
@@ -362,7 +418,7 @@ def get_detail_view(filters: dict) -> dict:
     page_size = min(500, max(1, int(filters.get("page_size") or 100)))
     offset = (page - 1) * page_size
 
-    asignacion_sql, params = _asignacion_sql(periodo)
+    asignacion_sql, params = _asignacion_sql(periodo, _period_version(filters.get("periodo")))
     where_clauses = []
 
     if operacion:

@@ -44,6 +44,13 @@ export const modulePanels = [
         buttonLabel: "Ir a Itaú Vencida",
       },
       {
+        code: "itau-vigente",
+        title: "Itaú Vigente",
+        description: "Productividad, contención vigente y recupero castigo de los ejecutivos telefónicos Itaú.",
+        path: "/itau-vigente",
+        buttonLabel: "Ir a Itaú Vigente",
+      },
+      {
         code: "sth",
         title: "Santander Hipotecario",
         description: "Productividad hipotecaria y productos asociados.",
@@ -172,6 +179,22 @@ export const modulePanels = [
         description: "Reparte la asignación Phoenix del mes entre los ejecutivos, parejos en saldo, operaciones, contactabilidad, MOB y nota.",
         path: "/estrategia-asignacion/itau-castigo",
         buttonLabel: "Abrir Itaú Castigo",
+      },
+    ],
+  },
+  {
+    code: "rrhh",
+    title: "Panel RRHH",
+    description: "Planillas de cumplimiento por negocio y consolidado para Finanzas.",
+    path: "/rrhh",
+    accent: "indigo",
+    modules: [
+      {
+        code: "rrhh",
+        title: "Cumplimientos de Campañas",
+        description: "Exporta las variables y el cumplimiento de cada ejecutivo por negocio, y el consolidado del mes.",
+        path: "/rrhh/cumplimientos",
+        buttonLabel: "Abrir Cumplimientos",
       },
     ],
   },

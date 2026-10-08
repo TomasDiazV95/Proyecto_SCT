@@ -261,16 +261,21 @@ def insert_append(df: pd.DataFrame, source_file: str):
 
 def should_skip_load(current_source_file: str, fecha_visor) -> bool:
     # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
+    # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
     with connect() as cn:
-        cargar = bench_recarga.debe_cargar(cn.cursor(), TABLE, current_source_file, fecha_visor)
+        cargar = bench_recarga.debe_cargar(
+            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True
+        )
         cn.commit()
     return not cargar
 
 
 def pick_files_to_process() -> list[Path]:
-    files = [p for p in BENCH_FOLDER.glob(BENCH_PATTERN) if not p.name.startswith("~$")]
-    files.sort(key=lambda p: p.name)
-    return files
+    # Del mas antiguo al mas nuevo segun su carga en el visor (el pre-cierre antes que el cierre),
+    # incluyendo el mismo bench con el nombre escrito de otra forma.
+    if not BENCH_FOLDER.exists():
+        return []
+    return bench_recarga.archivos_bench(BENCH_FOLDER, BENCH_PATTERN)
 
 
 def main():

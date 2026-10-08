@@ -8,7 +8,11 @@ const initialFilters = {
   ejecutivo: "",
 };
 
-const blockOrder = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO", "F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
+// Altas cuantias: la meta mide C1 y C2 juntos, con contencion y normalizacion (como C3);
+// por ciclo se muestran ademas C1 y C2 por separado.
+const altasCuantiasBlock = "C1 - C2";
+const normalizationBlocks = ["C1", "C2", altasCuantiasBlock, "C3"];
+const blockOrder = ["C1", "C2", altasCuantiasBlock, "C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO", "F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
 const generalMoraBlocks = [
   { block: "C3", label: "C3" },
   { block: "SUSCEPTIBLE CV", label: "Susc. CV" },
@@ -16,10 +20,13 @@ const generalMoraBlocks = [
   { block: "C6", label: "C6" },
   { block: "PRE CASTIGO", label: "Pre Castigo" },
 ];
-const generalComplianceBlocks = ["C3", "SUSCEPTIBLE CV", "C5", "C6", "PRE CASTIGO"];
+const NO_ROWS = [];
 const castigoBlocks = ["F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
 
 const blockMeta = {
+  C1: { title: "C1", subtitle: "Altas cuantias", icon: "bi-gem" },
+  C2: { title: "C2", subtitle: "Altas cuantias", icon: "bi-gem" },
+  [altasCuantiasBlock]: { title: "Total C1 - C2", subtitle: "Altas cuantias consolidado", icon: "bi-diagram-3" },
   C3: { title: "C3", subtitle: "Contencion y normalizacion", icon: "bi-bullseye" },
   "SUSCEPTIBLE CV": { title: "Susceptible CV", subtitle: "Contencion convenio", icon: "bi-shield-check" },
   C5: { title: "C5", subtitle: "Contencion tramo 90-119", icon: "bi-layers" },
@@ -48,18 +55,6 @@ function capPct(value) {
 
 function cappedPct(numerator, denominator) {
   return capPct(safePct(numerator, denominator));
-}
-
-// C3 combina contencion y normalizacion con los ponderadores nivel 3 de la tabla de metas.
-function rowCompliance(row) {
-  const cont = cappedPct(row.contenido, row.monto_meta_cont);
-  const norm = cappedPct(row.normalizado, row.monto_meta_norm);
-  const pesoCont = num(row.pond_n3_cont);
-  const pesoNorm = num(row.pond_n3_norm);
-  if (row.bloque === "C3" && num(row.monto_meta_norm) > 0 && pesoCont + pesoNorm > 0) {
-    return capPct(((cont * pesoCont) + (norm * pesoNorm)) / (pesoCont + pesoNorm));
-  }
-  return capPct(cont);
 }
 
 // Semaforo comun de cumplimiento: < 80% critico, 80% - 99,9% en seguimiento, >= 100% cumplido.
@@ -98,7 +93,8 @@ export default function ScTardiaPage() {
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
   const [options, setOptions] = useState({ periodos: [], zonas: [], ejecutivos: [] });
-  const [rows, setRows] = useState([]);
+  // Cada vista trae filas distintas (por ejecutivo / por bloque): se guardan junto a la vista que las pidio.
+  const [result, setResult] = useState({ view: "general", rows: [] });
   const [selectedBlock, setSelectedBlock] = useState("C3");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -143,7 +139,7 @@ export default function ScTardiaPage() {
       setError("");
       try {
         const data = view === "general" ? await fetchGeneral(filters) : await fetchCycle(filters);
-        setRows(data || []);
+        setResult({ view, rows: data || [] });
       } catch (err) {
         setError(err.message);
       } finally {
@@ -216,107 +212,20 @@ export default function ScTardiaPage() {
     setFilters((prev) => ({ ...prev, zona: "", ejecutivo: "" }));
   }
 
-  const allRows = rows || [];
+  // El cumplimiento (por bloque y final) viene calculado del backend.
+  const allRows = result.rows;
+  const executiveRows = result.view === "general" ? allRows : NO_ROWS;
+  const rowsWithMetrics = result.view === "ciclo" ? allRows : NO_ROWS;
   const availableBlocks = useMemo(() => {
-    const blocks = Array.from(new Set(allRows.map((row) => row.bloque).filter(Boolean))).sort(sortBlocks);
+    const blocks = Array.from(new Set(rowsWithMetrics.map((row) => row.bloque).filter(Boolean))).sort(sortBlocks);
     return blocks.length ? blocks : blockOrder;
-  }, [allRows]);
+  }, [rowsWithMetrics]);
 
   useEffect(() => {
     if (availableBlocks.length && !availableBlocks.includes(selectedBlock)) {
       setSelectedBlock(availableBlocks[0]);
     }
   }, [availableBlocks, selectedBlock]);
-
-  const rowsWithMetrics = useMemo(
-    () =>
-      allRows.map((row) => {
-        const cumplimiento = rowCompliance(row);
-        return {
-          ...row,
-          pct_contencion: cappedPct(row.contenido, row.monto_meta_cont),
-          pct_normalizacion: cappedPct(row.normalizado, row.monto_meta_norm),
-          cumplimiento_operativo: cumplimiento,
-          estado: statusOf(cumplimiento),
-        };
-      }),
-    [allRows]
-  );
-
-  // Ponderador nivel 2 de cada bloque de mora tardia (es el mismo para todos los ejecutivos del mes).
-  const pesoNivel2 = useMemo(() => {
-    const pesos = {};
-    allRows.forEach((row) => {
-      if (row.pond_n2 !== null && row.pond_n2 !== undefined) {
-        pesos[row.bloque] = num(row.pond_n2);
-      }
-    });
-    return pesos;
-  }, [allRows]);
-
-  const executiveRows = useMemo(() => {
-    const grouped = new Map();
-    rowsWithMetrics.forEach((row) => {
-      const current = grouped.get(row.ejecutivo) || {
-        ejecutivo: row.ejecutivo,
-        casos_asignados: 0,
-        sumas: {},
-        bloques_activos: new Set(),
-        ponderadores_nivel_1: { PTC: 0, STOCK: 0 },
-      };
-      current.casos_asignados += num(row.cantidad_casos);
-      const suma = current.sumas[row.bloque] || {
-        bloque: row.bloque,
-        contenido: 0,
-        monto_meta_cont: 0,
-        normalizado: 0,
-        monto_meta_norm: 0,
-        pond_n3_cont: row.pond_n3_cont,
-        pond_n3_norm: row.pond_n3_norm,
-      };
-      suma.contenido += num(row.contenido);
-      suma.monto_meta_cont += num(row.monto_meta_cont);
-      suma.normalizado += num(row.normalizado);
-      suma.monto_meta_norm += num(row.monto_meta_norm);
-      current.sumas[row.bloque] = suma;
-      (row.bloques_activos || []).forEach((block) => current.bloques_activos.add(block));
-      current.ponderadores_nivel_1 = row.ponderadores_nivel_1 || current.ponderadores_nivel_1;
-      grouped.set(row.ejecutivo, current);
-    });
-
-    return Array.from(grouped.values())
-      .map(({ sumas, ...rest }) => ({
-        ...rest,
-        bloques: Object.fromEntries(Object.values(sumas).map((suma) => [suma.bloque, rowCompliance(suma)])),
-      }))
-      .map((item) => {
-        const activeMoraBlocks = generalComplianceBlocks.filter((block) => item.bloques_activos.has(block) || item.bloques[block] !== undefined);
-        const hasMoraTardia = activeMoraBlocks.length > 0;
-        const hasCastigo = item.bloques_activos.has("TOTAL F1 - F4") || item.bloques["TOTAL F1 - F4"] !== undefined;
-        // Mora tardia = promedio de los bloques activos ponderado por nivel 2 (se re-normaliza sobre los activos).
-        const pesoTotal = activeMoraBlocks.reduce((acc, block) => acc + num(pesoNivel2[block]), 0);
-        const moraCumplimiento = !hasMoraTardia
-          ? 0
-          : pesoTotal > 0
-            ? activeMoraBlocks.reduce((acc, block) => acc + num(item.bloques[block]) * num(pesoNivel2[block]), 0) / pesoTotal
-            : activeMoraBlocks.reduce((acc, block) => acc + num(item.bloques[block]), 0) / activeMoraBlocks.length;
-        const castigoCumplimiento = num(item.bloques["TOTAL F1 - F4"]);
-        const ptcWeight = num(item.ponderadores_nivel_1?.PTC) / 100;
-        const stockWeight = num(item.ponderadores_nivel_1?.STOCK) / 100;
-        let cumplimiento = 0;
-
-        if (hasMoraTardia && hasCastigo) {
-          cumplimiento = (moraCumplimiento * ptcWeight) + (castigoCumplimiento * stockWeight);
-        } else if (hasMoraTardia) {
-          cumplimiento = moraCumplimiento;
-        } else if (hasCastigo) {
-          cumplimiento = castigoCumplimiento;
-        }
-
-        return { ...item, cumplimiento_operativo: capPct(cumplimiento) };
-      })
-      .sort((a, b) => b.cumplimiento_operativo - a.cumplimiento_operativo);
-  }, [rowsWithMetrics, pesoNivel2]);
 
   const blockSummary = useMemo(() => {
     return availableBlocks.map((block) => {
@@ -338,7 +247,7 @@ export default function ScTardiaPage() {
   }, [availableBlocks, rowsWithMetrics]);
 
   const selectedBlockRows = rowsWithMetrics.filter((row) => row.bloque === selectedBlock);
-  const showNormalizationColumns = selectedBlock === "C3";
+  const showNormalizationColumns = normalizationBlocks.includes(selectedBlock);
   const selectedBlockSums = castigoBlocks.includes(selectedBlock) && selectedBlockRows.length
     ? selectedBlockRows.reduce(
         (acc, row) => ({
@@ -376,7 +285,7 @@ export default function ScTardiaPage() {
         <thead>
           <tr>
             <th rowSpan={2}>Ejecutivo</th>
-            <th rowSpan={2} className="pd-num pd-th-neutral">Casos</th>
+            <th className="pd-th-group-2 pd-group-start">Altas Cuantías</th>
             <th colSpan={generalMoraBlocks.length} className="pd-th-group-1 pd-group-start">
               Mora Tardía <span className="pd-th-note">{pesoMoraLabel}</span>
             </th>
@@ -386,6 +295,7 @@ export default function ScTardiaPage() {
             <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
           </tr>
           <tr>
+            <th className="pd-num pd-th-sub-2 pd-group-start">C1 - C2</th>
             {generalMoraBlocks.map(({ block, label }, idx) => (
               <th key={block} className={`pd-num pd-th-sub-1${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
             ))}
@@ -396,7 +306,13 @@ export default function ScTardiaPage() {
           {phoenixGrupalAlFinal(executiveRows).map((row) => (
             <tr key={row.ejecutivo}>
               <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
-              <td className="pd-num">{row.casos_asignados.toLocaleString("es-CL")}</td>
+              <td className="pd-num pd-group-start">
+                {row.bloques[altasCuantiasBlock] === undefined ? (
+                  <span className="pd-cell-muted">—</span>
+                ) : (
+                  <span className={metricClass(row.bloques[altasCuantiasBlock])}>{formatPct(row.bloques[altasCuantiasBlock], 0)}</span>
+                )}
+              </td>
               {generalMoraBlocks.map(({ block }, idx) => (
                 <td key={`${row.ejecutivo}-${block}`} className={`pd-num${idx === 0 ? " pd-group-start" : ""}`}>
                   {row.bloques[block] === undefined ? (
