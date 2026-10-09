@@ -26,7 +26,7 @@ export default function ForgotPasswordPage() {
       setPassword("");
       setConfirmPassword("");
       setStep("code");
-      setMessage("Si el correo existe, se envio un codigo de recuperacion.");
+      setMessage("Si el correo existe, se envió un código de recuperación.");
     } catch (err) {
       setError(err.message || "No se pudo procesar la solicitud");
     } finally {
@@ -37,7 +37,7 @@ export default function ForgotPasswordPage() {
   async function onVerifyCode(e) {
     e.preventDefault();
     if (!/^\d{6}$/.test(code.trim())) {
-      setError("Ingresa el codigo de 6 digitos");
+      setError("Ingresa el código de 6 dígitos");
       return;
     }
     setLoading(true);
@@ -46,9 +46,9 @@ export default function ForgotPasswordPage() {
     try {
       await authVerifyResetCode(email, code.trim());
       setStep("password");
-      setMessage("Codigo validado. Ingresa tu nueva contrasena.");
+      setMessage("Código validado. Ingresa tu nueva contraseña.");
     } catch (err) {
-      setError(err.message || "Codigo invalido o expirado");
+      setError(err.message || "Código inválido o expirado");
     } finally {
       setLoading(false);
     }
@@ -57,11 +57,11 @@ export default function ForgotPasswordPage() {
   async function onResetPassword(e) {
     e.preventDefault();
     if (!/^\d{6}$/.test(code.trim())) {
-      setError("Ingresa el codigo de 6 digitos");
+      setError("Ingresa el código de 6 dígitos");
       return;
     }
     if (password !== confirmPassword) {
-      setError("La confirmacion no coincide");
+      setError("La confirmación no coincide");
       return;
     }
     setLoading(true);
@@ -69,12 +69,12 @@ export default function ForgotPasswordPage() {
     setMessage("");
     try {
       await authResetPassword(email, code.trim(), password);
-      setMessage("Contrasena actualizada correctamente. Ya puedes iniciar sesion.");
+      setMessage("Contraseña actualizada correctamente. Ya puedes iniciar sesión.");
       setCode("");
       setPassword("");
       setConfirmPassword("");
     } catch (err) {
-      setError(err.message || "No se pudo restablecer la contrasena");
+      setError(err.message || "No se pudo restablecer la contraseña");
     } finally {
       setLoading(false);
     }
@@ -95,21 +95,21 @@ export default function ForgotPasswordPage() {
               <input id="login-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Ingresa tu usuario" required disabled={loading} />
             </div>
             <button className="login-submit" disabled={loading}>
-              {loading ? "Enviando..." : step === "email" ? "Enviar codigo" : "Reenviar codigo"}
+              {loading ? "Enviando..." : step === "email" ? "Enviar código" : "Reenviar código"}
             </button>
           </form>
           {(step === "code" || step === "password") && (
             <form onSubmit={onVerifyCode} className="login-form mt-3">
-              <label className="login-password">Codigo recibido</label>
+              <label className="login-password">Código recibido</label>
               <div className="login-input-shell">
                 <span className="login-input-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" focusable="false"><path d="M12 2 4 5v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V5l-8-3Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z" /></svg>
                 </span>
-                <input type="text" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Codigo de 6 digitos" inputMode="numeric" required disabled={loading || step === "password"} />
+                <input type="text" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="Código de 6 dígitos" inputMode="numeric" required disabled={loading || step === "password"} />
               </div>
               {step === "code" && (
                 <button className="login-submit" disabled={loading}>
-                  {loading ? "Validando..." : "Validar codigo"}
+                  {loading ? "Validando..." : "Validar código"}
                 </button>
               )}
             </form>

@@ -157,30 +157,21 @@ export default function FacturaPage() {
   };
   const businessSummaryRows = dashboard?.business_summary_rows || [];
   const isBitScope = selectedScope === "bco_internacional";
-  const isPorscheScope = selectedScope === "porsche";
   const selectedMeta30_90 = scenarioMeta[selectedScenario30_90] || scenarioMeta.sobre_lo_esperado;
   const selectedMeta90Mas = scenarioMeta[selectedScenario90Mas] || scenarioMeta.sobre_lo_esperado;
   const selectedBusinessRow = businessSummaryRows.find((row) => row.key === selectedScope) || businessSummaryRows[0] || null;
 
   const selectedValues = useMemo(
-    () =>
-      isPorscheScope
-        ? {
-            total: Number(selectedBusinessRow?.simulado_total || 0),
-            tramo30_90: 0,
-            tramo90Mas: 0,
-            castigo: Number(selectedBusinessRow?.simulado_total || 0),
-          }
-        : {
-            total:
-              getScenarioValue(matrix.tramo_30_90, selectedScenario30_90) +
-              getScenarioValue(matrix.tramo_90_mas, selectedScenario90Mas) +
-              getScenarioValue(matrix.castigo, "sobre_lo_esperado"),
-            tramo30_90: getScenarioValue(matrix.tramo_30_90, selectedScenario30_90),
-            tramo90Mas: getScenarioValue(matrix.tramo_90_mas, selectedScenario90Mas),
-            castigo: getScenarioValue(matrix.castigo, "sobre_lo_esperado"),
-          },
-    [isPorscheScope, matrix, selectedBusinessRow, selectedScenario30_90, selectedScenario90Mas],
+    () => ({
+      total:
+        getScenarioValue(matrix.tramo_30_90, selectedScenario30_90) +
+        getScenarioValue(matrix.tramo_90_mas, selectedScenario90Mas) +
+        getScenarioValue(matrix.castigo, "sobre_lo_esperado"),
+      tramo30_90: getScenarioValue(matrix.tramo_30_90, selectedScenario30_90),
+      tramo90Mas: getScenarioValue(matrix.tramo_90_mas, selectedScenario90Mas),
+      castigo: getScenarioValue(matrix.castigo, "sobre_lo_esperado"),
+    }),
+    [matrix, selectedScenario30_90, selectedScenario90Mas],
   );
 
   const percentageRows = useMemo(
@@ -244,19 +235,15 @@ export default function FacturaPage() {
     [composition],
   );
 
-  const scopeTitle =
-    selectedScope === "bco_internacional" ? "Banco Internacional" : selectedScope === "porsche" ? "Porsche" : "Global";
+  const scopeTitle = selectedScope === "bco_internacional" ? "Banco Internacional" : "Global";
   const scopeSubtitle =
     selectedScope === "bco_internacional"
       ? "Vista del negocio Banco Internacional"
-      : selectedScope === "porsche"
-        ? "Simulado desde total_pagos_excel * 0.04 y control de facturas ya cargadas."
-        : `Resumen consolidado de negocios disponibles: ${effectiveScopeSummary.negocios_con_datos || 0}`;
+      : `Resumen consolidado de negocios disponibles: ${effectiveScopeSummary.negocios_con_datos || 0}`;
   const realInvoiceTotal = selectedBusinessRow?.factura_real_total ?? null;
   const differenceTotal = selectedBusinessRow?.diferencia_total ?? null;
   const differencePct = selectedBusinessRow?.diferencia_pct ?? null;
   const compareStatus = selectedBusinessRow?.has_real_invoice ? "Con factura" : "Solo simulado";
-  const porscheDifferenceLabel = differenceTotal == null ? "-" : formatMoney(differenceTotal);
 
   return (
     <div className="factura-page">
@@ -280,13 +267,6 @@ export default function FacturaPage() {
                 onClick={() => setSelectedScope("bco_internacional")}
               >
                 Bco Internacional
-              </button>
-              <button
-                type="button"
-                className={`factura-business-tab ${selectedScope === "porsche" ? "is-active" : ""}`}
-                onClick={() => setSelectedScope("porsche")}
-              >
-                Porsche
               </button>
             </div>
           </div>
@@ -324,7 +304,7 @@ export default function FacturaPage() {
                 <div className="factura-no-data-title">Sin datos para factura</div>
                 <div className="factura-no-data-copy">
                   No hay periodos disponibles desde <strong>2026-06</strong>. Revisa que las fuentes de factura tengan datos
-                  cargados con un <code>periodo</code> o <code>mes_proceso</code> valido.
+                  cargados con un <code>periodo</code> o <code>mes_proceso</code> válido.
                 </div>
               </div>
             </section>
@@ -337,7 +317,7 @@ export default function FacturaPage() {
                   <div className="factura-panel-header">
                     <div>
                       <h2>Resumen global de negocios</h2>
-                      <p>Consolidado de simulado y factura real por negocio para Banco Internacional y Porsche.</p>
+                      <p>Consolidado de simulado y factura real por negocio para Banco Internacional.</p>
                     </div>
                   </div>
 
@@ -385,109 +365,101 @@ export default function FacturaPage() {
                 <>
                   <section className="factura-kpi-grid">
                     <article className="factura-hero-card factura-kpi-primary">
-                      <div className="factura-hero-card-label">{isPorscheScope ? "Simulado Porsche (4%)" : "Monto a facturar hoy"}</div>
+                      <div className="factura-hero-card-label">Monto a facturar hoy</div>
                       <div className="factura-hero-card-value">{formatMoney(selectedValues.total)}</div>
                     </article>
                     <article className="factura-mini-card factura-kpi-secondary">
-                      <div className="factura-mini-card-label">{isPorscheScope ? "Factura cargada" : "Tramo 30-90"}</div>
-                      <div className="factura-mini-card-value">
-                        {isPorscheScope ? (realInvoiceTotal == null ? "-" : formatMoney(realInvoiceTotal)) : formatMoney(selectedValues.tramo30_90)}
-                      </div>
-                      {!isPorscheScope && (
-                        <select
-                          className={`form-select factura-mini-card-select is-${selectedMeta30_90.accent}`}
-                          value={selectedScenario30_90}
-                          onChange={(e) => setSelectedScenario30_90(e.target.value)}
-                        >
-                          {scenarioOrder.map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
+                      <div className="factura-mini-card-label">Tramo 30-90</div>
+                      <div className="factura-mini-card-value">{formatMoney(selectedValues.tramo30_90)}</div>
+                      <select
+                        className={`form-select factura-mini-card-select is-${selectedMeta30_90.accent}`}
+                        value={selectedScenario30_90}
+                        onChange={(e) => setSelectedScenario30_90(e.target.value)}
+                      >
+                        {scenarioOrder.map(([key, label]) => (
+                          <option key={key} value={key}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
                     </article>
                     <article className="factura-mini-card factura-kpi-secondary">
-                      <div className="factura-mini-card-label">{isPorscheScope ? "Estado" : "Tramo 90+"}</div>
-                      <div className="factura-mini-card-value">{isPorscheScope ? compareStatus : formatMoney(selectedValues.tramo90Mas)}</div>
-                      {!isPorscheScope && (
-                        <select
-                          className={`form-select factura-mini-card-select is-${selectedMeta90Mas.accent}`}
-                          value={selectedScenario90Mas}
-                          onChange={(e) => setSelectedScenario90Mas(e.target.value)}
-                        >
-                          {scenarioOrder.map(([key, label]) => (
-                            <option key={key} value={key}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      )}
+                      <div className="factura-mini-card-label">Tramo 90+</div>
+                      <div className="factura-mini-card-value">{formatMoney(selectedValues.tramo90Mas)}</div>
+                      <select
+                        className={`form-select factura-mini-card-select is-${selectedMeta90Mas.accent}`}
+                        value={selectedScenario90Mas}
+                        onChange={(e) => setSelectedScenario90Mas(e.target.value)}
+                      >
+                        {scenarioOrder.map(([key, label]) => (
+                          <option key={key} value={key}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
                     </article>
                     <article className="factura-mini-card factura-kpi-secondary">
-                      <div className="factura-mini-card-label">{isPorscheScope ? "Diferencia" : "Castigo"}</div>
-                      <div className="factura-mini-card-value">{isPorscheScope ? porscheDifferenceLabel : formatMoney(selectedValues.castigo)}</div>
+                      <div className="factura-mini-card-label">Castigo</div>
+                      <div className="factura-mini-card-value">{formatMoney(selectedValues.castigo)}</div>
                     </article>
                   </section>
 
                   <section className="factura-content-grid">
-                    {!isPorscheScope && (
-                      <div className="factura-panel factura-panel-wide">
-                        <div className="factura-panel-header">
-                          <div>
-                            <h2>Simulacion de factura por escenario</h2>
-                            <p>Montos calculados sobre gasto de cobranza por tramo.</p>
-                          </div>
-                          {loading && <span className="factura-inline-status">Actualizando...</span>}
+                    <div className="factura-panel factura-panel-wide">
+                      <div className="factura-panel-header">
+                        <div>
+                          <h2>Simulación de factura por escenario</h2>
+                          <p>Montos calculados sobre gasto de cobranza por tramo.</p>
                         </div>
-
-                        <div className="table-responsive">
-                          <table className="table factura-sim-table mb-0">
-                            <thead>
-                              <tr>
-                                <th>Tramo</th>
-                                {scenarioOrder.map(([key, label]) => (
-                                  <th key={key}>
-                                    <span className="factura-table-scenario-button">{label}</span>
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr>
-                                <th>30-90</th>
-                                {scenarioOrder.map(([key]) => (
-                                  <td key={key}>{formatMoney(matrix.tramo_30_90?.[key])}</td>
-                                ))}
-                              </tr>
-                              <tr>
-                                <th>90+</th>
-                                {scenarioOrder.map(([key]) => (
-                                  <td key={key}>{formatMoney(matrix.tramo_90_mas?.[key])}</td>
-                                ))}
-                              </tr>
-                              <tr>
-                                <th>Castigo</th>
-                                {scenarioOrder.map(([key]) => (
-                                  <td key={key}>{formatMoney(matrix.castigo?.[key])}</td>
-                                ))}
-                              </tr>
-                              <tr className="factura-sim-total-row">
-                                <th>Total facturable</th>
-                                {scenarioOrder.map(([key]) => (
-                                  <td key={key}>{formatMoney(matrix.simulacion_total?.[key])}</td>
-                                ))}
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
+                        {loading && <span className="factura-inline-status">Actualizando...</span>}
                       </div>
-                    )}
+
+                      <div className="table-responsive">
+                        <table className="table factura-sim-table mb-0">
+                          <thead>
+                            <tr>
+                              <th>Tramo</th>
+                              {scenarioOrder.map(([key, label]) => (
+                                <th key={key}>
+                                  <span className="factura-table-scenario-button">{label}</span>
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <th>30-90</th>
+                              {scenarioOrder.map(([key]) => (
+                                <td key={key}>{formatMoney(matrix.tramo_30_90?.[key])}</td>
+                              ))}
+                            </tr>
+                            <tr>
+                              <th>90+</th>
+                              {scenarioOrder.map(([key]) => (
+                                <td key={key}>{formatMoney(matrix.tramo_90_mas?.[key])}</td>
+                              ))}
+                            </tr>
+                            <tr>
+                              <th>Castigo</th>
+                              {scenarioOrder.map(([key]) => (
+                                <td key={key}>{formatMoney(matrix.castigo?.[key])}</td>
+                              ))}
+                            </tr>
+                            <tr className="factura-sim-total-row">
+                              <th>Total facturable</th>
+                              {scenarioOrder.map(([key]) => (
+                                <td key={key}>{formatMoney(matrix.simulacion_total?.[key])}</td>
+                              ))}
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
 
                     <div className="factura-panel factura-panel-side">
                       <div className="factura-panel-header">
                         <div>
-                          <h2>Simulacion vs factura</h2>
+                          <h2>Simulación vs. factura</h2>
                         </div>
                       </div>
 
@@ -504,7 +476,7 @@ export default function FacturaPage() {
                               {realInvoiceTotal == null ? "-" : formatMoney(realInvoiceTotal)}
                             </div>
                             <div className={`factura-compare-caption ${selectedBusinessRow?.has_real_invoice ? "is-success" : "is-warning"}`}>
-                              {selectedBusinessRow?.has_real_invoice ? "Factura cargada" : "Aun no disponible"}
+                              {selectedBusinessRow?.has_real_invoice ? "Factura cargada" : "Aún no disponible"}
                             </div>
                           </div>
                         </div>
@@ -526,109 +498,105 @@ export default function FacturaPage() {
                       </div>
 
                       <div className="factura-panel-footnote">
-                        {isPorscheScope
-                          ? "Los registros con origen factura se consideran como factura ya cargada para el periodo."
-                          : "La factura real se cargara a principio del proximo mes y se comparara automaticamente."}
+                        La factura real se cargará a principios del próximo mes y se comparará automáticamente.
                       </div>
                     </div>
                   </section>
 
-                  {!isPorscheScope && (
-                    <section className="factura-bottom-grid">
-                      <div className="factura-panel">
-                        <div className="factura-panel-header">
-                          <div>
-                            <h2>Composicion del monto facturable</h2>
-                          </div>
-                        </div>
-
-                        <div className="factura-composition-grid">
-                          <div className="factura-donut-shell">
-                            <div className="factura-donut" style={donutStyle}>
-                              <div className="factura-donut-hole">
-                                <span>Total</span>
-                                <strong>{formatMoney(composition.total)}</strong>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="factura-composition-legend">
-                            <div className="factura-composition-item">
-                              <div className="factura-composition-label">
-                                <span className="factura-dot is-blue" />
-                                30-90 dias
-                              </div>
-                              <div className="factura-composition-values">
-                                <strong>{formatMoney(selectedValues.tramo30_90)}</strong>
-                                <span>{formatPercent(composition.tramo30_90 / 100)}</span>
-                              </div>
-                            </div>
-
-                            <div className="factura-composition-item">
-                              <div className="factura-composition-label">
-                                <span className="factura-dot is-purple" />
-                                90+ dias
-                              </div>
-                              <div className="factura-composition-values">
-                                <strong>{formatMoney(selectedValues.tramo90Mas)}</strong>
-                                <span>{formatPercent(composition.tramo90Mas / 100)}</span>
-                              </div>
-                            </div>
-
-                            <div className="factura-composition-item">
-                              <div className="factura-composition-label">
-                                <span className="factura-dot is-orange" />
-                                Castigo
-                              </div>
-                              <div className="factura-composition-values">
-                                <strong>{formatMoney(selectedValues.castigo)}</strong>
-                                <span>{formatPercent(composition.castigo / 100)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="factura-panel-footnote">
-                          La composicion visual usa exactamente los montos simulados que ves en las cards superiores.
+                  <section className="factura-bottom-grid">
+                    <div className="factura-panel">
+                      <div className="factura-panel-header">
+                        <div>
+                          <h2>Composición del monto facturable</h2>
                         </div>
                       </div>
 
-                      <div className="factura-panel">
-                        <div className="factura-panel-header">
-                          <div>
-                            <h2>Parametros de calculo</h2>
+                      <div className="factura-composition-grid">
+                        <div className="factura-donut-shell">
+                          <div className="factura-donut" style={donutStyle}>
+                            <div className="factura-donut-hole">
+                              <span>Total</span>
+                              <strong>{formatMoney(composition.total)}</strong>
+                            </div>
                           </div>
                         </div>
 
-                        <div className="table-responsive">
-                          <table className="table factura-rules-table mb-0">
-                            <thead>
-                              <tr>
-                                <th>Clasificacion</th>
-                                <th>30-90</th>
-                                <th>90+</th>
-                                <th>Castigo</th>
+                        <div className="factura-composition-legend">
+                          <div className="factura-composition-item">
+                            <div className="factura-composition-label">
+                              <span className="factura-dot is-blue" />
+                              30-90 días
+                            </div>
+                            <div className="factura-composition-values">
+                              <strong>{formatMoney(selectedValues.tramo30_90)}</strong>
+                              <span>{formatPercent(composition.tramo30_90 / 100)}</span>
+                            </div>
+                          </div>
+
+                          <div className="factura-composition-item">
+                            <div className="factura-composition-label">
+                              <span className="factura-dot is-purple" />
+                              90+ días
+                            </div>
+                            <div className="factura-composition-values">
+                              <strong>{formatMoney(selectedValues.tramo90Mas)}</strong>
+                              <span>{formatPercent(composition.tramo90Mas / 100)}</span>
+                            </div>
+                          </div>
+
+                          <div className="factura-composition-item">
+                            <div className="factura-composition-label">
+                              <span className="factura-dot is-orange" />
+                              Castigo
+                            </div>
+                            <div className="factura-composition-values">
+                              <strong>{formatMoney(selectedValues.castigo)}</strong>
+                              <span>{formatPercent(composition.castigo / 100)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="factura-panel-footnote">
+                        La composición visual usa exactamente los montos simulados que ves en las tarjetas superiores.
+                      </div>
+                    </div>
+
+                    <div className="factura-panel">
+                      <div className="factura-panel-header">
+                        <div>
+                          <h2>Parámetros de cálculo</h2>
+                        </div>
+                      </div>
+
+                      <div className="table-responsive">
+                        <table className="table factura-rules-table mb-0">
+                          <thead>
+                            <tr>
+                              <th>Clasificación</th>
+                              <th>30-90</th>
+                              <th>90+</th>
+                              <th>Castigo</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {percentageRows.map((row) => (
+                              <tr key={row.key}>
+                                <th>{row.label}</th>
+                                <td>{formatPercent(row.tramo_30_90)}</td>
+                                <td>{formatPercent(row.tramo_90_mas)}</td>
+                                <td>{formatPercent(row.castigo)}</td>
                               </tr>
-                            </thead>
-                            <tbody>
-                              {percentageRows.map((row) => (
-                                <tr key={row.key}>
-                                  <th>{row.label}</th>
-                                  <td>{formatPercent(row.tramo_30_90)}</td>
-                                  <td>{formatPercent(row.tramo_90_mas)}</td>
-                                  <td>{formatPercent(row.castigo)}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        <div className="factura-panel-footnote">
-                          Los porcentajes se aplican sobre el gasto de cobranza por tramo.
-                        </div>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
-                    </section>
-                  )}
+
+                      <div className="factura-panel-footnote">
+                        Los porcentajes se aplican sobre el gasto de cobranza por tramo.
+                      </div>
+                    </div>
+                  </section>
                 </>
               )}
             </>

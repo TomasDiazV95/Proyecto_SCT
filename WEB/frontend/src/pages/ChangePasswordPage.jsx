@@ -19,7 +19,7 @@ export default function ChangePasswordPage() {
   async function onSubmit(e) {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
-      setError("La confirmacion no coincide");
+      setError("La confirmación no coincide");
       return;
     }
 
@@ -30,7 +30,7 @@ export default function ChangePasswordPage() {
       setSession(accessToken, { ...user, must_change_password: false });
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err.message || "No se pudo cambiar la contrasena");
+      setError(err.message || "No se pudo cambiar la contraseña");
     } finally {
       setLoading(false);
     }

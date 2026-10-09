@@ -303,7 +303,7 @@ export default function GmPage() {
         </Field>
         {view === "detalle" && (
           <>
-            <Field label="Operacion">
+            <Field label="Operación">
               <input className="form-control" value={detailFilters.op} onChange={(e) => onDetailChange("op", e.target.value)} placeholder="Buscar OP" />
             </Field>
             <Field label="Bucket">
@@ -434,9 +434,9 @@ export default function GmPage() {
               <table className="pd-table">
                 <thead>
                   <tr>
-                    <th>Operacion</th>
+                    <th>Operación</th>
                     <th>Bucket</th>
-                    <th className="pd-num">Dias Mora</th>
+                    <th className="pd-num">Días Mora</th>
                     <th className="pd-num">Deuda</th>
                     <th className="pd-num">
                       <button className="pd-th-sort" type="button" onClick={toggleDetailSort} title={detailSortDir === "desc" ? "Orden descendente" : "Orden ascendente"}>
@@ -447,7 +447,7 @@ export default function GmPage() {
                     <th>Ejecutivo</th>
                     <th>Contenido</th>
                     <th>Normalizado</th>
-                    <th>Telefono Gestion</th>
+                    <th>Teléfono Gestión</th>
                   </tr>
                 </thead>
                 <tbody>

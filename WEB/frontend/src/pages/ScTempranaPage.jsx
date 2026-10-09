@@ -270,8 +270,8 @@ export default function ScTempranaPage() {
         )}
         {view === "detalle" && (
           <>
-            <Field label="Operacion">
-              <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
+            <Field label="Operación">
+              <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operación" />
             </Field>
             <Field label="Contenido">
               <select className="form-select" value={detailFilters.contenido} onChange={(e) => onDetailChange("contenido", e.target.value)}>
@@ -287,7 +287,7 @@ export default function ScTempranaPage() {
                 <option value="0">No</option>
               </select>
             </Field>
-            <Field label="Usuario Gestion">
+            <Field label="Usuario Gestión">
               <select className="form-select" value={detailFilters.usuario_gestion} onChange={(e) => onDetailChange("usuario_gestion", e.target.value)}>
                 <option value="">Todos</option>
                 {options.usuarios_gestion.map((item) => (
@@ -342,7 +342,7 @@ export default function ScTempranaPage() {
               <StatusLegend title="Aporte" items={aporteLegendItems} />
             ) : view === "detalle" ? (
               <Pagination
-                summary={`Mostrando ${detailFrom}-${detailTo} de ${detailTotal} operaciones. Pagina ${detailPage} de ${detailTotalPages}.`}
+                summary={`Mostrando ${detailFrom}-${detailTo} de ${detailTotal} operaciones. Página ${detailPage} de ${detailTotalPages}.`}
                 onPrev={() => setDetailPage((prev) => Math.max(1, prev - 1))}
                 onNext={() => setDetailPage((prev) => Math.min(detailTotalPages, prev + 1))}
                 prevDisabled={detailPage <= 1 || loading}
@@ -480,15 +480,15 @@ export default function ScTempranaPage() {
               <table className="pd-table">
                 <thead>
                   <tr>
-                    <th>Operacion</th>
+                    <th>Operación</th>
                     <th className="pd-num">Deuda</th>
                     <th>Tramo</th>
                     <th>Contenido</th>
                     <th>Normalizado</th>
-                    <th>Usuario Gestion</th>
-                    <th>Respuesta Gestion</th>
-                    <th>Gestion Fecha</th>
-                    <th>Telefono</th>
+                    <th>Usuario Gestión</th>
+                    <th>Respuesta Gestión</th>
+                    <th>Fecha Gestión</th>
+                    <th>Teléfono</th>
                   </tr>
                 </thead>
                 <tbody>

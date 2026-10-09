@@ -14,6 +14,7 @@ IF NOT EXISTS (SELECT 1 FROM dbo.roles WHERE code = 'ejecutivo')
     INSERT INTO dbo.roles(code, name) VALUES ('ejecutivo', 'Ejecutivo');
 GO
 
+-- Nombres, rutas y panel (parent_code) de cada modulo los deja al dia 008_modulos_paneles.sql.
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'sc-tardia')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('sc-tardia', 'SC Tardia', '/sc-tardia');
 
@@ -40,9 +41,6 @@ ELSE
 
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'la-araucana')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('la-araucana', 'La Araucana', '/la-araucana');
-
-IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'porsche')
-    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('porsche', 'Porsche', '/porsche');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'sth')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('sth', 'STH', '/sth');
@@ -79,6 +77,12 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'productividad')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('productividad', 'Panel de Productividad', '/productividad');
 ELSE
     UPDATE dbo.modules SET display_name = 'Panel de Productividad', route_path = '/productividad', is_active = 1 WHERE code = 'productividad';
+
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'kpi')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('kpi', 'Panel KPI', '/kpi');
+
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'bench')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('bench', 'BENCH KPI', '/kpi/bench');
 
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'contactabilidad')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('contactabilidad', 'Panel de Contactabilidad', '/contactabilidad');

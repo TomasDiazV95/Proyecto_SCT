@@ -44,7 +44,7 @@ def get_itau_castigo_periodos() -> dict:
 def get_itau_castigo_excel(periodo: str, ejecutivos: int) -> tuple[BytesIO, str]:
     periodo = str(periodo or "").strip()
     if not re.fullmatch(r"\d{6}", periodo):
-        raise ParametroInvalido("Periodo invalido. Se esperaba YYYYMM")
+        raise ParametroInvalido("Periodo inválido. Se esperaba YYYYMM")
     if not MIN_EJECUTIVOS <= ejecutivos <= MAX_EJECUTIVOS:
         raise ParametroInvalido(f"La cantidad de ejecutivos debe estar entre {MIN_EJECUTIVOS} y {MAX_EJECUTIVOS}")
 

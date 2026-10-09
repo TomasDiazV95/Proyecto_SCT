@@ -44,7 +44,7 @@ def _parse_fecha_carga(value: str | None) -> str:
         except ValueError:
             pass
 
-    raise RuntimeError(f"Fecha de carga invalida: {value}")
+    raise RuntimeError(f"Fecha de carga inválida: {value}")
 
 
 def _recup_source_file(fecha_carga: str) -> str:

@@ -24,14 +24,14 @@ const NO_ROWS = [];
 const castigoBlocks = ["F1", "F2", "F3", "F4", "TOTAL F1 - F4"];
 
 const blockMeta = {
-  C1: { title: "C1", subtitle: "Altas cuantias", icon: "bi-gem" },
-  C2: { title: "C2", subtitle: "Altas cuantias", icon: "bi-gem" },
-  [altasCuantiasBlock]: { title: "Total C1 - C2", subtitle: "Altas cuantias consolidado", icon: "bi-diagram-3" },
-  C3: { title: "C3", subtitle: "Contencion y normalizacion", icon: "bi-bullseye" },
-  "SUSCEPTIBLE CV": { title: "Susceptible CV", subtitle: "Contencion convenio", icon: "bi-shield-check" },
-  C5: { title: "C5", subtitle: "Contencion tramo 90-119", icon: "bi-layers" },
+  C1: { title: "C1", subtitle: "Altas cuantías", icon: "bi-gem" },
+  C2: { title: "C2", subtitle: "Altas cuantías", icon: "bi-gem" },
+  [altasCuantiasBlock]: { title: "Total C1 - C2", subtitle: "Altas cuantías consolidado", icon: "bi-diagram-3" },
+  C3: { title: "C3", subtitle: "Contención y normalización", icon: "bi-bullseye" },
+  "SUSCEPTIBLE CV": { title: "Susceptible CV", subtitle: "Contención convenio", icon: "bi-shield-check" },
+  C5: { title: "C5", subtitle: "Contención tramo 90-119", icon: "bi-layers" },
   C6: { title: "C6", subtitle: "Salidas convenio", icon: "bi-arrow-up-right-circle" },
-  "PRE CASTIGO": { title: "Pre Castigo", subtitle: "Contencion susceptible castigo", icon: "bi-exclamation-diamond" },
+  "PRE CASTIGO": { title: "Pre Castigo", subtitle: "Contención susceptible castigo", icon: "bi-exclamation-diamond" },
   F1: { title: "F1", subtitle: "Recupero castigo", icon: "bi-cash-coin" },
   F2: { title: "F2", subtitle: "Recupero castigo", icon: "bi-cash-stack" },
   F3: { title: "F3", subtitle: "Recupero castigo", icon: "bi-currency-dollar" },

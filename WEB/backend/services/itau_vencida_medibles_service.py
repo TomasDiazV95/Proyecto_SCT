@@ -23,7 +23,7 @@ class FiltroDuplicado(ValueError):
 def _periodo(value: str | None) -> str:
     text = str(value or "").strip()[:7]
     if not re.fullmatch(r"20\d{2}-(0[1-9]|1[0-2])", text):
-        raise FiltroInvalido(f"Periodo invalido: {value}. Se espera YYYY-MM")
+        raise FiltroInvalido(f"Periodo inválido: {value}. Se espera YYYY-MM")
     return text
 
 
@@ -31,9 +31,9 @@ def _filtro(periodo: str, columna: str, valor: str) -> tuple[str, str, str]:
     columna = str(columna or "").strip().upper()
     valor = str(valor or "").strip()
     if columna not in COLUMNAS:
-        raise FiltroInvalido(f"Columna invalida: {columna}")
+        raise FiltroInvalido(f"Columna inválida: {columna}")
     if not valor:
-        raise FiltroInvalido("El valor no puede estar vacio")
+        raise FiltroInvalido("El valor no puede estar vacío")
     if len(valor) > MAX_VALOR:
         raise FiltroInvalido(f"El valor supera {MAX_VALOR} caracteres")
     return _periodo(periodo), columna, valor

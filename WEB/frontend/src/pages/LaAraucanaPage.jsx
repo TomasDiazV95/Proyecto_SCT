@@ -428,7 +428,7 @@ export default function LaAraucanaPage() {
                 <option value="0">No</option>
               </select>
             </Field>
-            <Field label="Usuario Gestion">
+            <Field label="Usuario Gestión">
               <select className="form-select" value={detailFilters.usuario_gestion} onChange={(e) => onDetailFilter("usuario_gestion", e.target.value)}>
                 <option value="">Todos</option>
                 {detail.usuarios.map((v) => (
@@ -572,7 +572,7 @@ export default function LaAraucanaPage() {
         footer={
           loading ? null : (
             <Pagination
-              summary={`Mostrando ${detailFrom}-${detailTo} de ${formatMoney(detail.total)} folios. Pagina ${detailPage} de ${detailTotalPages}.`}
+              summary={`Mostrando ${detailFrom}-${detailTo} de ${formatMoney(detail.total)} folios. Página ${detailPage} de ${detailTotalPages}.`}
               onPrev={() => setDetailPage((prev) => Math.max(1, prev - 1))}
               onNext={() => setDetailPage((prev) => Math.min(detailTotalPages, prev + 1))}
               prevDisabled={detailPage <= 1 || loading}
@@ -594,11 +594,11 @@ export default function LaAraucanaPage() {
                   <th className="pd-num">Deuda</th>
                   <th className="pd-num">Recupero</th>
                   <th>Ejecutivo</th>
-                  <th>Usuario Gestion</th>
+                  <th>Usuario Gestión</th>
                   <th>Contacto</th>
-                  <th>Respuesta Gestion</th>
-                  <th>Gestion Fecha</th>
-                  <th>Telefono</th>
+                  <th>Respuesta Gestión</th>
+                  <th>Fecha Gestión</th>
+                  <th>Teléfono</th>
                 </tr>
               </thead>
               <tbody>
@@ -630,9 +630,9 @@ export default function LaAraucanaPage() {
         <SectionCard
           title="Detalle de negocios"
           description={
-            "Pagos NE-REPRO del mes, asignados a la ejecutiva de la mejor gestion del RUT." +
+            "Pagos NE-REPRO del mes, asignados a la ejecutiva de la mejor gestión del RUT." +
             (sinGestion && Number(sinGestion.q_negocios) > 0 && (!selected.ejecutivo || selected.ejecutivo === "PHOENIX")
-              ? ` PHOENIX incluye ${formatMoney(sinGestion.q_negocios)} negocios sin gestion en el mes (${formatRecovero(sinGestion.monto)}).`
+              ? ` PHOENIX incluye ${formatMoney(sinGestion.q_negocios)} negocios sin gestión en el mes (${formatRecovero(sinGestion.monto)}).`
               : "")
           }
           exportName={exportFileName("La-Araucana", "Negocios-detalle", selected.periodo)}

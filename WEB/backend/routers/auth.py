@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from auth.dependencies import current_user, refresh_user
 from auth.jwt_handler import create_access_token, create_refresh_token
+from auth.permissions import user_access
 from auth.security import hash_password, hash_token, new_reset_code, verify_password
 from repositories.password_reset_repo import create_reset_token, get_valid_token, mark_token_used, mark_user_tokens_used
 from repositories.users_repo import (
-    get_modules_for_user,
     get_user_by_email,
     insert_audit,
     update_login_failure,
@@ -32,11 +32,25 @@ def _cookie_secure() -> bool:
     return os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"
 
 
+def _session_user(user: dict, role: str) -> dict:
+    """Usuario que recibe el frontend: modules = asignados, access = los que puede abrir."""
+    modules, access = user_access(int(user["id"]), role)
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "full_name": user["full_name"],
+        "role": role,
+        "must_change_password": bool(user.get("must_change_password")),
+        "modules": modules,
+        "access": access,
+    }
+
+
 @router.post("/login")
 def login(payload: LoginRequest, response: Response) -> dict:
     user = get_user_by_email(payload.email)
     if not user:
-        raise HTTPException(status_code=401, detail="Credenciales invalidas")
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     locked_until = user.get("locked_until")
     if locked_until:
@@ -51,7 +65,7 @@ def login(payload: LoginRequest, response: Response) -> dict:
     if not verify_password(payload.password, str(user["password_hash"])):
         update_login_failure(int(user["id"]), int(os.getenv("AUTH_MAX_LOGIN_ATTEMPTS", "5")), int(os.getenv("AUTH_LOCK_MINUTES", "15")))
         insert_audit(int(user["id"]), "LOGIN_FAIL", "user", int(user["id"]), "password invalida")
-        raise HTTPException(status_code=401, detail="Credenciales invalidas")
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     update_login_success(int(user["id"]))
     role = str(user["role_code"])
@@ -68,19 +82,7 @@ def login(payload: LoginRequest, response: Response) -> dict:
     )
     insert_audit(int(user["id"]), "LOGIN_OK", "user", int(user["id"]), None)
 
-    modules = get_modules_for_user(int(user["id"]))
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user["full_name"],
-            "role": role,
-            "must_change_password": bool(user.get("must_change_password")),
-            "modules": [m["code"] for m in modules],
-        },
-    }
+    return {"access_token": access_token, "token_type": "bearer", "user": _session_user(user, role)}
 
 
 @router.post("/refresh")
@@ -97,19 +99,7 @@ def refresh(response: Response, user: dict = Depends(refresh_user)) -> dict:
         max_age=60 * 60 * 24 * int(os.getenv("AUTH_REFRESH_DAYS", "7")),
         path="/api/auth",
     )
-    modules = get_modules_for_user(int(user["id"]))
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user["full_name"],
-            "role": role,
-            "must_change_password": bool(user.get("must_change_password")),
-            "modules": [m["code"] for m in modules],
-        },
-    }
+    return {"access_token": access_token, "token_type": "bearer", "user": _session_user(user, role)}
 
 
 @router.post("/logout")
@@ -121,22 +111,14 @@ def logout(response: Response, user: dict = Depends(current_user)) -> dict:
 
 @router.get("/me")
 def me(user: dict = Depends(current_user)) -> dict:
-    modules = get_modules_for_user(int(user["id"]))
-    return {
-        "id": user["id"],
-        "email": user["email"],
-        "full_name": user["full_name"],
-        "role": user["role"],
-        "must_change_password": bool(user.get("must_change_password")),
-        "modules": [m["code"] for m in modules],
-    }
+    return _session_user(user, str(user["role"]))
 
 
 @router.post("/change-password")
 def change_password(payload: ChangePasswordRequest, user: dict = Depends(current_user)) -> dict:
     db_user = get_user_by_email(str(user["email"]))
     if not db_user or not verify_password(payload.current_password, str(db_user["password_hash"])):
-        raise HTTPException(status_code=400, detail="Contrasena actual invalida")
+        raise HTTPException(status_code=400, detail="Contraseña actual inválida")
     update_password(int(user["id"]), hash_password(payload.new_password), must_change_password=False)
     insert_audit(int(user["id"]), "PASSWORD_CHANGE", "user", int(user["id"]), None)
     return {"ok": True}
@@ -160,10 +142,10 @@ def forgot_password(payload: ForgotPasswordRequest) -> dict:
 def verify_reset_code(payload: VerifyResetCodeRequest) -> dict:
     user = get_user_by_email(payload.email)
     if not user or not bool(user.get("is_active")):
-        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
     token_row = get_valid_token(int(user["id"]), hash_token(payload.code.strip()))
     if not token_row:
-        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
     return {"ok": True}
 
 
@@ -171,10 +153,10 @@ def verify_reset_code(payload: VerifyResetCodeRequest) -> dict:
 def reset_password(payload: ResetPasswordRequest) -> dict:
     user = get_user_by_email(payload.email)
     if not user or not bool(user.get("is_active")):
-        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
     token_row = get_valid_token(int(user["id"]), hash_token(payload.code.strip()))
     if not token_row:
-        raise HTTPException(status_code=400, detail="Codigo invalido o expirado")
+        raise HTTPException(status_code=400, detail="Código inválido o expirado")
     user_id = int(token_row["user_id"])
     update_password(user_id, hash_password(payload.new_password), must_change_password=False)
     mark_token_used(int(token_row["id"]))

@@ -73,7 +73,7 @@ def _parse_periodo(periodo: str | None) -> date:
         return date.today().replace(day=1)
     match = re.match(r"^(\d{4})-(\d{2})", text)
     if not match:
-        raise ValueError(f"Periodo invalido: {periodo}")
+        raise ValueError(f"Periodo inválido: {periodo}")
     return date(int(match[1]), int(match[2]), 1)
 
 

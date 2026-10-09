@@ -42,7 +42,7 @@ export default function LoginPage() {
       const target = location.state?.from?.pathname || "/";
       navigate(target, { replace: true });
     } catch (err) {
-      setError(err.message || "Error de autenticacion");
+      setError(err.message || "Error de autenticación");
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,7 @@ export default function LoginPage() {
               <span>Gestiona.</span>
               <span className="login-gradient-text">Impulsa.</span>
             </h1>
-            {/* <p>Nexus integra procesos, personas y datos para una operacion mas inteligente y eficiente.</p> */}
+            {/* <p>Nexus integra procesos, personas y datos para una operación más inteligente y eficiente.</p> */}
           </div>
 
           {/* <p className="login-copyright">© 2026 Nexus. Todos los derechos reservados.</p> */}
@@ -72,7 +72,7 @@ export default function LoginPage() {
           <div className="login-card-header">
             <img className="login-card-logo" src={nexusLogo} alt="Nexus" />
             <h2>Bienvenido de nuevo</h2>
-            <p>Inicia sesion para continuar</p>
+            <p>Inicia sesión para continuar</p>
           </div>
 
           <form onSubmit={onSubmit} className="login-form">
@@ -121,14 +121,14 @@ export default function LoginPage() {
             {error && <div className="alert alert-danger py-2 mb-0">{error}</div>}
 
             <button className="login-submit" disabled={loading}>
-              <span>{loading ? "Entrando..." : "Iniciar sesion"}</span>
+              <span>{loading ? "Entrando..." : "Iniciar sesión"}</span>
             </button>
           </form>
         </div>
 
 {/*         <div className="login-social-note">
           <span />
-          <p>o continua con</p>
+          <p>o continúa con</p>
           <span />
         </div>
         <div className="login-social-buttons" aria-hidden="true">

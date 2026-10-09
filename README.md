@@ -98,12 +98,14 @@ npm run dev -- --host 0.0.0.0 --port 5173
 Rutas principales del frontend:
 
 - `/`: inicio.
-- `/sc-tardia`: productividad Santander Consumer mora tardia.
-- `/sc-temprana`: productividad Santander Consumer mora temprana.
-- `/gm`: productividad GM.
-- `/bit`: seguimiento BIT.
-- `/la-araucana`: La Araucana.
-- `/porsche`: dashboard Porsche.
+- `/productividad/<modulo>`: productividad por cartera (`sc-tardia`, `sc-temprana`, `gm`, `itau-castigo`, `itau-vencida`, `itau-vigente`, `sth`, `bit`, `bit-castigo`, `la-araucana`).
+- `/kpi/<modulo>`: `bench`, `avance-phoenix`, `operacional`.
+- `/administrativas/<modulo>`: `itau-vencida`, `gestiones-diarias-sct`.
+- `/contactabilidad/itau-vencida`, `/estrategia-asignacion/itau-castigo`, `/rrhh/cumplimientos`, `/admin/usuarios`.
+
+Paneles, modulos y rutas se definen en `WEB/frontend/src/app/moduleCatalog.js`; la pagina de cada ruta, en `app/routes.jsx`. Las direcciones antiguas (`/sc-tardia`, `/bench`, ...) redirigen a las nuevas.
+
+Permisos: el backend calcula que modulos abre cada usuario (`WEB/backend/auth/permissions.py`) y los entrega en `user.access`. Asignar un panel (`productividad`, `kpi`) abre todos sus modulos (`dbo.modules.parent_code`).
 
 ## ETL principales
 
@@ -227,7 +229,6 @@ El proyecto crea o consulta, entre otras, las siguientes entidades:
 - `dbo.tmp_LA_asignacion`
 - `dbo.tmp_LA_pagos`
 - `dbo.tmp_LA_performance_cache`
-- `dbo.dashboard_data`
 
 La API tambien depende de tablas operacionales existentes, por ejemplo `dbo.tmp_GEST_CRM`, `dbo.tmp_ejecutivos`, `dbo.tmp_carterizado_GM` y `dbo.tmp_pagos_gm`.
 

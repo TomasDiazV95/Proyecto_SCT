@@ -52,5 +52,5 @@ def create_refresh_token(user_id: int, role: str) -> str:
 def decode_token(token: str, expected_type: str) -> dict:
     payload = jwt.decode(token, _secret(), algorithms=["HS256"], issuer=_issuer())
     if payload.get("type") != expected_type:
-        raise jwt.InvalidTokenError("Tipo de token invalido")
+        raise jwt.InvalidTokenError("Tipo de token inválido")
     return payload
