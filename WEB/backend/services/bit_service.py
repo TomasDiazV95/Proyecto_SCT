@@ -1,3 +1,4 @@
+from cache import cached_view
 from database import run_query
 
 
@@ -250,6 +251,7 @@ def _base_where(filters: dict) -> tuple[str, list]:
     return " AND ".join(clauses), params
 
 
+@cached_view
 def get_filter_values(periodo: str | None = None) -> dict:
     periodos = [
         r["v"]
@@ -313,6 +315,7 @@ def get_filter_values(periodo: str | None = None) -> dict:
     return {"periodos": periodos, "ejecutivos": ejecutivos, "tramos": tramos}
 
 
+@cached_view
 def get_general(filters: dict) -> dict:
     periodo = str(filters.get("periodo") or "").strip()
     where_sql, params = _base_where(filters)
@@ -383,6 +386,7 @@ def get_general(filters: dict) -> dict:
     }
 
 
+@cached_view
 def get_tramos(filters: dict) -> dict:
     periodo = str(filters.get("periodo") or "").strip()
     where_sql, params = _base_where(filters)
@@ -430,6 +434,7 @@ def get_tramos(filters: dict) -> dict:
 NEGOCIO_TIPOS = {"PC20": "refinanciamiento", "PC07": "renegociacion"}
 
 
+@cached_view
 def get_negocios(filters: dict) -> dict:
     periodo = str(filters.get("periodo") or "").strip()
     where_sql, params = _base_where(filters)

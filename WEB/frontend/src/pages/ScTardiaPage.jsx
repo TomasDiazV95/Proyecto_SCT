@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchCycle, fetchFilters, fetchGeneral, fetchScTardiaMetas } from "../api";
+import NegociosCard from "../components/productividad/NegociosCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoLegendItems, cumplimientoStatus, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
@@ -134,7 +135,8 @@ export default function ScTardiaPage() {
 
   useEffect(() => {
     async function loadData() {
-      if (!filters.periodo) return;
+      // La pestaña Negocios carga sus propios datos (NegociosCard).
+      if (!filters.periodo || view === "negocios") return;
       setLoading(true);
       setError("");
       try {
@@ -275,6 +277,7 @@ export default function ScTardiaPage() {
       options={[
         { value: "general", label: "Vista general", icon: "bi-grid" },
         { value: "ciclo", label: "Por ciclo", icon: "bi-layers" },
+        { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
       ]}
     />
   );
@@ -385,6 +388,11 @@ export default function ScTardiaPage() {
           <SectionCard exportName={exportFileName("SC-Tardia", "general", filters.periodo)} bodyClassName="" footer={<StatusLegend items={cumplimientoLegendItems} />}>
             {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderGeneralTable()}</div>}
           </SectionCard>
+        </div>
+      ) : view === "negocios" ? (
+        <div className="pd-tabbed">
+          {viewTabs}
+          <NegociosCard modulo="sc-tardia" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Tardia", "negocios", filters.periodo)} />
         </div>
       ) : loading ? (
         <>

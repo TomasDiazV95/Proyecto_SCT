@@ -6,6 +6,7 @@ from openpyxl import Workbook
 
 from auth.dependencies import require_module, require_roles
 from schemas import ApiEnvelope
+from services.negocios_service import get_conteo as get_negocios_conteo
 from services.gm_service import (
     get_bucket_view,
     get_cycle_view,
@@ -168,5 +169,16 @@ def export_mensual(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/negocios")
+def negocios(
+    periodo: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return get_negocios_conteo("gm", periodo, ejecutivo)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

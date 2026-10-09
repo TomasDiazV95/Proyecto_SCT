@@ -41,8 +41,8 @@ export default function PanelPage({ panelCode }) {
           ))}
         </div>
       ) : (
-        <SectionCard title={panel.emptyTitle || "Módulo en preparación"}>
-          <p className="pd-muted m-0">{panel.emptyDescription || "Este panel quedó reservado para una siguiente etapa."}</p>
+        <SectionCard title="Sin módulos disponibles">
+          <p className="pd-muted m-0">No tienes módulos habilitados en este panel.</p>
         </SectionCard>
       )}
     </div>

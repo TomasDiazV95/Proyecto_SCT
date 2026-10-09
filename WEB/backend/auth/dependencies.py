@@ -1,13 +1,18 @@
+import copy
+
 from fastapi import Cookie, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+import cache
 from auth.jwt_handler import decode_token
 from auth.permissions import user_access
 from repositories.session_control_repo import get_tokens_valid_after
-from repositories.users_repo import get_user_by_id
+from repositories.users_repo import get_user_by_id, user_cache_key
 
 
 bearer = HTTPBearer(auto_error=False)
+# El usuario y sus permisos se releen cada 30 s; users_repo los olvida al modificarlos.
+USER_TTL = 30  # segundos
 
 
 def _token_is_globally_valid(payload: dict) -> bool:
@@ -36,9 +41,19 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
     if not _token_is_globally_valid(payload):
         raise HTTPException(status_code=401, detail="Sesión expirada")
 
-    user = get_user_by_id(int(payload["sub"]))
-    if not user or not user.get("is_active"):
+    user_id = int(payload["sub"])
+    user = cache.cached(user_cache_key(user_id), lambda: _load_user(user_id), ttl=USER_TTL)
+    if not user:
         raise HTTPException(status_code=401, detail="Usuario no habilitado")
+    # Copia: cada request recibe su propio usuario.
+    return copy.deepcopy(user)
+
+
+def _load_user(user_id: int) -> dict | None:
+    """Usuario activo con su rol y permisos; None si no existe o esta deshabilitado."""
+    user = get_user_by_id(user_id)
+    if not user or not user.get("is_active"):
+        return None
 
     role = str(user["role_code"])
     user["role"] = role

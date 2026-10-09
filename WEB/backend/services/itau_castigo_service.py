@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from cache import cached_view
 from database import run_query
 from feriados_chile import es_habil
 
@@ -126,6 +127,7 @@ def _base_filters(filters: dict, alias: str = "d") -> tuple[str, list]:
     return " AND " + " AND ".join(clauses), params
 
 
+@cached_view
 def get_filter_values(fecha_carga: str | None = None) -> dict:
     fechas_carga = [
         r["fecha_carga"]
@@ -165,6 +167,7 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
     }
 
 
+@cached_view
 def get_general(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
@@ -486,6 +489,7 @@ def get_general(filters: dict) -> dict:
     }
 
 
+@cached_view
 def get_producto(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
@@ -513,6 +517,8 @@ def get_producto(filters: dict) -> dict:
     GROUP BY ISNULL(c.ejecutivo, '{DEFAULT_EXECUTIVE}')
     {filter_sql}
     ORDER BY Ejecutivo
+    -- Igual que en la vista general: sin esto el cruce por RUT usa nested loops (8s en vez de <1s).
+    OPTION (HASH JOIN)
     """
 
     rows = []

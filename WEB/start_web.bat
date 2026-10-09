@@ -40,7 +40,7 @@ if not exist "%FRONTEND_DIR%\package.json" (
 echo Preparando el entorno virtual del proyecto...
 if exist "%PYTHON_EXE%" goto :activate_venv
 rem Preferir versiones compatibles con las dependencias fijadas del backend.
-for %%V in (3.13 3.12 3.11 3.10) do (
+for %%V in (3.14 3.13 3.12 3.11 3.10) do (
   py -%%V -c "import sys" >nul 2>&1
   if not errorlevel 1 (
     py -%%V -m venv "%PROJECT_ROOT%\.venv"
@@ -48,10 +48,10 @@ for %%V in (3.13 3.12 3.11 3.10) do (
     goto :activate_venv
   )
 )
-python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] < (3,14) else 1)" >nul 2>&1
+python -c "import sys; sys.exit(0 if (3,10) <= sys.version_info[:2] < (3,15) else 1)" >nul 2>&1
 if errorlevel 1 (
-  echo [ERROR] Se necesita Python 3.10 a 3.13 para las dependencias actuales.
-  echo Instala Python 3.13 con el lanzador py y vuelve a ejecutar este archivo.
+  echo [ERROR] Se necesita Python 3.10 a 3.14 para las dependencias actuales.
+  echo Instala Python 3.14 con el lanzador py y vuelve a ejecutar este archivo.
   goto :error
 )
 python -m venv "%PROJECT_ROOT%\.venv"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
@@ -64,6 +65,34 @@ CORTES_TTL_SEGUNDOS = 300
 CONSOLIDADO_WORKERS = 4
 
 _cortes_cache: dict[str, tuple[float, list[str]]] = {}
+_ruts_cache: tuple[float, dict[str, str]] | None = None
+
+
+def _clave_nombre(nombre) -> str:
+    """Nombre sin tildes, en mayusculas y con espacios simples, para cruzar con la nomina."""
+    text = unicodedata.normalize("NFD", str(nombre or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", text).strip().upper()
+
+
+def _ruts_colaboradores() -> dict[str, str]:
+    """RUT por nombre de panel (dbo.rrhh_colaboradores). nombre_panel admite varias formas separadas por ';'."""
+    global _ruts_cache
+    if _ruts_cache and time.monotonic() - _ruts_cache[0] < CORTES_TTL_SEGUNDOS:
+        return _ruts_cache[1]
+    sql = """
+    SELECT rut, nombre_panel
+    FROM dbo.rrhh_colaboradores
+    WHERE activo = 1
+      AND nombre_panel IS NOT NULL
+    """
+    ruts: dict[str, str] = {}
+    for row in run_query(sql):
+        for nombre in str(row["nombre_panel"]).split(";"):
+            clave = _clave_nombre(nombre)
+            if clave:
+                ruts[clave] = str(row["rut"]).strip()
+    _ruts_cache = (time.monotonic(), ruts)
+    return ruts
 
 
 def _parse_periodo(periodo: str | None) -> date:
@@ -519,6 +548,9 @@ def get_planilla(periodo: str | None, codigo: str) -> dict:
     planilla = _Planilla(mes, negocio["cliente"], negocio["campana"], corte or "")
     if corte:
         negocio["build"](planilla)
+        ruts = _ruts_colaboradores()
+        for row in planilla.rows:
+            row["RUT"] = ruts.get(_clave_nombre(row["COLABORADOR"]), "")
     return {
         "codigo": codigo,
         "cliente": negocio["cliente"],

@@ -6,6 +6,7 @@ from io import BytesIO
 from pathlib import Path
 
 import bench_recarga
+import corregir_nombres
 import pandas as pd
 import pyodbc
 from dotenv import load_dotenv
@@ -409,6 +410,8 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
 def main() -> None:
     for excel_path in get_input_excel_paths():
         cargar_archivo(excel_path)
+    # Los archivos pueden traer nombres de ejecutivos mal escritos: se corrigen segun la nomina.
+    corregir_nombres.corregir_tras_carga()
 
 
 def cargar_archivo(excel_path: Path) -> None:

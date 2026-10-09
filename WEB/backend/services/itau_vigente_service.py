@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from cache import cached_view
 from database import run_query
 from services.itau_castigo_service import _recup_source_file
 from services.itau_vencida_service import (
@@ -122,6 +123,7 @@ def _recupero_castigo(periodo: str, fecha_carga: str) -> tuple[str | None, dict[
     return fecha_recupero, recupero
 
 
+@cached_view
 def get_filter_values(fecha_carga: str | None = None) -> dict:
     fechas_carga = [
         r["fecha_carga"]
@@ -177,6 +179,7 @@ def _result(nombre: str, casos: int, acc: dict, metas: dict, castigo: dict | Non
     return out
 
 
+@cached_view
 def get_general(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)

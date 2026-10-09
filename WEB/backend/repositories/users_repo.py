@@ -1,4 +1,10 @@
+import cache
 from database import get_connection, run_query
+
+
+def user_cache_key(user_id: int) -> tuple:
+    """Clave del usuario con sus permisos en la cache (auth.dependencies.current_user)."""
+    return ("auth", "usuario", int(user_id))
 
 
 def get_user_by_email(email: str) -> dict | None:
@@ -94,6 +100,7 @@ def update_password(user_id: int, password_hash: str, must_change_password: bool
             (password_hash, 1 if must_change_password else 0, user_id),
         )
         cn.commit()
+    cache.forget(user_cache_key(user_id))
 
 
 def create_user(email: str, full_name: str, password_hash: str, role_code: str, created_by_user_id: int | None) -> int:
@@ -122,6 +129,7 @@ def set_user_active(user_id: int, is_active: bool) -> None:
         cur = cn.cursor()
         cur.execute("UPDATE dbo.users SET is_active = ?, updated_at = SYSUTCDATETIME() WHERE id = ?", (1 if is_active else 0, user_id))
         cn.commit()
+    cache.forget(user_cache_key(user_id))
 
 
 def _module_ids(cur, module_codes: list[str]) -> dict[str, int]:
@@ -149,6 +157,7 @@ def set_user_modules(user_id: int, module_codes: list[str], actor_user_id: int |
                 (user_id, module_id, actor_user_id),
             )
         cn.commit()
+    cache.forget(user_cache_key(user_id))
 
 
 def change_user_modules(user_ids: list[int], add: list[str], remove: list[str], actor_user_id: int | None) -> dict[int, list[str]]:
@@ -183,6 +192,8 @@ def change_user_modules(user_ids: list[int], add: list[str], remove: list[str], 
             )
             result[user_id] = [str(r[0]) for r in cur.fetchall()]
         cn.commit()
+    for user_id in result:
+        cache.forget(user_cache_key(user_id))
     return result
 
 

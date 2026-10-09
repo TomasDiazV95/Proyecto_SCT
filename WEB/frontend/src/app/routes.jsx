@@ -14,7 +14,7 @@ import ItauVigentePage from "../pages/ItauVigentePage";
 import KpiAvancePhoenixPage from "../pages/KpiAvancePhoenixPage";
 import KpiOperacionalPage from "../pages/KpiOperacionalPage";
 import LaAraucanaPage from "../pages/LaAraucanaPage";
-import PlaceholderPage from "../pages/PlaceholderPage";
+import NegociosAdministrativasPage from "../pages/administrativas/NegociosAdministrativasPage";
 import RrhhPage from "../pages/RrhhPage";
 import ScTardiaPage from "../pages/ScTardiaPage";
 import ScTempranaPage from "../pages/ScTempranaPage";
@@ -37,10 +37,9 @@ export const modulePages = {
   "/kpi/operacional": <KpiOperacionalPage />,
   "/contactabilidad/itau-vencida": <ContactabilidadItauVencidaPage />,
   "/administrativas/itau-vencida": <ItauAdministrativasPage />,
+  "/administrativas/negocios": <NegociosAdministrativasPage />,
   "/administrativas/gestiones-diarias-sct": <GestionesDiariasSctPage />,
   "/estrategia-asignacion/itau-castigo": <EstrategiaItauCastigoPage />,
   "/rrhh/cumplimientos": <RrhhPage />,
   "/admin/usuarios": <AdminUsersPage />,
-  "/admin/permisos": <PlaceholderPage title="Permisos" description="Administración avanzada de permisos." />,
-  "/admin/configuracion": <PlaceholderPage title="Configuración" description="Configuración general de la plataforma." />,
 };
