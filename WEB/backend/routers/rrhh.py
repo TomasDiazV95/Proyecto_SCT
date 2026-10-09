@@ -44,26 +44,32 @@ NEGOCIOS_WIDTHS = [14, 22, 40, 30, 28, 14, 30, 16, 16, 16, 12]
 NEGOCIOS_FORMATS = {"MES": "mmm-yy", "MONTO DEUDA": "#,##0", "ABONO INICIAL": "#,##0", "FECHA": "dd-mm-yyyy"}
 RESUMEN_WIDTHS = [22, 52, 22, 18, 24, 40]
 RESUMEN_FORMATS = {"CUMPLIMIENTO PROMEDIO": "0%"}
+# Columnas que el panel muestra o calcula pero que no van en el Excel de descarga.
+EXCEL_OMITIR = {
+    "RESULTADOS": {"ANEXOS / RESPALDO", "ESTADO ANEXO / RESPALDO"},
+    "NEGOCIOS": {"FECHA"},
+    "RESUMEN": {"CORTE", "CUMPLIMIENTO PROMEDIO", "ESTADO"},
+}
+
+
+def _sheet(title: str, headers: list[str], rows: list[dict], widths: list[int], formats: dict) -> dict:
+    omitir = EXCEL_OMITIR.get(title, set())
+    columnas = [(header, width) for header, width in zip(headers, widths) if header not in omitir]
+    return {
+        "title": title,
+        "headers": [header for header, _ in columnas],
+        "rows": rows,
+        "widths": [width for _, width in columnas],
+        "number_formats": formats,
+    }
 
 
 def _resultados_sheet(rows: list[dict]) -> dict:
-    return {
-        "title": "RESULTADOS",
-        "headers": HEADERS,
-        "rows": rows,
-        "widths": RESULTADOS_WIDTHS,
-        "number_formats": RESULTADOS_FORMATS,
-    }
+    return _sheet("RESULTADOS", HEADERS, rows, RESULTADOS_WIDTHS, RESULTADOS_FORMATS)
 
 
 def _negocios_sheet(rows: list[dict]) -> dict:
-    return {
-        "title": "NEGOCIOS",
-        "headers": NEGOCIOS_HEADERS,
-        "rows": rows,
-        "widths": NEGOCIOS_WIDTHS,
-        "number_formats": NEGOCIOS_FORMATS,
-    }
+    return _sheet("NEGOCIOS", NEGOCIOS_HEADERS, rows, NEGOCIOS_WIDTHS, NEGOCIOS_FORMATS)
 
 
 def _file_part(text: str) -> str:
@@ -132,13 +138,7 @@ def export(
         sheets = [
             _resultados_sheet(data["rows"]),
             _negocios_sheet(data["negocios"]),
-            {
-                "title": "RESUMEN",
-                "headers": RESUMEN_HEADERS,
-                "rows": data["resumen"],
-                "widths": RESUMEN_WIDTHS,
-                "number_formats": RESUMEN_FORMATS,
-            },
+            _sheet("RESUMEN", RESUMEN_HEADERS, data["resumen"], RESUMEN_WIDTHS, RESUMEN_FORMATS),
         ]
         return workbook_response(sheets, f"Cumplimientos_Campanas_{data['periodo']}.xlsx")
     except ValueError as exc:

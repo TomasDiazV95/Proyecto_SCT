@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from cache import cached_view
 from database import run_query
 
 
@@ -64,6 +65,7 @@ def _bucket_index(bucket: str) -> int:
         return 99
 
 
+@cached_view
 def get_filter_values(periodo: str | None = None) -> dict:
     sql_periodos = """
     SELECT DISTINCT CONVERT(char(10), DATEFROMPARTS(YEAR(fecha_carga), MONTH(fecha_carga), 1), 126) AS periodo
@@ -91,6 +93,7 @@ def get_filter_values(periodo: str | None = None) -> dict:
     }
 
 
+@cached_view
 def get_cycle_view(filters: dict) -> list[dict]:
     periodo = _period_start(filters.get("periodo"))
     ejecutivo = _clean_text(filters.get("ejecutivo"))
@@ -238,6 +241,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
     return rows
 
 
+@cached_view
 def get_general_view(filters: dict) -> list[dict]:
     cycle_rows = get_cycle_view(filters)
 
@@ -289,6 +293,7 @@ def get_general_view(filters: dict) -> list[dict]:
     return response
 
 
+@cached_view
 def get_bucket_view(filters: dict) -> list[dict]:
     cycle_rows = get_cycle_view({"periodo": filters.get("periodo"), "ejecutivo": ""})
     oficiales = RESULTADO_OFICIAL_BUCKET.get(_period_start(filters.get("periodo")), {})

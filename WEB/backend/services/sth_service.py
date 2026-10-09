@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 from datetime import date
 
+from cache import cached, cached_view
 from database import run_query
 
 
@@ -76,6 +78,52 @@ def _products_with_cycle_config(periodo: str) -> set[str]:
       AND activo = 1
     """
     return {row["producto"] for row in run_query(sql, (periodo,)) if row.get("producto")}
+
+
+def _grupal_members(periodo: str) -> dict[str, list[str]]:
+    """Ejecutivos que componen el grupal de cada producto en el periodo.
+
+    Solo tarjeta: sus filas en dbo.sth_ejecutivos_ciclo no filtran ciclos (la cartera
+    no esta carterizada), indican quienes trabajan el grupal. Va una fila por ejecutivo
+    y el ciclo se ignora. Cada uno reemplaza a la fila 'Grupal' con las mismas cifras.
+    Si no hay filas para el periodo, se sigue mostrando la fila 'Grupal'.
+    """
+    sql = """
+    SELECT DISTINCT
+        LOWER(LTRIM(RTRIM(producto))) AS producto,
+        LTRIM(RTRIM(ejecutivo)) AS ejecutivo
+    FROM dbo.sth_ejecutivos_ciclo
+    WHERE periodo = ?
+      AND LOWER(LTRIM(RTRIM(producto))) = 'tarjeta'
+      AND activo = 1
+    ORDER BY ejecutivo
+    """
+    members: dict[str, list[str]] = {}
+    for row in run_query(sql, (periodo,)):
+        if row.get("producto") and row.get("ejecutivo"):
+            members.setdefault(row["producto"], []).append(row["ejecutivo"])
+    return members
+
+
+def _expand_grupal(rows: list[dict], integrantes: list[str]) -> list[dict]:
+    """Reemplaza cada fila 'Grupal' por una copia por integrante, marcada con grupal=True."""
+    if not integrantes:
+        return rows
+    propias = {
+        ((r.get("ejecutivo") or "").strip().lower(), int(r["ciclo"]))
+        for r in rows
+        if (r.get("ejecutivo") or "").strip().lower() != "grupal"
+    }
+    expanded: list[dict] = []
+    for row in rows:
+        if (row.get("ejecutivo") or "").strip().lower() != "grupal":
+            expanded.append(row)
+            continue
+        for nombre in integrantes:
+            # Si el integrante ya tiene fila propia en el ciclo, se conserva la propia.
+            if (nombre.lower(), int(row["ciclo"])) not in propias:
+                expanded.append({**row, "ejecutivo": nombre, "grupal": True})
+    return expanded
 
 
 def _safe_div(num: float, den: float) -> float:
@@ -257,6 +305,7 @@ def _build_detail_for_product(
     }
 
 
+@cached_view
 def get_metas(filters: dict) -> list[dict]:
     """Metas activas del periodo (dbo.sth_metas_mensuales) por producto y tramo, en el orden de la pagina."""
     periodo = _period_start(filters.get("periodo"))
@@ -286,6 +335,7 @@ def get_metas(filters: dict) -> list[dict]:
     return rows
 
 
+@cached_view
 def get_filter_values(periodo: str | None = None) -> dict:
     sql_periodos = """
     SELECT DISTINCT CONVERT(char(10), DATEFROMPARTS(YEAR(fecha_carga), MONTH(fecha_carga), 1), 126) AS periodo
@@ -305,6 +355,10 @@ def get_filter_values(periodo: str | None = None) -> dict:
     """
     params = (_period_start(periodo),) if periodo else ()
     ejecutivos = [r["ejecutivo"] for r in run_query(sql_ejecutivos, params) if r.get("ejecutivo")]
+    if periodo:
+        # Los integrantes del grupal no estan carterizados, pero tienen fila propia en las vistas.
+        integrantes = {n for nombres in _grupal_members(_period_start(periodo)).values() for n in nombres}
+        ejecutivos = sorted(set(ejecutivos) | integrantes)
 
     productos_detalle = sorted({config["producto_cliente"] for config in PRODUCT_CONFIG.values()})
 
@@ -317,15 +371,23 @@ def get_filter_values(periodo: str | None = None) -> dict:
     }
 
 
+@cached_view
 def get_detail_view(filters: dict) -> list[dict]:
     periodo = _period_start(filters.get("periodo"))
     ejecutivo_filter = (filters.get("ejecutivo") or "").strip().lower()
     productos_con_ciclo = _products_with_cycle_config(periodo)
+    integrantes_grupal = _grupal_members(periodo)
 
     result: list[dict] = []
     for product in PRODUCT_ORDER:
-        data = _build_detail_for_product(periodo, product, productos_con_ciclo)
-        rows = data["rows"]
+        # La consulta del producto no depende del ejecutivo: se guarda una vez por periodo.
+        data = copy.deepcopy(
+            cached(
+                ("sth", "detalle_producto", periodo, product),
+                lambda: _build_detail_for_product(periodo, product, productos_con_ciclo),
+            )
+        )
+        rows = _expand_grupal(data["rows"], integrantes_grupal.get(product, []))
 
         if product in ("hipotecario", "consumo"):
             rows = [r for r in rows if (r.get("ejecutivo") or "").strip().lower() != "grupal"]
@@ -335,6 +397,8 @@ def get_detail_view(filters: dict) -> list[dict]:
 
         cycle_totals: list[dict] = []
         grouped: dict[int, dict] = {}
+        # La deuda del grupal viene repetida en cada integrante: se suma una sola vez por ciclo.
+        grupal_sumado: set[int] = set()
         for row in rows:
             ciclo = int(row["ciclo"])
             item = grouped.setdefault(
@@ -348,6 +412,10 @@ def get_detail_view(filters: dict) -> list[dict]:
                     "ponderador_nivel_1_pct": float(row.get("ponderador_nivel_1_pct") or 0),
                 },
             )
+            if row.get("grupal"):
+                if ciclo in grupal_sumado:
+                    continue
+                grupal_sumado.add(ciclo)
             item["deuda_asignada"] += float(row.get("deuda_asignada") or 0)
             item["saldo_contenido"] += float(row.get("saldo_contenido") or 0)
 
@@ -423,7 +491,13 @@ def get_detail_view(filters: dict) -> list[dict]:
 
         deuda_total_final = 0.0
         suma_final_ponderada = 0.0
+        grupal_ponderado = False
         for row_exec in pivot_rows:
+            # Los integrantes del grupal comparten la misma deuda: pesa una sola vez.
+            if row_exec["ciclos"] and all(x.get("grupal") for x in row_exec["ciclos"].values()):
+                if grupal_ponderado:
+                    continue
+                grupal_ponderado = True
             deuda_ref = sum(float(x.get("deuda_asignada") or 0) for x in row_exec["ciclos"].values())
             deuda_total_final += deuda_ref
             suma_final_ponderada += float(row_exec.get("cumplimiento_final") or 0) * deuda_ref
@@ -665,6 +739,12 @@ def get_operations_detail_view(filters: dict) -> dict:
     page_size = min(500, max(1, int(filters.get("page_size") or 100)))
     offset = (page - 1) * page_size
 
+    # Los integrantes del grupal no tienen carterizado propio: sus operaciones son las del grupal.
+    if ejecutivo and ejecutivo.lower() != "grupal":
+        integrantes = {n.lower() for nombres in _grupal_members(periodo).values() for n in nombres}
+        if ejecutivo.lower() in integrantes:
+            ejecutivo = "Grupal"
+
     carterizado_filter = ""
     join_type = "LEFT JOIN"
     params: list = [periodo, periodo]
@@ -874,6 +954,7 @@ def get_operations_detail_view(filters: dict) -> dict:
     }
 
 
+@cached_view
 def get_general_view(filters: dict) -> list[dict]:
     detail = get_detail_view(filters)
     by_exec: dict[str, dict] = {}
@@ -897,6 +978,7 @@ def get_general_view(filters: dict) -> list[dict]:
                     "producto_trabajado": "",
                     "tramo_trabajado": "",
                     "deuda_referencia": 0.0,
+                    "grupal": False,
                 },
             )
 
@@ -904,9 +986,11 @@ def get_general_view(filters: dict) -> list[dict]:
             deuda = float(row["deuda_asignada"] or 0)
             if deuda >= float(current["deuda_referencia"]):
                 current["deuda_referencia"] = deuda
+                current["grupal"] = bool(row.get("grupal"))
                 current["cumplimiento_final"] = float(row["cumplimiento_final"])
                 current["producto_trabajado"] = product
-                current["tramo_trabajado"] = row["tramo"]
+                # Tarjeta se trabaja completa (Ciclo 0 y Multiciclo), no por tramo.
+                current["tramo_trabajado"] = "Todos" if product == "tarjeta" else row["tramo"]
 
     rows = list(by_exec.values())
     rows.sort(
@@ -918,8 +1002,18 @@ def get_general_view(filters: dict) -> list[dict]:
         )
     )
 
-    total_deuda = sum(float(r.get("deuda_referencia") or 0) for r in rows)
-    total_cumpl = sum(float(r.get("cumplimiento_final") or 0) * float(r.get("deuda_referencia") or 0) for r in rows)
+    # Los integrantes de un grupal comparten la misma deuda: pesa una sola vez en el total.
+    total_deuda = 0.0
+    total_cumpl = 0.0
+    grupal_ponderado: set[tuple[str, str]] = set()
+    for r in rows:
+        if r.get("grupal"):
+            clave = (r["producto_trabajado"], r["tramo_trabajado"])
+            if clave in grupal_ponderado:
+                continue
+            grupal_ponderado.add(clave)
+        total_deuda += float(r.get("deuda_referencia") or 0)
+        total_cumpl += float(r.get("cumplimiento_final") or 0) * float(r.get("deuda_referencia") or 0)
     rows.append(
         {
             "ejecutivo": "Total general",

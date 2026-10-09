@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters } from "../api";
+import NegociosCard from "../components/productividad/NegociosCard";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
@@ -155,7 +156,8 @@ export default function ScTempranaPage() {
 
   useEffect(() => {
     async function loadData() {
-      if (!filters.periodo) {
+      // La pestaña Negocios carga sus propios datos (NegociosCard).
+      if (!filters.periodo || view === "negocios") {
         return;
       }
       setLoading(true);
@@ -332,8 +334,12 @@ export default function ScTempranaPage() {
           options={[
             { value: "ejecutivos", label: "Ejecutivos" },
             { value: "detalle", label: "Detalle" },
+            { value: "negocios", label: "Negocios" },
           ]}
         />
+        {view === "negocios" ? (
+          <NegociosCard modulo="sc-temprana" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Temprana", "negocios", filters.periodo)} />
+        ) : (
         <SectionCard
           exportName={exportFileName("SC-Temprana", view === "ejecutivos" ? executiveSubview : view, filters.periodo)}
           bodyClassName=""
@@ -511,6 +517,7 @@ export default function ScTempranaPage() {
             </div>
           )}
         </SectionCard>
+        )}
       </div>
     </div>
   );

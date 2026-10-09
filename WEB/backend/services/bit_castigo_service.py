@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from database import run_query
+from cache import cached, cached_view
+from database import run_query, run_query_sets
 from feriados_chile import es_habil
 
 
@@ -77,6 +78,10 @@ def _resolve_period(periodo: str | None) -> str:
 
 
 def _list_table_columns(table_name: str) -> list[str]:
+    return cached(("bit_castigo", "columnas", table_name), lambda: _query_table_columns(table_name))
+
+
+def _query_table_columns(table_name: str) -> list[str]:
     rows = run_query(
         """
         SELECT COLUMN_NAME
@@ -197,46 +202,22 @@ def _asignacion_table() -> str:
     return "dbo.tmp_BIT_asignacion"
 
 
-def _meta_source_sql() -> str:
-    return """
-    SELECT
-        periodo,
-        CAST(meta AS float) AS meta
-    FROM (
-        SELECT
-            periodo,
-            tramo,
-            meta,
-            ROW_NUMBER() OVER (
-                PARTITION BY periodo, UPPER(LTRIM(RTRIM(COALESCE(tramo, ''))))
-                ORDER BY periodo DESC
-            ) AS rn
-        FROM [bdphoenixconsultas].[dbo].[tmp_BIT_metas]
-        WHERE UPPER(LTRIM(RTRIM(COALESCE(tramo, '')))) = 'CASTIGO'
-    ) src
-    WHERE rn = 1
+def _meta_periodo(periodo: str) -> float:
+    """Meta de recupero del periodo (tramo CASTIGO en tmp_BIT_metas), en pesos."""
+    sql = """
+    SELECT TOP 1 CAST(meta AS float) AS meta
+    FROM {tabla}
+    WHERE periodo = ?
+      AND UPPER(LTRIM(RTRIM(COALESCE(tramo, '')))) = 'CASTIGO'
     """
-
-
-def _meta_source_sql_fallback() -> str:
-    return """
-    SELECT
-        periodo,
-        CAST(meta AS float) AS meta
-    FROM (
-        SELECT
-            periodo,
-            tramo,
-            meta,
-            ROW_NUMBER() OVER (
-                PARTITION BY periodo, UPPER(LTRIM(RTRIM(COALESCE(tramo, ''))))
-                ORDER BY periodo DESC
-            ) AS rn
-        FROM dbo.tmp_BIT_metas
-        WHERE UPPER(LTRIM(RTRIM(COALESCE(tramo, '')))) = 'CASTIGO'
-    ) src
-    WHERE rn = 1
-    """
+    last_error: Exception | None = None
+    for tabla in ("[bdphoenixconsultas].[dbo].[tmp_BIT_metas]", "dbo.tmp_BIT_metas"):
+        try:
+            rows = run_query(sql.format(tabla=tabla), (periodo,))
+            return _safe_float(rows[0].get("meta")) if rows else 0.0
+        except Exception as exc:
+            last_error = exc
+    raise last_error if last_error is not None else RuntimeError("No se pudo cargar la meta de BIT Castigo")
 
 
 def _hay_gestiones_desde(inicio: str) -> bool:
@@ -249,167 +230,177 @@ def _hay_gestiones_desde(inicio: str) -> bool:
     return bool(primera) and primera <= inicio
 
 
-def _bit_castigo_cte(meta_sql: str, cobertura: tuple[str, str] | None = None) -> str:
-    # cobertura = (inicio, corte): ventana de gestiones para la cobertura al dia habil de corte.
-    # Las fechas las calcula el servicio (ISO), no vienen del usuario.
-    if cobertura:
-        gestiones_cte = f"""
-), gestiones_rut AS (
+def _numero_sql(expr: str) -> str:
+    return (
+        f"CASE WHEN {expr} IS NULL THEN 0 "
+        f"WHEN ISNUMERIC(CONVERT(VARCHAR(255), {expr})) = 1 THEN CAST({expr} AS float) ELSE 0 END"
+    )
+
+
+def _periodo_sql(cobertura: tuple[str, str]) -> str:
+    """Lote del periodo: deja el carterizado, el recupero, la asignacion y las gestiones en tablas
+    temporales (una fila por RUT) y devuelve tres resultados: totales por ejecutivo, RUT con nuevos
+    convenios y ejecutivos del periodo.
+
+    Va por etapas porque como una sola consulta el optimizador repetia los cruces por RUT y demoraba minutos.
+    cobertura = (inicio, corte): ventana de gestiones para la cobertura al dia habil de corte; las fechas
+    las calcula el servicio (ISO), no vienen del usuario. Parametros: el periodo, tres veces.
+    """
+    cart = _cart_config()
+    cast = _castigo_config()
+    cart_rut = f"c.{cart['rut_col']}"
+    cast_rut = cast["rut_col"]
+    cast_recupero = cast["recupero_col"]
+    es_nuevo_convenio = (
+        f"UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), {cast['tipo_col']}), '')))) = 'NUEVO CONVENIO'"
+        if cast.get("tipo_col")
+        else "1 = 0"
+    )
+    cartera_filter = (
+        f"AND UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), c.{cart['cartera_col']}), '')))) = 'CASTIGO'"
+        if cart.get("cartera_col")
+        else ""
+    )
+    es_castigo = "UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%'"
+    ejecutivo = "COALESCE(cu.usuario, 'Phoenix')"
+    return f"""SET NOCOUNT ON;
+
+    -- Carterizado de castigo: un ejecutivo por RUT.
+    SELECT rut_key, usuario
+    INTO #cart
+    FROM (
+        SELECT
+            {_rut_join_key_sql(cart_rut)} COLLATE DATABASE_DEFAULT AS rut_key,
+            c.{cart['usuario_col']} COLLATE DATABASE_DEFAULT AS usuario,
+            ROW_NUMBER() OVER (PARTITION BY {_rut_join_key_sql(cart_rut)} ORDER BY id ASC) AS rn
+        FROM dbo.tmp_BIT_carterizado c
+        WHERE c.periodo = ?
+          AND {cart_rut} IS NOT NULL
+          AND LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(50), {cart_rut}), ''))) <> ''
+          {cartera_filter}
+    ) src
+    WHERE rn = 1;
+
+    -- Recupero por RUT. Nuevos convenios: registros cuyo TIPO es 'Nuevo Convenio'; su recupero es el abono inicial.
+    SELECT
+        {_rut_join_key_sql(cast_rut)} COLLATE DATABASE_DEFAULT AS rut_key,
+        MAX({_numero_sql(cast['total_rut_col'])}) AS total_rut,
+        SUM({_numero_sql(cast_recupero)}) AS mto_recupero_final,
+        SUM(CASE WHEN {es_nuevo_convenio} THEN 1 ELSE 0 END) AS nuevos_convenios,
+        SUM(CASE WHEN {es_nuevo_convenio} THEN {_numero_sql(cast_recupero)} ELSE 0 END) AS abono_inicial
+    INTO #cast
+    FROM dbo.tmp_BIT_castigo
+    WHERE {cast['periodo_col']} = ?
+      AND {cast_rut} IS NOT NULL
+      AND LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(50), {cast_rut}), ''))) <> ''
+    GROUP BY {_rut_join_key_sql(cast_rut)};
+
+    -- La deuda asignada es solo la de campañas castigo; la cobertura no mira la campaña.
+    SELECT
+        {_rut_join_key_sql("RUT")} COLLATE DATABASE_DEFAULT AS rut_key,
+        SUM(CASE WHEN {es_castigo} THEN COALESCE(CAST(DEUDA_TOTAL AS float), 0) ELSE 0 END) AS mto_asignado,
+        MAX(CASE WHEN {es_castigo} THEN 1 ELSE 0 END) AS es_castigo
+    INTO #asig
+    FROM {_asignacion_table()}
+    WHERE periodo = ?
+      AND RUT IS NOT NULL
+      AND LTRIM(RTRIM(RUT)) <> ''
+    GROUP BY {_rut_join_key_sql("RUT")};
+
     -- RUT con al menos una gestion telefonica o en terreno hasta el dia habil de corte.
-    SELECT DISTINCT {_rut_join_key_sql("g.rut")} AS rut_key
+    SELECT DISTINCT {_rut_join_key_sql("g.rut")} COLLATE DATABASE_DEFAULT AS rut_key
+    INTO #gest
     FROM dbo.tmp_GEST_CRM g
     INNER JOIN dbo.kpi_accion_canal ac
         ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
        AND ac.canal IN ('LLAMADA', 'TERRENO')
     WHERE g.cartera = {CRM_CARTERA}
       AND g.GestionFecha >= '{cobertura[0]}'
-      AND g.GestionFecha <= '{cobertura[1]}'"""
-        gestionado_sql = "CASE WHEN ge.rut_key IS NOT NULL THEN 1 ELSE 0 END"
-        gestiones_join = """
-    LEFT JOIN gestiones_rut ge
-        ON ge.rut_key = k.rut_key"""
-    else:
-        gestiones_cte = ""
-        gestionado_sql = "0"
-        gestiones_join = ""
-    cart = _cart_config()
-    cast = _castigo_config()
-    cart_rut = f"c.{cart['rut_col']}"
-    cart_usuario = f"c.{cart['usuario_col']}"
-    cart_cartera = f"c.{cart['cartera_col']}" if cart.get("cartera_col") else ""
-    cast_rut = cast["rut_col"]
-    cast_total_rut = cast["total_rut_col"]
-    cast_recupero = cast["recupero_col"]
-    cast_periodo = cast["periodo_col"]
-    # Nuevos convenios: registros del recupero cuyo TIPO es 'Nuevo Convenio'.
-    nuevos_convenios_sql = (
-        f"SUM(CASE WHEN UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), {cast['tipo_col']}), '')))) = 'NUEVO CONVENIO' THEN 1 ELSE 0 END)"
-        if cast.get("tipo_col")
-        else "0"
-    )
-    # Abono inicial: recupero de esos mismos registros 'Nuevo Convenio'.
-    abono_inicial_sql = (
-        f"""SUM(CASE
-            WHEN UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), {cast['tipo_col']}), '')))) <> 'NUEVO CONVENIO' THEN 0
-            WHEN {cast_recupero} IS NULL THEN 0
-            WHEN ISNUMERIC(CONVERT(VARCHAR(255), {cast_recupero})) = 1 THEN CAST({cast_recupero} AS float)
-            ELSE 0
-        END)"""
-        if cast.get("tipo_col")
-        else "0"
-    )
-    cartera_filter = (
-        f"""
-          AND UPPER(LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(100), {cart_cartera}), '')))) = 'CASTIGO'
-        """
-        if cart_cartera
-        else ""
-    )
-    return f"""
-WITH carterizado_unico AS (
+      AND g.GestionFecha <= '{cobertura[1]}';
+
+    -- Recupero del mes: una fila por RUT con recupero, con su ejecutivo ('Phoenix' si no esta carterizado).
     SELECT
-        periodo,
-        rut_key,
-        usuario,
-        ROW_NUMBER() OVER (
-            PARTITION BY periodo, rut_key
-            ORDER BY id ASC
-        ) AS rn
-    FROM (
-        SELECT
-            periodo,
-            {cart_usuario} AS usuario,
-            {_rut_join_key_sql(cart_rut)} AS rut_key,
-            id
-        FROM dbo.tmp_BIT_carterizado c
-        WHERE {cart_rut} IS NOT NULL
-          AND LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(50), {cart_rut}), ''))) <> ''
-          {cartera_filter}
-    ) src
-), metas_periodo AS (
-    {meta_sql}
-), castigo_rut AS (
-    SELECT
-        {cast_periodo} AS periodo,
-        {_rut_join_key_sql(cast_rut)} AS rut_key,
-        MAX(CASE
-            WHEN {cast_total_rut} IS NULL THEN 0
-            WHEN ISNUMERIC(CONVERT(VARCHAR(255), {cast_total_rut})) = 1 THEN CAST({cast_total_rut} AS float)
-            ELSE 0
-        END) AS total_rut,
-        SUM(CASE
-            WHEN {cast_recupero} IS NULL THEN 0
-            WHEN ISNUMERIC(CONVERT(VARCHAR(255), {cast_recupero})) = 1 THEN CAST({cast_recupero} AS float)
-            ELSE 0
-        END) AS mto_recupero_final,
-        {nuevos_convenios_sql} AS nuevos_convenios,
-        {abono_inicial_sql} AS abono_inicial
-    FROM dbo.tmp_BIT_castigo
-    WHERE {cast_periodo} IS NOT NULL
-      AND LTRIM(RTRIM({cast_periodo})) <> ''
-      AND {cast_rut} IS NOT NULL
-      AND LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(50), {cast_rut}), ''))) <> ''
-    GROUP BY
-        {cast_periodo},
-        {_rut_join_key_sql(cast_rut)}
-), asignacion_rut AS (
-    SELECT
-        periodo,
-        {_rut_join_key_sql("RUT")} AS rut_key,
-        -- La deuda asignada es solo la de campañas castigo; la cobertura no mira la campaña.
-        SUM(CASE WHEN UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%' THEN COALESCE(CAST(DEUDA_TOTAL AS float), 0) ELSE 0 END) AS mto_asignado,
-        MAX(CASE WHEN UPPER(LTRIM(RTRIM(COALESCE(CAMPANA, '')))) LIKE 'CASTIGO%' THEN 1 ELSE 0 END) AS es_castigo
-    FROM {_asignacion_table()}
-    WHERE RUT IS NOT NULL
-      AND LTRIM(RTRIM(RUT)) <> ''
-    GROUP BY
-        periodo,
-        {_rut_join_key_sql("RUT")}
-), bit_castigo_data AS (
-    SELECT
-        b.periodo,
         b.rut_key AS rut,
-        COALESCE(cu.usuario, 'Phoenix') AS carterizado,
-        COALESCE(cu.usuario, 'Phoenix') AS ejecutivo,
-        COALESCE(m.meta, 0) AS meta,
+        {ejecutivo} AS ejecutivo,
         b.total_rut AS mto_inicial,
         b.mto_recupero_final AS mto_contenido,
         b.nuevos_convenios,
-        b.abono_inicial,
-        COALESCE(m.meta, 0) AS meta_final
-    FROM castigo_rut b
-    LEFT JOIN carterizado_unico cu
-        ON cu.periodo = b.periodo
-       AND cu.rut_key = b.rut_key
-       AND cu.rn = 1
-    LEFT JOIN metas_periodo m
-        ON m.periodo = b.periodo{gestiones_cte}
-), bit_asignacion_data AS (
+        b.abono_inicial
+    INTO #recupero
+    FROM #cast b
+    LEFT JOIN #cart cu ON cu.rut_key = b.rut_key;
+
     -- Efectividad sobre lo asignado: base = asignacion castigo, cruzada por RUT con el recupero y el carterizado.
-    -- Cobertura: base = carterizado de castigo (asignacion RIGHT JOIN carterizado), sin filtrar por campaña.
+    -- Cobertura: base = carterizado de castigo, este o no en la asignacion.
     SELECT
-        k.periodo,
-        k.rut_key AS rut,
-        COALESCE(cu.usuario, 'Phoenix') AS ejecutivo,
+        {ejecutivo} AS ejecutivo,
         COALESCE(a.mto_asignado, 0) AS mto_asignado,
         CASE WHEN a.es_castigo = 1 THEN COALESCE(r.mto_recupero_final, 0) ELSE 0 END AS mto_recupero_asignado,
         CASE WHEN cu.rut_key IS NOT NULL THEN 1 ELSE 0 END AS rut_asignado,
-        CASE WHEN cu.rut_key IS NOT NULL THEN {gestionado_sql} ELSE 0 END AS rut_gestionado,
-        COALESCE(m.meta, 0) AS meta_final
-    FROM asignacion_rut a
-    FULL JOIN (SELECT periodo, rut_key, usuario FROM carterizado_unico WHERE rn = 1) cu
-        ON cu.periodo = a.periodo
-       AND cu.rut_key = a.rut_key
-    CROSS APPLY (SELECT COALESCE(cu.periodo, a.periodo) AS periodo, COALESCE(cu.rut_key, a.rut_key) AS rut_key) k
-    LEFT JOIN castigo_rut r
-        ON r.periodo = k.periodo
-       AND r.rut_key = k.rut_key{gestiones_join}
-    LEFT JOIN metas_periodo m
-        ON m.periodo = k.periodo
+        CASE WHEN cu.rut_key IS NOT NULL AND ge.rut_key IS NOT NULL THEN 1 ELSE 0 END AS rut_gestionado
+    INTO #asignado
+    FROM #asig a
+    FULL JOIN #cart cu ON cu.rut_key = a.rut_key
+    LEFT JOIN #cast r ON r.rut_key = COALESCE(cu.rut_key, a.rut_key)
+    LEFT JOIN #gest ge ON ge.rut_key = COALESCE(cu.rut_key, a.rut_key)
     WHERE a.es_castigo = 1
-       OR cu.rut_key IS NOT NULL
-)
-"""
+       OR cu.rut_key IS NOT NULL;
+
+    SELECT
+        ejecutivo,
+        SUM(mto_inicial) AS monto_inicial,
+        SUM(mto_contenido) AS monto_contenido,
+        SUM(mto_asignado) AS monto_asignado,
+        SUM(mto_recupero_asignado) AS recupero_asignado,
+        SUM(nuevos_convenios) AS nuevos_convenios,
+        SUM(abono_inicial) AS abono_inicial,
+        SUM(ruts_asignados) AS ruts_asignados,
+        SUM(ruts_gestionados) AS ruts_gestionados
+    FROM (
+        SELECT ejecutivo, mto_inicial, mto_contenido, 0 AS mto_asignado, 0 AS mto_recupero_asignado,
+               nuevos_convenios, abono_inicial, 0 AS ruts_asignados, 0 AS ruts_gestionados
+        FROM #recupero
+        UNION ALL
+        SELECT ejecutivo, 0, 0, mto_asignado, mto_recupero_asignado, 0, 0, rut_asignado, rut_gestionado
+        FROM #asignado
+    ) src
+    GROUP BY ejecutivo
+    ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo;
+
+    SELECT rut, ejecutivo, nuevos_convenios, mto_inicial AS deuda, abono_inicial
+    FROM #recupero
+    WHERE nuevos_convenios > 0
+    ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo, rut;
+
+    SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS v
+    FROM (
+        SELECT ejecutivo FROM #recupero
+        UNION ALL
+        SELECT ejecutivo FROM #asignado
+    ) src
+    WHERE LTRIM(RTRIM(ejecutivo)) <> ''
+    ORDER BY v;
+    """
+
+
+def _load_periodo(periodo: str) -> dict:
+    corte_cobertura = _dia_habil_del_mes(periodo, DIAS_HABILES_COBERTURA)
+    inicio = f"{periodo[:7]}-01"
+    general, convenios, ejecutivos = run_query_sets(_periodo_sql((inicio, corte_cobertura)), (periodo,) * 3)[-3:]
+    return {
+        "general": general,
+        "convenios": convenios,
+        "ejecutivos": [row["v"] for row in ejecutivos if row.get("v")],
+        "corte_cobertura": corte_cobertura,
+        "hay_cobertura": _hay_gestiones_desde(inicio),
+        "contencion_file": _get_source_file(periodo),
+        "meta": _meta_periodo(periodo),
+    }
+
+
+def _periodo_data(periodo: str) -> dict:
+    """Datos del periodo para todos los ejecutivos; el filtro de ejecutivo se aplica en memoria."""
+    return cached(("bit_castigo", "periodo", periodo), lambda: _load_periodo(periodo))
 
 
 def _get_source_file(periodo: str) -> str:
@@ -431,18 +422,14 @@ def _get_source_file(periodo: str) -> str:
     return _clean_text(rows[0].get(cast_source_file)) if rows else ""
 
 
-def _base_where(filters: dict) -> tuple[str, list]:
-    clauses = ["periodo = ?"]
-    params: list = [_resolve_period(filters.get("periodo"))]
-
-    ejecutivo = _clean_text(filters.get("ejecutivo"))
-    if ejecutivo:
-        clauses.append("UPPER(LTRIM(RTRIM(ejecutivo))) = UPPER(LTRIM(RTRIM(?)))")
-        params.append(ejecutivo)
-
-    return " AND ".join(clauses), params
+def _del_ejecutivo(rows: list[dict], ejecutivo: object) -> list[dict]:
+    buscado = _clean_text(ejecutivo).upper()
+    if not buscado:
+        return rows
+    return [row for row in rows if _clean_text(row.get("ejecutivo")).upper() == buscado]
 
 
+@cached_view
 def get_filter_values(periodo: str | None = None) -> dict:
     cast = _castigo_config()
     cast_periodo = cast["periodo_col"]
@@ -461,22 +448,8 @@ def get_filter_values(periodo: str | None = None) -> dict:
     ]
 
     try:
-        sql = f"""
-        {_bit_castigo_cte(_meta_source_sql())}
-        SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS v
-        FROM (
-            SELECT periodo, ejecutivo FROM bit_castigo_data
-            -- UNION ALL: el DISTINCT de afuera ya deduplica, y con UNION el plan pasa de <1s a ~40s.
-            UNION ALL
-            SELECT periodo, ejecutivo FROM bit_asignacion_data
-        ) src
-        WHERE ejecutivo IS NOT NULL
-          AND LTRIM(RTRIM(ejecutivo)) <> ''
-          {"AND periodo = ?" if periodo else ""}
-        ORDER BY v
-        """
-        params = (_resolve_period(periodo),) if periodo else ()
-        ejecutivos = [row["v"] for row in run_query(sql, params) if row.get("v")]
+        # Sin periodo se ofrecen los ejecutivos del mas reciente, que es el que abre la pagina.
+        ejecutivos = list(_periodo_data(_resolve_period(periodo or (periodos[0] if periodos else None)))["ejecutivos"])
     except Exception:
         # Si el cruce con carterizado o dotacion falla por columnas distintas
         # entre ambientes, no bloqueamos la carga inicial de la pantalla.
@@ -485,54 +458,15 @@ def get_filter_values(periodo: str | None = None) -> dict:
     return {"periodos": periodos, "ejecutivos": ejecutivos}
 
 
+@cached_view
 def get_general(filters: dict) -> dict:
     periodo = _resolve_period(filters.get("periodo"))
-    where_sql, params = _base_where(filters)
-    sql_body = f"""
-    SELECT
-        ejecutivo,
-        SUM(COALESCE(CAST(mto_inicial AS float), 0)) AS monto_inicial,
-        SUM(COALESCE(CAST(mto_contenido AS float), 0)) AS monto_contenido,
-        MAX(COALESCE(CAST(meta_final AS float), 0)) AS meta_final,
-        SUM(COALESCE(CAST(mto_asignado AS float), 0)) AS monto_asignado,
-        SUM(COALESCE(CAST(mto_recupero_asignado AS float), 0)) AS recupero_asignado,
-        SUM(COALESCE(nuevos_convenios, 0)) AS nuevos_convenios,
-        SUM(COALESCE(CAST(abono_inicial AS float), 0)) AS abono_inicial,
-        SUM(ruts_asignados) AS ruts_asignados,
-        SUM(ruts_gestionados) AS ruts_gestionados
-    FROM (
-        SELECT periodo, ejecutivo, mto_inicial, mto_contenido, meta_final,
-               0 AS mto_asignado, 0 AS mto_recupero_asignado, nuevos_convenios, abono_inicial,
-               0 AS ruts_asignados, 0 AS ruts_gestionados
-        FROM bit_castigo_data
-        UNION ALL
-        SELECT periodo, ejecutivo, 0, 0, meta_final,
-               mto_asignado, mto_recupero_asignado, 0, 0,
-               rut_asignado, rut_gestionado
-        FROM bit_asignacion_data
-    ) src
-    WHERE {where_sql}
-    GROUP BY ejecutivo
-    ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo
-    """
-    corte_cobertura = _dia_habil_del_mes(periodo, DIAS_HABILES_COBERTURA)
-    hay_cobertura = _hay_gestiones_desde(f"{periodo[:7]}-01")
-    attempts = [
-        _meta_source_sql,
-        _meta_source_sql_fallback,
-    ]
-    last_error: Exception | None = None
-    agg_rows = None
-    for meta_sql_builder in attempts:
-        try:
-            cte_sql = _bit_castigo_cte(meta_sql_builder(), (f"{periodo[:7]}-01", corte_cobertura))
-            agg_rows = run_query(f"{cte_sql}\n{sql_body}", tuple(params))
-            last_error = None
-            break
-        except Exception as exc:
-            last_error = exc
-    if agg_rows is None:
-        raise last_error if last_error is not None else RuntimeError("No se pudo cargar la vista general de BIT Castigo")
+    data = _periodo_data(periodo)
+    agg_rows = _del_ejecutivo(data["general"], filters.get("ejecutivo"))
+    corte_cobertura = data["corte_cobertura"]
+    hay_cobertura = data["hay_cobertura"]
+    # La meta es del periodo, la misma para todos los ejecutivos.
+    meta_final = data["meta"]
 
     rows: list[dict] = []
     total_inicial = 0.0
@@ -543,12 +477,11 @@ def get_general(filters: dict) -> dict:
     total_abono_inicial = 0.0
     total_ruts_asignados = 0
     total_ruts_gestionados = 0
-    meta_periodo = 0.0
+    meta_periodo = meta_final if agg_rows else 0.0
 
     for row in agg_rows:
         monto_inicial = _safe_float(row.get("monto_inicial"))
         monto_contenido = _safe_float(row.get("monto_contenido"))
-        meta_final = _safe_float(row.get("meta_final"))
         monto_asignado = _safe_float(row.get("monto_asignado"))
         recupero_asignado = _safe_float(row.get("recupero_asignado"))
         nuevos_convenios = int(_safe_float(row.get("nuevos_convenios")))
@@ -585,12 +518,11 @@ def get_general(filters: dict) -> dict:
         total_abono_inicial += abono_inicial
         total_ruts_asignados += ruts_asignados
         total_ruts_gestionados += ruts_gestionados
-        meta_periodo = max(meta_periodo, meta_final)
 
     return {
         "periodo": periodo,
         "corte_cobertura": corte_cobertura,
-        "contencion_file": _get_source_file(periodo),
+        "contencion_file": data["contencion_file"],
         # Meta de recupero del periodo (tramo CASTIGO en tmp_BIT_metas), en pesos.
         "meta": meta_periodo or None,
         "rows": rows,
@@ -613,33 +545,12 @@ def get_general(filters: dict) -> dict:
     }
 
 
+@cached_view
 def get_nuevos_convenios(filters: dict) -> list[dict]:
     """Detalle de los nuevos convenios del mes: una fila por RUT con su ejecutivo, la deuda castigada,
     el abono inicial y las operaciones castigo que tiene asignadas (el recupero no trae numero de operacion)."""
     periodo = _resolve_period(filters.get("periodo"))
-    where_sql, params = _base_where(filters)
-    sql_body = f"""
-    SELECT
-        rut,
-        ejecutivo,
-        nuevos_convenios,
-        COALESCE(CAST(mto_inicial AS float), 0) AS deuda,
-        COALESCE(CAST(abono_inicial AS float), 0) AS abono_inicial
-    FROM bit_castigo_data
-    WHERE {where_sql}
-      AND COALESCE(nuevos_convenios, 0) > 0
-    ORDER BY CASE WHEN ejecutivo = 'Phoenix' THEN 2 ELSE 1 END, ejecutivo, rut
-    """
-    rows = None
-    last_error: Exception | None = None
-    for meta_sql_builder in (_meta_source_sql, _meta_source_sql_fallback):
-        try:
-            rows = run_query(f"{_bit_castigo_cte(meta_sql_builder())}\n{sql_body}", tuple(params))
-            break
-        except Exception as exc:
-            last_error = exc
-    if rows is None:
-        raise last_error if last_error is not None else RuntimeError("No se pudo cargar el detalle de nuevos convenios")
+    rows = _del_ejecutivo(_periodo_data(periodo)["convenios"], filters.get("ejecutivo"))
 
     operaciones: dict[str, list[str]] = {}
     for row in run_query(

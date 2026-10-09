@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from auth.dependencies import require_module
 
 from schemas import ApiEnvelope, FiltersResponse
+from services.negocios_service import get_conteo as get_negocios_conteo
 from services.sc_tardia_service import get_cycle_view, get_filter_values, get_general_view, get_metas
 
 
@@ -72,5 +73,16 @@ def productividad_ciclo(
             }
         )
         return ApiEnvelope(data=rows)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/negocios")
+def negocios(
+    periodo: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return get_negocios_conteo("sc-terreno", periodo, ejecutivo)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

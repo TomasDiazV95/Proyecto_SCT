@@ -186,7 +186,7 @@ export default function ItauVencidaPage() {
           </ul>
         ) : (
           <div className="pd-small pd-muted">
-            Este mes no tiene casos medibles configurados. Se agregan en Panel Administrativo &gt; Itaú.
+            Este mes no tiene casos medibles configurados. Se agregan en Panel Administrativo &gt; Itaú Vencida.
           </div>
         )}
       </div>
@@ -414,7 +414,7 @@ export default function ItauVencidaPage() {
           ) : !filtrosMedibles.length ? (
             <div className="alert alert-warning">
               {formatDate(metadata.periodo).slice(3) || "Este mes"} no tiene casos medibles configurados, por eso no hay cumplimiento que mostrar.
-              Se configuran en Panel Administrativo &gt; Itaú &gt; Casos medibles Itaú Vencida.
+              Se configuran en Panel Administrativo &gt; Itaú Vencida &gt; Casos medibles, donde también puedes buscarlos ingresando el monto asignado.
             </div>
           ) : (
             <div className="pd-table-scroll">{renderTable()}</div>

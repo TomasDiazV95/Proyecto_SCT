@@ -1,6 +1,7 @@
 import time
 from datetime import datetime, timedelta
 
+from cache import cached_view
 from database import run_query, run_query_sets
 
 
@@ -431,6 +432,7 @@ def _atribucion_sql(
     return sql, params, period_month
 
 
+@cached_view
 def get_filtros(periodo: str | None = None) -> dict:
     p = _columns(PAGOS_TABLE)
     mes_proceso_pago = _pick_optional(p, ["mes_proceso", "periodo"])
@@ -565,6 +567,7 @@ def _deuda_cte(periodo: str) -> tuple[str, list]:
     return sql, [_to_mes_proceso(periodo)]
 
 
+@cached_view
 def get_resumen(filters: dict) -> dict:
     c = _resolved_cols()
     periodo = str(filters.get("periodo") or "")
@@ -675,6 +678,7 @@ def get_resumen(filters: dict) -> dict:
     }
 
 
+@cached_view
 def get_negocios(filters: dict) -> dict:
     """Negocios del mes (pagos NE-REPRO) asignados a la ejecutiva de la mejor gestion del RUT.
 

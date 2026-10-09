@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import threading
-import time
 from datetime import date
 
+from cache import cached, cached_view
 from database import run_query_sets
 
 
@@ -33,31 +32,6 @@ CASTIGO_TOTAL_BLOCK = "TOTAL F1 - F4"
 # Bloques cuyo cumplimiento combina contencion y normalizacion con los ponderadores nivel 3.
 BLOQUES_CON_NORMALIZACION = ("C1", "C2", ALTAS_CUANTIAS_BLOCK, "C3")
 CUMPLIMIENTO_MAX = 130.0
-
-
-# Las tablas de origen solo cambian cuando corre la carga; mientras tanto se reutiliza el resultado.
-CACHE_TTL = 300  # segundos
-_cache: dict[tuple, tuple[float, object]] = {}
-_cache_locks: dict[tuple, threading.Lock] = {}
-_cache_guard = threading.Lock()
-
-
-def _cached(key: tuple, loader):
-    """Resultado de loader() en cache por CACHE_TTL. El candado es por clave: si la tabla y los
-    filtros piden la misma fecha a la vez, la consulta corre una sola vez."""
-    with _cache_guard:
-        lock = _cache_locks.setdefault(key, threading.Lock())
-    with lock:
-        cached = _cache.get(key)
-        if cached and time.monotonic() - cached[0] < CACHE_TTL:
-            return cached[1]
-        value = loader()
-        with _cache_guard:
-            now = time.monotonic()
-            for old_key in [k for k, (created, _) in _cache.items() if now - created >= CACHE_TTL]:
-                _cache.pop(old_key, None)
-            _cache[key] = (now, value)
-        return value
 
 
 METAS_ORDER = [
@@ -608,7 +582,7 @@ def _load_rows(periodo: str, version: str) -> list[dict]:
 def _rows_from_query(filters: dict) -> list[dict]:
     periodo = _period_date(filters.get("periodo"))
     version = _period_version(filters.get("periodo"))
-    rows = _cached(("rows", periodo, version), lambda: _load_rows(periodo, version))
+    rows = cached(("sc_tardia", "rows", periodo, version), lambda: _load_rows(periodo, version))
 
     # Los filtros actuan sobre el resultado ya agregado, asi que se aplican en memoria
     # (sin distinguir mayusculas, igual que el collation de la base).
@@ -747,6 +721,7 @@ def get_general_view(filters: dict) -> list[dict]:
     return response
 
 
+@cached_view
 def get_metas(filters: dict) -> list[dict]:
     """Metas activas del mes de la fecha consultada (dbo.stc_metas_mensuales), para el panel de metas."""
     periodo = _period_date(filters.get("periodo"))
@@ -824,7 +799,7 @@ def _load_filter_lists() -> dict:
 
 
 def _filter_lists() -> dict:
-    return _cached(("filtros",), _load_filter_lists)
+    return cached(("sc_tardia", "filtros"), _load_filter_lists)
 
 
 def get_filter_values(periodo: str | None = None, zona: str | None = None) -> dict:

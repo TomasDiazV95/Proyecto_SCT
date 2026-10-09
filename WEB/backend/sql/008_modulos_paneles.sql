@@ -59,6 +59,14 @@ BEGIN
     VALUES (NULL, 'MIGRATION_008_MODULOS', 'module', NULL, 'Permisos migrados a modulos por panel');
 END;
 
+-- El panel de Factura no tiene modulos: se quita del catalogo.
+DELETE um
+FROM dbo.user_modules um
+INNER JOIN dbo.modules m ON m.id = um.module_id
+WHERE m.code = 'factura';
+
+DELETE FROM dbo.modules WHERE code = 'factura';
+
 UPDATE m
 SET display_name = v.display_name,
     route_path = v.route_path,
@@ -85,7 +93,6 @@ INNER JOIN (VALUES
     ('gestiones-diarias-sct', 'Gestiones Diarias SCT',          '/administrativas/gestiones-diarias-sct',   NULL),
     ('estrategia-asignacion', 'Panel Estrategia de Asignación', '/estrategia-asignacion',                   NULL),
     ('rrhh',                  'Panel RRHH',                     '/rrhh',                                    NULL),
-    ('factura',               'Panel de Factura',               '/factura',                                 NULL),
     ('admin',                 'Panel Admin',                    '/admin',                                   NULL),
     ('global',                'Acceso Global',                  '/',                                        NULL)
 ) AS v(code, display_name, route_path, parent_code) ON v.code = m.code;

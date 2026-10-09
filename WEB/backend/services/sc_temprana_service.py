@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import date
 
+from cache import cached, cached_view
 from database import run_query, run_query_sets
 
 
 USER_TO_NAME = {
-    "EMUNOZ": "Elizabet Muñoz",
+    "EMUNOZ": "Elizabeth Muñoz",
     "LROJAS": "Lissette Rojas",
     "MINOSTROZA": "Marilin Inostroza",
     "CVERA": "Carolina Vera",
@@ -30,6 +31,20 @@ USER_ORDER = [
     "PALTAMIRANO",
     "RCALDERON",
 ]
+
+# Nombre con que el archivo de negocios (columna DERIVADO) identifica a cada ejecutiva.
+DERIVADO_TO_USER = {
+    "ELY": "EMUNOZ",
+    "LISSETTE": "LROJAS",
+    "MARILYN": "MINOSTROZA",
+    "CAROLINA": "CVERA",
+    "SUSANA": "SDUARTE",
+    "BARBARA": "BMONCADA",
+    "SANDRA": "SFUENTES",
+    "MARLEXIS": "MCOLMENARES",
+    "PAULA": "PALTAMIRANO",
+    "ROCIO": "RCALDERON",
+}
 
 # Peso de cada respuesta: 1 es la mejor. Las respuestas que no estan aca no cuentan.
 PESO_RESPUESTA = [
@@ -263,6 +278,7 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     return sql, [periodo] * 8
 
 
+@cached_view
 def get_filter_values(periodo: str | None = None) -> dict:
     sql_periodos = """
     SELECT DISTINCT CONVERT(char(10), fld_fecha, 126) AS periodo
@@ -306,11 +322,8 @@ def get_general_view(filters: dict) -> list[dict]:
     return []
 
 
-def get_cycle_view(filters: dict) -> list[dict]:
-    periodo = _normalize_period(filters.get("periodo"))
-    version = _period_version(filters.get("periodo"))
-    ejecutivo_filter = str(filters.get("ejecutivo") or "").strip().lower()
-
+def _cycle_data(periodo: str, version: str) -> tuple[list[dict], int]:
+    """Montos por usuario de gestion y casos C3 del bench para la foto consultada."""
     asignacion_sql, params = _asignacion_sql(periodo, version)
     usuarios = ", ".join(f"'{user}'" for user in USER_ORDER)
     sql = f"""{asignacion_sql}
@@ -339,6 +352,16 @@ def get_cycle_view(filters: dict) -> list[dict]:
     """
     c3_base_rows = run_query(sql_c3_base, (periodo,))
     c3_casos_base = int(c3_base_rows[0].get("c3_casos_base") or 0) if c3_base_rows else 0
+    return raw_rows, c3_casos_base
+
+
+def get_cycle_view(filters: dict) -> list[dict]:
+    periodo = _normalize_period(filters.get("periodo"))
+    version = _period_version(filters.get("periodo"))
+    ejecutivo_filter = str(filters.get("ejecutivo") or "").strip().lower()
+
+    # El lote es el mismo para todos los ejecutivos: el filtro se aplica en memoria sobre lo guardado.
+    raw_rows, c3_casos_base = cached(("sc_temprana", "ciclo", periodo, version), lambda: _cycle_data(periodo, version))
 
     c1_total_cont = sum(float(r.get("c1_monto_cont") or 0) for r in raw_rows)
     c2_total_cont = sum(float(r.get("c2_monto_cont") or 0) for r in raw_rows)

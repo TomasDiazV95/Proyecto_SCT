@@ -1,9 +1,20 @@
 from datetime import datetime, timezone
 
+import cache
 from database import get_connection, run_query
 
 
+# La marca de cierre global se relee cada 30 s: un cierre hecho desde otro proceso (la tarea
+# programada) tarda a lo mas eso en aplicarse aqui.
+TOKENS_TTL = 30  # segundos
+_TOKENS_KEY = ("auth", "tokens_valid_after")
+_table_ready = False
+
+
 def ensure_session_control_table() -> None:
+    global _table_ready
+    if _table_ready:
+        return
     with get_connection() as cn:
         cur = cn.cursor()
         cur.execute(
@@ -28,9 +39,14 @@ def ensure_session_control_table() -> None:
             """
         )
         cn.commit()
+    _table_ready = True
 
 
 def get_tokens_valid_after() -> datetime:
+    return cache.cached(_TOKENS_KEY, _load_tokens_valid_after, ttl=TOKENS_TTL)
+
+
+def _load_tokens_valid_after() -> datetime:
     ensure_session_control_table()
     rows = run_query(
         "SELECT tokens_valid_after FROM dbo.auth_session_control WHERE id = 1"
@@ -58,3 +74,4 @@ def invalidate_all_sessions(updated_by_user_id: int | None = None) -> None:
             (updated_by_user_id,),
         )
         cn.commit()
+    cache.forget(_TOKENS_KEY)

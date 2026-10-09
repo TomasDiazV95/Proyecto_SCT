@@ -12,6 +12,11 @@
        sus ciclos, sin importar lo que se configure aca.
      - Los ponderadores de dbo.sth_metas_mensuales deben cuadrar con esta
        asignacion: si cada ejecutivo ve un solo ciclo, cada ciclo va al 100%.
+     - Tarjeta es distinto: su cartera no esta carterizada y sale como 'Grupal'.
+       Aca se cargan los ejecutivos que trabajan ese grupal, UNA fila por
+       ejecutivo con ciclo = 0 (el ciclo se ignora). Cada uno reemplaza a la
+       fila 'Grupal' de tarjeta con las mismas cifras (Ciclo 0 y Multiciclo).
+       Sin filas de tarjeta en el periodo, se sigue mostrando 'Grupal'.
 
    Script idempotente: se puede reejecutar sin duplicar filas.
    ============================================================================ */
@@ -75,6 +80,12 @@ USING (
     UNION ALL SELECT CAST('2026-09-01' AS DATE), 'pyme',    N'Patricia Guerra',   1
     UNION ALL SELECT CAST('2026-09-01' AS DATE), 'pyme',    N'Karina Valdivia',   2
     UNION ALL SELECT CAST('2026-09-01' AS DATE), 'pyme',    N'Aylin Negrete',     3
+
+    -- Tarjeta: ejecutivos del grupal, una fila por ejecutivo, siempre ciclo 0.
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), 'tarjeta', N'Ana Leal',          0
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), 'tarjeta', N'Francisca Huerta',  0
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), 'tarjeta', N'Claudia Apablaza',  0
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), 'tarjeta', N'Pablo Rivas',       0
 ) AS source
 
 ON  target.periodo = source.periodo
@@ -118,10 +129,12 @@ HAVING COUNT(*) > 1;
 
 -- 3.2 Nombres que no cruzan con el carterizado del mes
 --     (si no cruza, el ejecutivo desaparece del bloque en vez de dar error)
+--     Tarjeta se excluye: sus ejecutivos son del grupal y no estan carterizados.
 SELECT e.producto, e.ejecutivo
 FROM dbo.sth_ejecutivos_ciclo e
 WHERE e.periodo = '2026-09-01'
   AND e.activo = 1
+  AND e.producto <> 'tarjeta'
   AND NOT EXISTS (
       SELECT 1
       FROM dbo.tmp_carterizado_STH c

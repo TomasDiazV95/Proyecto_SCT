@@ -1,5 +1,9 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+import precalentar
 
 from routers.admin_users import router as admin_users_router
 from routers.administrativas import router as administrativas_router
@@ -24,7 +28,13 @@ from routers.sc_temprana import router as sc_temprana_router
 from routers.sth import router as sth_router
 
 
-app = FastAPI(title="Productividad Ejecutivos API", version="1.0.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    precalentar.iniciar()
+    yield
+
+
+app = FastAPI(title="Productividad Ejecutivos API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

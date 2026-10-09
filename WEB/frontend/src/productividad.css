@@ -1368,6 +1368,11 @@
   margin: 0;
 }
 
+/* Fila de carga: el campo de archivo necesita mas ancho que el selector de periodo. */
+.pd-upload-row {
+  grid-template-columns: 1fr 320px auto;
+}
+
 .pd-card-body > .alert {
   margin-bottom: var(--pd-space-3);
 }
@@ -1447,6 +1452,90 @@
   border-radius: 50%;
   background: transparent;
   color: var(--pd-text-muted);
+}
+
+/* Buscador de medibles por monto asignado, al pie de la tarjeta de casos medibles. */
+.pd-medibles-buscador {
+  margin-top: var(--pd-space-5);
+  padding-top: var(--pd-space-4);
+  border-top: 1px solid var(--pd-border);
+}
+
+.pd-medibles-buscador-title {
+  margin: 0 0 var(--pd-space-1);
+  font-size: var(--pd-fs-section);
+  font-weight: 600;
+}
+
+.pd-medibles-buscador-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pd-space-3);
+}
+
+.pd-medibles-buscador-opciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--pd-space-3);
+}
+
+.pd-medibles-montos {
+  width: auto;
+  min-width: min(100%, 420px);
+}
+
+.pd-medibles-montos .form-control {
+  min-width: 140px;
+  text-align: right;
+}
+
+.pd-medibles-montos-total td {
+  border-bottom: 2px solid var(--pd-border-strong);
+}
+
+/* Canal y fases fijos: sin boton de quitar. */
+/* Chips sin boton de quitar: mismo margen a ambos lados. */
+.pd-medible-chip.is-fijo,
+.pd-medibles-sugerencia .pd-medible-chip {
+  padding-right: 10px;
+}
+
+.pd-medible-chip.is-fijo {
+  color: var(--pd-text-muted);
+  border-style: dashed;
+}
+
+.pd-medibles-sugerencias {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pd-space-3);
+  margin-top: var(--pd-space-4);
+}
+
+.pd-medibles-sugerencia {
+  padding: var(--pd-space-3);
+  border: 1px solid var(--pd-border);
+  border-radius: var(--pd-radius-sm);
+  background: var(--pd-surface);
+}
+
+.pd-medibles-sugerencia.is-match {
+  border-color: var(--pd-primary);
+}
+
+.pd-medibles-sugerencia-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pd-space-2);
+  margin-bottom: var(--pd-space-2);
+}
+
+.pd-medibles-sugerencia .pd-medibles-groups {
+  margin-bottom: var(--pd-space-3);
 }
 
 .pd-medible-remove:hover {

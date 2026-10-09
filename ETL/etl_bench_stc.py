@@ -3,6 +3,7 @@ import re
 import unicodedata
 import data_cleaners
 import bench_recarga
+import corregir_nombres
 from pathlib import Path
 from io import BytesIO
 from decimal import Decimal
@@ -406,6 +407,8 @@ def main():
     for excel_file in get_bench_files(BENCH_FOLDER, BENCH_PATTERN):
         print(f"Archivo BENCH encontrado: {excel_file}")
         cargar_archivo(str(excel_file))
+    # Los archivos pueden traer nombres de ejecutivos mal escritos: se corrigen segun la nomina.
+    corregir_nombres.corregir_tras_carga()
 
 
 def cargar_archivo(excel_path: str):

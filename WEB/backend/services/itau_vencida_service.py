@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from cache import cached_view
 from database import run_query
 
 
@@ -120,11 +121,19 @@ WITH carterizado AS (
 # Columnas de la contencion que se pueden usar como filtro de casos medibles (lista blanca:
 # el nombre de columna se interpola en el SQL, los valores siempre van como parametros).
 COLUMNAS_MEDIBLES = ("DETALLE_MARCA", "CANAL", "PRODUCTO", "SEGMENTO", "FASE_PROY_MAX")
+# Siempre se mide el canal de terreno y las fases 4 a 7 (Hipotecario no tiene meta en la 7).
+# No se configuran: valen para todos los meses.
+FILTROS_FIJOS = {"CANAL": ("TERRENO PREJUDICIAL",), "FASE_PROY_MAX": ("4", "5", "6", "7")}
+
+
+def filtros_fijos() -> list[dict]:
+    return [{"columna": columna, "valor": valor} for columna, valores in FILTROS_FIJOS.items() for valor in valores]
 
 
 def _load_filtros_medibles(periodo: str) -> list[dict]:
-    """Valores medibles del mes (periodo 'YYYY-MM' en la tabla). No se heredan del mes anterior."""
-    return [
+    """Valores medibles del mes (periodo 'YYYY-MM' en la tabla). No se heredan del mes anterior.
+    En un mes configurado, canal y fases son siempre los fijos, diga lo que diga la tabla."""
+    guardados = [
         {
             "columna": _clean_text(row.get("columna")).upper(),
             "valor": _clean_text(row.get("valor")),
@@ -140,6 +149,10 @@ def _load_filtros_medibles(periodo: str) -> list[dict]:
             (periodo[:7],),
         )
     ]
+    if not guardados:
+        return []
+    configurados = [f for f in guardados if f["columna"] not in FILTROS_FIJOS]
+    return sorted(filtros_fijos() + configurados, key=lambda f: (f["columna"], f["valor"]))
 
 
 def _medibles_sql(filtros: list[dict]) -> tuple[str, list]:
@@ -162,6 +175,7 @@ def _base_cte(periodo: str, fecha_carga: str, filtros: list[dict]) -> tuple[str,
     return BASE_CTE.replace("/*MEDIBLES*/", medibles_sql), [periodo, fecha_carga, GESTOR_PHOENIX, *medibles_params]
 
 
+@cached_view
 def get_filter_values(fecha_carga: str | None = None) -> dict:
     fechas_carga = [
         r["fecha_carga"]
@@ -281,6 +295,7 @@ def _result(nombre: str, casos: int, acc: dict, metas: dict) -> dict:
     return out
 
 
+@cached_view
 def get_general(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)

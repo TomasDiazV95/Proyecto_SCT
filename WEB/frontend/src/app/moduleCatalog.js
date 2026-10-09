@@ -141,16 +141,6 @@ export const modulePanels = [
     ],
   },
   {
-    code: "factura",
-    title: "Panel de Factura",
-    description: "Espacio preparado para facturas, reportes y procesos asociados.",
-    path: "/factura",
-    accent: "warning",
-    emptyTitle: "Panel de Factura en preparación",
-    emptyDescription: "Este módulo está reservado para simular facturas.",
-    modules: [],
-  },
-  {
     code: "administrativas",
     title: "Panel Administrativo",
     description: "Descargas de archivos de clientes y configuraciones internas.",
@@ -164,6 +154,13 @@ export const modulePanels = [
         path: "/administrativas/itau-vencida",
         legacyPath: "/administrativas/itau",
         buttonLabel: "Abrir Itaú Vencida",
+      },
+      {
+        code: "administrativas",
+        title: "Negocios",
+        description: "Sube el Excel de negocios (reconducciones, refinanciamientos, novaciones, daciones, extensiones) de SC Terreno, SC Telefonía y GM.",
+        path: "/administrativas/negocios",
+        buttonLabel: "Abrir Negocios",
       },
       {
         // Tiene permiso propio: el panel administrativo no lo abre.
@@ -211,7 +208,7 @@ export const modulePanels = [
   {
     code: "admin",
     title: "Panel Admin",
-    description: "Administración de usuarios, permisos y configuración de la plataforma.",
+    description: "Administración de usuarios y de sus permisos en la plataforma.",
     path: "/admin",
     accent: "danger",
     modules: [
@@ -221,20 +218,6 @@ export const modulePanels = [
         description: "Crear usuarios, asignar módulos y activar o desactivar cuentas.",
         path: "/admin/usuarios",
         buttonLabel: "Administrar Usuarios",
-      },
-      {
-        code: "admin",
-        title: "Permisos",
-        description: "Espacio reservado para administración avanzada de permisos.",
-        path: "/admin/permisos",
-        buttonLabel: "Ir a Permisos",
-      },
-      {
-        code: "admin",
-        title: "Configuración",
-        description: "Espacio reservado para configuración general de la plataforma.",
-        path: "/admin/configuracion",
-        buttonLabel: "Ir a Configuración",
       },
     ],
   },

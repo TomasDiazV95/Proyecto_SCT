@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { addItauMedibles, deleteItauMedible, fetchItauMedibles } from "../../api";
 import { LoadingState, SectionCard } from "../../components/productividad/ui";
+import MediblesBuscador from "./MediblesBuscador";
 
 const COLUMNAS = [
   { value: "DETALLE_MARCA", label: "Detalle marca" },
@@ -9,6 +10,9 @@ const COLUMNAS = [
   { value: "SEGMENTO", label: "Segmento" },
   { value: "FASE_PROY_MAX", label: "Fase" },
 ];
+
+// El canal y las fases medibles son fijos: se muestran, pero no se agregan ni se quitan.
+const COLUMNAS_EDITABLES = COLUMNAS.filter((item) => !["CANAL", "FASE_PROY_MAX"].includes(item.value));
 
 function valorLabel(columna, valor) {
   return columna === "FASE_PROY_MAX" ? `Fase ${valor}` : valor;
@@ -25,7 +29,7 @@ function columnaLabel(value) {
 
 export default function MediblesItauCard() {
   const [periodo, setPeriodo] = useState(currentPeriodo());
-  const [data, setData] = useState({ filtros: [], valores: {}, periodos_configurados: [] });
+  const [data, setData] = useState({ filtros: [], fijos: [], valores: {}, periodos_configurados: [], cargas: [], fases_meta: {} });
   const [form, setForm] = useState({ columna: "DETALLE_MARCA", valores: [] });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -187,7 +191,7 @@ export default function MediblesItauCard() {
               setValoresOpen(false);
             }}
           >
-            {COLUMNAS.map((item) => (
+            {COLUMNAS_EDITABLES.map((item) => (
               <option key={item.value} value={item.value}>{item.label}</option>
             ))}
           </select>
@@ -246,18 +250,20 @@ export default function MediblesItauCard() {
                 <dt>{grupo.label}</dt>
                 <dd>
                   {grupo.filtros.map((filtro) => (
-                    <span className="pd-medible-chip" key={`${filtro.columna}-${filtro.valor}`}>
+                    <span className={`pd-medible-chip${filtro.fijo ? " is-fijo" : ""}`} key={`${filtro.columna}-${filtro.valor}`} title={filtro.fijo ? "Fijo: se mide todos los meses" : undefined}>
                       {valorLabel(filtro.columna, filtro.valor)}
-                      <button
-                        type="button"
-                        className="pd-medible-remove"
-                        disabled={saving}
-                        onClick={() => onDelete(filtro)}
-                        aria-label={`Quitar ${valorLabel(filtro.columna, filtro.valor)}`}
-                        title="Quitar"
-                      >
-                        <i className="bi bi-x" aria-hidden="true" />
-                      </button>
+                      {!filtro.fijo && (
+                        <button
+                          type="button"
+                          className="pd-medible-remove"
+                          disabled={saving}
+                          onClick={() => onDelete(filtro)}
+                          aria-label={`Quitar ${valorLabel(filtro.columna, filtro.valor)}`}
+                          title="Quitar"
+                        >
+                          <i className="bi bi-x" aria-hidden="true" />
+                        </button>
+                      )}
                     </span>
                   ))}
                 </dd>
@@ -265,13 +271,17 @@ export default function MediblesItauCard() {
             ))}
           </dl>
           <p className="pd-small pd-muted mt-3 mb-0">
-            Si agregas valores en más de una columna, el caso debe cumplir todas. Por ejemplo, un canal y un segmento de la lista.
+            El canal y las fases son fijos. Si agregas valores en más de una columna, el caso debe cumplir todas. Por ejemplo, un detalle marca y un segmento de la lista.
           </p>
         </>
       ) : (
         <div className="alert alert-warning mb-0">
           {periodo} no tiene casos medibles: el cumplimiento de Itaú Vencida no se calcula hasta que agregues al menos un valor.
         </div>
+      )}
+
+      {!loading && (
+        <MediblesBuscador periodo={periodo} cargas={data.cargas || []} fasesMeta={data.fases_meta || {}} fijos={data.fijos || []} onApplied={setData} />
       )}
     </SectionCard>
   );

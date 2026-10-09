@@ -589,11 +589,78 @@ export async function addItauMedibles(payload) {
   return body;
 }
 
+export async function replaceItauMedibles(payload) {
+  const res = await apiFetch(`${API_BASE}/api/administrativas/itau/medibles`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron guardar los casos medibles");
+  }
+  return body;
+}
+
+export async function sugerirItauMedibles(payload) {
+  const res = await apiFetch(`${API_BASE}/api/administrativas/itau/medibles/sugerir`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron buscar los casos medibles");
+  }
+  return body;
+}
+
 export async function deleteItauMedible(filtro) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/administrativas/itau/medibles`, filtro), { method: "DELETE" });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(body?.detail || "No se pudo eliminar el filtro");
+  }
+  return body;
+}
+
+export async function fetchNegociosCargas() {
+  const res = await apiFetch(`${API_BASE}/api/administrativas/negocios/cargas`);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron cargar los archivos subidos");
+  }
+  return body;
+}
+
+export async function uploadNegocioCarga({ negocio, archivo }) {
+  const form = new FormData();
+  form.append("negocio", negocio);
+  form.append("archivo", archivo);
+  // Sin Content-Type: el navegador lo arma con el separador del formulario.
+  const res = await apiFetch(`${API_BASE}/api/administrativas/negocios/cargas`, { method: "POST", body: form });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo subir el archivo");
+  }
+  return body;
+}
+
+export async function deleteNegocioCarga(idCarga) {
+  const res = await apiFetch(`${API_BASE}/api/administrativas/negocios/cargas/${idCarga}`, { method: "DELETE" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo eliminar la carga");
+  }
+  return body;
+}
+
+// modulo: productividad que muestra el conteo ("sc-tardia", "sc-temprana", "gm").
+export async function fetchNegociosConteo(modulo, filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/${modulo}/negocios`, filters));
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron cargar los negocios del mes");
   }
   return body;
 }
@@ -616,6 +683,13 @@ async function downloadExcelFile(url, fallbackFilename) {
   const match = disposition.match(/filename="?([^";]+)"?/i);
   const filename = match?.[1] || fallbackFilename;
   return { blob: await res.blob(), filename };
+}
+
+export async function downloadNegociosPlantilla(negocio) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/administrativas/negocios/plantilla`, { negocio }),
+    `Plantilla_Negocios_${negocio}.xlsx`
+  );
 }
 
 export async function downloadItauCuotasVencida(periodo) {

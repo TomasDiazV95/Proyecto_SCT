@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters } from "../api";
+import NegociosCard from "../components/productividad/NegociosCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 const initialFilters = {
@@ -96,7 +97,8 @@ export default function GmPage() {
 
   useEffect(() => {
     async function loadData() {
-      if (!filters.periodo) {
+      // La pestaña Negocios carga sus propios datos (NegociosCard).
+      if (!filters.periodo || view === "negocios") {
         return;
       }
 
@@ -381,8 +383,12 @@ export default function GmPage() {
             { value: "productividad", label: "Productividad" },
             { value: "bucket", label: "Bucket" },
             { value: "detalle", label: "Detalle" },
+            { value: "negocios", label: "Negocios" },
           ]}
         />
+        {view === "negocios" ? (
+          <NegociosCard modulo="gm" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("GM", "negocios", formatPeriodo(filters.periodo))} />
+        ) : (
         <SectionCard
           exportName={exportFileName("GM", view === "productividad" ? `bucket ${bucketTab}` : view, formatPeriodo(filters.periodo))}
           bodyClassName=""
@@ -471,6 +477,7 @@ export default function GmPage() {
             </div>
           )}
         </SectionCard>
+        )}
       </div>
     </div>
   );
