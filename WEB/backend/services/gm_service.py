@@ -7,6 +7,18 @@ from database import run_query
 
 BUCKET_ORDER = ["6 a 30", "31 a 60", "61 a 90", "91 a 150"]
 
+# Resultado informado por GM para la OCA, por bucket:
+# (meta contencion, ponderacion, contencion real, meta normalizacion, ponderacion, normalizacion real).
+# Pisa el calculo propio solo en la vista bucket; la vista por ejecutivo no cambia.
+RESULTADO_OFICIAL_BUCKET = {
+    "2026-09-01": {
+        "6 a 30": (86.00, 80.00, 77.29, 34.00, 20.00, 25.15),
+        "31 a 60": (73.00, 80.00, 66.40, 26.00, 20.00, 22.66),
+        "61 a 90": (72.00, 70.00, 57.40, 24.00, 30.00, 16.42),
+        "91 a 150": (72.00, 70.00, 57.67, 24.00, 30.00, 10.44),
+    },
+}
+
 
 def _clean_text(value) -> str:
     if value is None:
@@ -279,6 +291,7 @@ def get_general_view(filters: dict) -> list[dict]:
 
 def get_bucket_view(filters: dict) -> list[dict]:
     cycle_rows = get_cycle_view({"periodo": filters.get("periodo"), "ejecutivo": ""})
+    oficiales = RESULTADO_OFICIAL_BUCKET.get(_period_start(filters.get("periodo")), {})
 
     grouped: dict[str, dict] = {}
     for row in cycle_rows:
@@ -320,13 +333,30 @@ def get_bucket_view(filters: dict) -> list[dict]:
         meta_norm = float(item["meta_normalizacion_pct"])
         pond_cont = float(item["ponderador_contencion_pct"])
         pond_norm = float(item["ponderador_normalizacion_pct"])
+        # Metas internas (las de la vista por ejecutivo); el drawer de metas las sigue mostrando.
+        metas_internas = {
+            "meta_contencion_interna_pct": meta_cont,
+            "meta_normalizacion_interna_pct": meta_norm,
+            "ponderador_contencion_interno_pct": pond_cont,
+            "ponderador_normalizacion_interno_pct": pond_norm,
+        }
 
-        cumpl_cont = _cumpl_variable(pct_cont, meta_cont)
-        cumpl_norm = _cumpl_variable(pct_norm, meta_norm)
-        cumplimiento = _cap((cumpl_cont * (pond_cont / 100.0)) + (cumpl_norm * (pond_norm / 100.0)))
+        if bucket in oficiales:
+            meta_cont, pond_cont, pct_cont, meta_norm, pond_norm, pct_norm = oficiales[bucket]
+            contenido = deuda * pct_cont / 100.0
+            normalizado = deuda * pct_norm / 100.0
+            # Modelo GM: real total ponderado sobre meta total ponderada.
+            real_total = pct_cont * pond_cont + pct_norm * pond_norm
+            meta_total = meta_cont * pond_cont + meta_norm * pond_norm
+            cumplimiento = _cap(_safe_div(real_total, meta_total))
+        else:
+            cumpl_cont = _cumpl_variable(pct_cont, meta_cont)
+            cumpl_norm = _cumpl_variable(pct_norm, meta_norm)
+            cumplimiento = _cap((cumpl_cont * (pond_cont / 100.0)) + (cumpl_norm * (pond_norm / 100.0)))
 
         response.append(
             {
+                **metas_internas,
                 "bucket": bucket,
                 "deuda_asignada": deuda,
                 "saldo_contenido": contenido,

@@ -65,6 +65,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'itau-vencida')
 ELSE
     UPDATE dbo.modules SET display_name = 'Itaú Vencida', route_path = '/itau-vencida', is_active = 1 WHERE code = 'itau-vencida';
 
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'itau-vigente')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('itau-vigente', 'Itaú Vigente', '/itau-vigente');
+ELSE
+    UPDATE dbo.modules SET display_name = 'Itaú Vigente', route_path = '/itau-vigente', is_active = 1 WHERE code = 'itau-vigente';
+
 IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'global')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('global', 'Acceso Global', '/');
 ELSE
@@ -84,6 +89,11 @@ IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'estrategia-asignacion')
     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('estrategia-asignacion', 'Panel Estrategia de Asignación', '/estrategia-asignacion');
 ELSE
     UPDATE dbo.modules SET display_name = 'Panel Estrategia de Asignación', route_path = '/estrategia-asignacion', is_active = 1 WHERE code = 'estrategia-asignacion';
+
+IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'rrhh')
+    INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('rrhh', 'Panel RRHH', '/rrhh');
+ELSE
+    UPDATE dbo.modules SET display_name = 'Panel RRHH', route_path = '/rrhh', is_active = 1 WHERE code = 'rrhh';
 
 -- IF NOT EXISTS (SELECT 1 FROM dbo.modules WHERE code = 'factura')
 --     INSERT INTO dbo.modules(code, display_name, route_path) VALUES ('factura', 'Panel de Factura', '/factura');

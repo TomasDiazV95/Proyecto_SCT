@@ -152,6 +152,14 @@ export async function fetchLaAraucanaNegocios(filters) {
   return res.json();
 }
 
+export async function fetchLaAraucanaDetalle(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/detalle`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el detalle de La Araucana");
+  }
+  return res.json();
+}
+
 export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
   const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/export`, { periodo, tipo_cartera: tipoCartera }));
   if (!res.ok) {
@@ -373,6 +381,22 @@ export async function fetchItauVencidaGeneral(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general de Itaú Vencida");
+  }
+  return res.json();
+}
+
+export async function fetchItauVigenteFilters(fecha_carga = "") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vigente/filtros`, { fecha_carga }));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de Itaú Vigente");
+  }
+  return res.json();
+}
+
+export async function fetchItauVigenteGeneral(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vigente/general`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de Itaú Vigente");
   }
   return res.json();
 }
@@ -679,5 +703,46 @@ export async function downloadContactabilidadItauDetalle(filters) {
   return downloadExcelFile(
     withQuery(`${API_BASE}/api/contactabilidad/itau-vencida/detalle/export`, filters),
     "contactabilidad_itau_vencida_detalle.xlsx"
+  );
+}
+
+export async function fetchRrhhPeriodos() {
+  const res = await apiFetch(`${API_BASE}/api/rrhh/periodos`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los meses disponibles");
+  }
+  const body = await res.json();
+  return body.periodos || [];
+}
+
+export async function fetchRrhhNegocios(periodo) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/rrhh/negocios`, { periodo }));
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron cargar los negocios del mes");
+  }
+  return body.negocios || [];
+}
+
+export async function fetchRrhhPlanilla(periodo, negocio) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/rrhh/planilla`, { periodo, negocio }));
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo cargar la planilla del negocio");
+  }
+  return body;
+}
+
+export async function downloadRrhhPlanilla(periodo, negocio) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/rrhh/export`, { periodo, negocio }),
+    `Cumplimiento_${negocio}_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadRrhhConsolidado(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/rrhh/export`, { periodo }),
+    `Cumplimientos_Campanas_${periodo || "periodo"}.xlsx`
   );
 }

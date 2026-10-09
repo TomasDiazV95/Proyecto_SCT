@@ -14,6 +14,7 @@ import GmPage from "./pages/GmPage";
 import HomePage from "./pages/HomePage";
 import ItauCastigoPage from "./pages/ItauCastigoPage";
 import ItauVencidaPage from "./pages/ItauVencidaPage";
+import ItauVigentePage from "./pages/ItauVigentePage";
 import ItauAdministrativasPage from "./pages/administrativas/ItauAdministrativasPage";
 import LaAraucanaPage from "./pages/LaAraucanaPage";
 import KpiAvancePhoenixPage from "./pages/KpiAvancePhoenixPage";
@@ -22,6 +23,7 @@ import LoginPage from "./pages/LoginPage";
 import PanelPage from "./pages/PanelPage";
 import PorschePage from "./pages/PorschePage";
 import PlaceholderPage from "./pages/PlaceholderPage";
+import RrhhPage from "./pages/RrhhPage";
 import ScTardiaPage from "./pages/ScTardiaPage";
 import ScTempranaPage from "./pages/ScTempranaPage";
 import SthPage from "./pages/SthPage";
@@ -49,6 +51,7 @@ export default function App() {
       <Route path="/bench" element={<ProtectedRoute moduleCode="bench"><BenchPage /></ProtectedRoute>} />
       <Route path="/itau-castigo" element={<ProtectedRoute moduleCode="itau-castigo"><ItauCastigoPage /></ProtectedRoute>} />
       <Route path="/itau-vencida" element={<ProtectedRoute moduleCode="itau-vencida"><ItauVencidaPage /></ProtectedRoute>} />
+      <Route path="/itau-vigente" element={<ProtectedRoute moduleCode="itau-vigente"><ItauVigentePage /></ProtectedRoute>} />
       <Route path="/bit-castigo" element={<ProtectedRoute moduleCode="bit-castigo"><BitCastigoPage /></ProtectedRoute>} />
       <Route path="/bit" element={<ProtectedRoute moduleCode="bit"><BitPage /></ProtectedRoute>} />
       <Route path="/la-araucana" element={<ProtectedRoute moduleCode="la-araucana"><LaAraucanaPage /></ProtectedRoute>} />
@@ -59,6 +62,8 @@ export default function App() {
       <Route path="/administrativas/itau" element={<ProtectedRoute moduleCode="administrativas"><ItauAdministrativasPage /></ProtectedRoute>} />
       <Route path="/estrategia-asignacion" element={<ProtectedRoute moduleCode="estrategia-asignacion"><PanelPage panelCode="estrategia-asignacion" /></ProtectedRoute>} />
       <Route path="/estrategia-asignacion/itau-castigo" element={<ProtectedRoute moduleCode="estrategia-asignacion"><EstrategiaItauCastigoPage /></ProtectedRoute>} />
+      <Route path="/rrhh" element={<ProtectedRoute moduleCode="rrhh"><PanelPage panelCode="rrhh" /></ProtectedRoute>} />
+      <Route path="/rrhh/cumplimientos" element={<ProtectedRoute moduleCode="rrhh"><RrhhPage /></ProtectedRoute>} />
       <Route path="/admin/permisos" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Permisos" description="Administracion avanzada de permisos." /></ProtectedRoute>} />
       <Route path="/admin/configuracion" element={<ProtectedRoute moduleCode="admin"><PlaceholderPage title="Configuracion" description="Configuracion general de la plataforma." /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />

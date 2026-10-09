@@ -20,8 +20,17 @@ export function hasGlobalAccess(user) {
   return isAdminRole(user) || hasAssignedModule(user, GLOBAL_MODULE_CODE);
 }
 
+// Modulos que tambien se abren con otro modulo asignado. Cumplimientos (rrhh): cada supervisor
+// entra con los paneles de productividad de sus negocios y ve solo esos (lo filtra el backend).
+const MODULE_GRANTED_BY = {
+  rrhh: ["sc-tardia", "sc-temprana", "gm", "itau-castigo", "itau-vencida", "itau-vigente", "bit", "bit-castigo", "sth", "la-araucana"],
+};
+
 export function canAccessModule(user, moduleCode) {
   if (!moduleCode) {
+    return true;
+  }
+  if ((MODULE_GRANTED_BY[moduleCode] || []).some((code) => hasAssignedModule(user, code))) {
     return true;
   }
   if (moduleCode === "admin") {
@@ -39,7 +48,7 @@ export function canAccessPanel(user, panel) {
     return true;
   }
 
-  return (panel.modules || []).some((module) => hasAssignedModule(user, module.code));
+  return (panel.modules || []).some((module) => canAccessModule(user, module.code));
 }
 
 export function getVisibleModules(user, panel) {
@@ -49,7 +58,7 @@ export function getVisibleModules(user, panel) {
   } else if (hasGlobalAccess(user) || hasAssignedModule(user, panel.code)) {
     modules = panel.modules;
   } else {
-    modules = (panel.modules || []).filter((module) => hasAssignedModule(user, module.code));
+    modules = (panel.modules || []).filter((module) => canAccessModule(user, module.code));
   }
   // Modulos con permiso propio: tener el panel no alcanza, hay que poder abrir el modulo.
   return (modules || []).filter((module) => !module.requiresOwnAccess || canAccessModule(user, module.code));

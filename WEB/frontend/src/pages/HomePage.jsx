@@ -14,6 +14,7 @@ const PANEL_STYLE = {
   warning: { color: "#d97706", icon: "bi-receipt" },
   info: { color: "#0891b2", icon: "bi-folder2-open" },
   violet: { color: "#7c3aed", icon: "bi-diagram-3" },
+  indigo: { color: "#4f46e5", icon: "bi-people" },
   danger: { color: "#dc2626", icon: "bi-shield-lock" },
 };
 

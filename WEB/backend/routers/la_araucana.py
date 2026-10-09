@@ -4,7 +4,7 @@ from io import BytesIO
 
 from auth.dependencies import require_module, require_roles
 from services.la_araucana_auditoria import build_auditoria_workbook
-from services.la_araucana_service import get_filtros, get_negocios, get_resumen, get_validacion
+from services.la_araucana_service import get_detalle, get_filtros, get_negocios, get_resumen, get_validacion
 
 
 router = APIRouter(dependencies=[Depends(require_module("la-araucana"))])
@@ -80,6 +80,34 @@ def negocios(
 ) -> dict:
     try:
         return {"periodo": periodo, "cartera_crm": 531, **get_negocios({"periodo": periodo, "ejecutivo": ejecutivo})}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/detalle")
+def detalle(
+    periodo: str | None = Query(default=None),
+    buscar: str | None = Query(default=None),
+    tipo_cartera: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+    usuario_gestion: str | None = Query(default=None),
+    con_pago: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    try:
+        return get_detalle(
+            {
+                "periodo": periodo,
+                "buscar": buscar,
+                "tipo_cartera": tipo_cartera,
+                "ejecutivo": ejecutivo,
+                "usuario_gestion": usuario_gestion,
+                "con_pago": con_pago,
+                "page": page,
+                "page_size": page_size,
+            }
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

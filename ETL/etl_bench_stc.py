@@ -40,24 +40,23 @@ BENCH_PATTERN = require_env("BENCH_STC_PATTERN")
 SHEET_NAME = require_env("BENCH_STC_SHEET_NAME")
 
 
-def get_latest_bench_file(folder: Path, pattern: str) -> str:
+def get_bench_files(folder: Path, pattern: str) -> list[Path]:
+    """Archivos de bench a procesar, del mas antiguo al mas nuevo segun su carga en el visor.
+
+    La descarga deja el bench mas reciente y, los primeros dias del mes, el pre-cierre y el
+    cierre del mes anterior (aunque el nombre venga escrito de otra forma). Los ya cargados se omiten.
+    """
     if not folder.exists():
         raise FileNotFoundError(f"La carpeta no existe: {folder}")
 
-    files = [f for f in folder.glob(pattern) if not f.name.startswith("~$")]
+    files = bench_recarga.archivos_bench(folder, pattern)
 
     if not files:
         raise FileNotFoundError(
             f"No se encontró ningún archivo que cumpla el patrón '{pattern}' en {folder}"
         )
 
-    latest_file = max(files, key=lambda f: f.stat().st_mtime)
-    return str(latest_file)
-
-
-EXCEL_PATH = get_latest_bench_file(BENCH_FOLDER, BENCH_PATTERN)
-
-print(f"Archivo BENCH encontrado: {EXCEL_PATH}")
+    return files
 
 TABLE = "dbo.tmp_bench_STC"
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
@@ -394,16 +393,25 @@ def insert_append(df: pd.DataFrame, source_file: str):
 
 def should_skip_load(current_source_file: str, fecha_visor) -> bool:
     # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
+    # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
     with connect() as cn:
-        cargar = bench_recarga.debe_cargar(cn.cursor(), TABLE, current_source_file, fecha_visor)
+        cargar = bench_recarga.debe_cargar(
+            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True
+        )
         cn.commit()
     return not cargar
 
 
 def main():
-    df = read_excel(EXCEL_PATH, SHEET_NAME)
+    for excel_file in get_bench_files(BENCH_FOLDER, BENCH_PATTERN):
+        print(f"Archivo BENCH encontrado: {excel_file}")
+        cargar_archivo(str(excel_file))
 
-    print(f"Archivo: {Path(EXCEL_PATH).name}")
+
+def cargar_archivo(excel_path: str):
+    df = read_excel(excel_path, SHEET_NAME)
+
+    print(f"Archivo: {Path(excel_path).name}")
     print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
 
     df = data_cleaners.apply_fuzzy_matching_to_cobrador(df, threshold=90)
@@ -412,8 +420,8 @@ def main():
     print("Columnas numéricas detectadas:", found_numeric if found_numeric else "ninguna")
 
     ensure_table_and_columns(df)
-    current_source_file = Path(EXCEL_PATH).name
-    fecha_visor = bench_recarga.fecha_visor_archivo(EXCEL_PATH)
+    current_source_file = Path(excel_path).name
+    fecha_visor = bench_recarga.fecha_visor_archivo(excel_path)
     if should_skip_load(current_source_file, fecha_visor):
         return
     insert_append(df, current_source_file)

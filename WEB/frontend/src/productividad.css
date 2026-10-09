@@ -1219,6 +1219,11 @@
   background: var(--pd-group-2);
 }
 
+.iv-accent-castigo .iv-drawer-block-head {
+  background: var(--pd-head-strong);
+  color: var(--pd-text);
+}
+
 .iv-drawer-peso {
   font-size: var(--pd-fs-label);
   font-weight: 400;
