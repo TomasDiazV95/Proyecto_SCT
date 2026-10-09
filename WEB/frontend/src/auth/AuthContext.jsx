@@ -60,6 +60,13 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // Una sesion guardada sin la lista de accesos (anterior a user.access) se renueva al cargar.
+  useEffect(() => {
+    if (accessToken && user && !Array.isArray(user.access)) {
+      refresh().catch(() => setSession("", null));
+    }
+  }, []);
+
   useEffect(() => {
     function handleSessionExpired() {
       setSession("", null);

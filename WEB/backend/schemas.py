@@ -79,5 +79,11 @@ class UpdateUserModulesRequest(BaseModel):
     module_codes: list[str] = []
 
 
+class BulkUserModulesRequest(BaseModel):
+    user_ids: list[int]
+    add: list[str] = []
+    remove: list[str] = []
+
+
 class UpdateUserStatusRequest(BaseModel):
     is_active: bool

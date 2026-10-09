@@ -37,7 +37,9 @@ def get_modules_for_user(user_id: int) -> list[dict]:
 
 
 def list_modules() -> list[dict]:
-    return run_query("SELECT id, code, display_name, route_path FROM dbo.modules WHERE is_active = 1 ORDER BY display_name")
+    return run_query(
+        "SELECT id, code, display_name, route_path, parent_code FROM dbo.modules WHERE is_active = 1 ORDER BY display_name"
+    )
 
 
 def update_login_success(user_id: int) -> None:
@@ -122,20 +124,66 @@ def set_user_active(user_id: int, is_active: bool) -> None:
         cn.commit()
 
 
+def _module_ids(cur, module_codes: list[str]) -> dict[str, int]:
+    """Id de cada modulo activo pedido. Un codigo que no existe es un error, no se descarta."""
+    codes = list(dict.fromkeys(module_codes))
+    if not codes:
+        return {}
+    marks = ",".join("?" for _ in codes)
+    cur.execute(f"SELECT code, id FROM dbo.modules WHERE code IN ({marks}) AND is_active = 1", tuple(codes))
+    found = {str(code): int(module_id) for code, module_id in cur.fetchall()}
+    unknown = [code for code in codes if code not in found]
+    if unknown:
+        raise ValueError(f"Módulos no reconocidos: {', '.join(unknown)}")
+    return found
+
+
 def set_user_modules(user_id: int, module_codes: list[str], actor_user_id: int | None) -> None:
     with get_connection() as cn:
         cur = cn.cursor()
+        module_ids = _module_ids(cur, module_codes)
         cur.execute("DELETE FROM dbo.user_modules WHERE user_id = ?", (user_id,))
-        if module_codes:
-            marks = ",".join("?" for _ in module_codes)
-            cur.execute(f"SELECT id FROM dbo.modules WHERE code IN ({marks}) AND is_active = 1", tuple(module_codes))
-            module_ids = [int(r[0]) for r in cur.fetchall()]
-            for module_id in module_ids:
-                cur.execute(
-                    "INSERT INTO dbo.user_modules(user_id, module_id, created_by_user_id) VALUES (?, ?, ?)",
-                    (user_id, module_id, actor_user_id),
-                )
+        for module_id in module_ids.values():
+            cur.execute(
+                "INSERT INTO dbo.user_modules(user_id, module_id, created_by_user_id) VALUES (?, ?, ?)",
+                (user_id, module_id, actor_user_id),
+            )
         cn.commit()
+
+
+def change_user_modules(user_ids: list[int], add: list[str], remove: list[str], actor_user_id: int | None) -> dict[int, list[str]]:
+    """Agrega y quita modulos a varios usuarios sin tocar el resto de sus permisos.
+    Todo en una transaccion. Devuelve los modulos con que queda cada usuario."""
+    result: dict[int, list[str]] = {}
+    with get_connection() as cn:
+        cur = cn.cursor()
+        add_ids = _module_ids(cur, add)
+        remove_ids = _module_ids(cur, remove)
+        for user_id in dict.fromkeys(user_ids):
+            for module_id in remove_ids.values():
+                cur.execute("DELETE FROM dbo.user_modules WHERE user_id = ? AND module_id = ?", (user_id, module_id))
+            for module_id in add_ids.values():
+                cur.execute(
+                    """
+                    INSERT INTO dbo.user_modules(user_id, module_id, created_by_user_id)
+                    SELECT ?, ?, ?
+                    WHERE NOT EXISTS (SELECT 1 FROM dbo.user_modules WHERE user_id = ? AND module_id = ?)
+                    """,
+                    (user_id, module_id, actor_user_id, user_id, module_id),
+                )
+            cur.execute(
+                """
+                SELECT m.code
+                FROM dbo.user_modules um
+                INNER JOIN dbo.modules m ON m.id = um.module_id
+                WHERE um.user_id = ? AND m.is_active = 1
+                ORDER BY m.code
+                """,
+                (user_id,),
+            )
+            result[user_id] = [str(r[0]) for r in cur.fetchall()]
+        cn.commit()
+    return result
 
 
 def list_users() -> list[dict]:

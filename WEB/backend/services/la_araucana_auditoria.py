@@ -145,7 +145,7 @@ def _table_columns(table_name: str) -> list[str]:
 def _fetch(periodo: str) -> dict:
     c = _resolved_cols()
     if not c["id_gest"]:
-        raise RuntimeError("La tabla de gestiones no tiene columna id; no se puede generar la auditoria.")
+        raise RuntimeError("La tabla de gestiones no tiene columna id; no se puede generar la auditoría.")
     ejecutivas = _ejecutivas(periodo)
     mes_proceso = _to_mes_proceso(periodo)
     _period_month, _period_day, month_start, month_end, _file_tokens = _parse_period(mes_proceso)

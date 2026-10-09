@@ -29,7 +29,7 @@ async function apiFetch(url, options = {}, retry = true) {
   const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, { method: "POST", credentials: "include" });
   if (!refreshRes.ok) {
     clearStoredSession();
-    throw new Error("Sesion expirada");
+    throw new Error("Sesión expirada");
   }
   const refreshBody = await refreshRes.json();
   localStorage.setItem("auth_access_token", refreshBody.access_token || "");
@@ -90,42 +90,6 @@ export async function fetchScTardiaMetas(filters) {
   }
   const body = await res.json();
   return body.data || [];
-}
-
-export async function fetchPorscheFilters() {
-  const res = await apiFetch(`${API_BASE}/api/filtros`);
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de Porsche");
-  }
-  return res.json();
-}
-
-export async function fetchPorscheDashboard(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/dashboard`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el dashboard de Porsche");
-  }
-  return res.json();
-}
-
-export async function fetchPorscheCuadroContenido(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/cuadro-contenido`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el cuadro de cumplimiento Porsche");
-  }
-  return res.json();
-}
-
-export async function downloadPorscheExcel(mes) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/porsche/export`, { mes }));
-  if (!res.ok) {
-    throw new Error("No se pudo descargar el Excel de Porsche");
-  }
-  const blob = await res.blob();
-  const disposition = res.headers.get("content-disposition") || "";
-  const match = disposition.match(/filename="?([^";]+)"?/i);
-  const filename = match?.[1] || `seguimiento_porsche_${mes || "periodo"}.xlsx`;
-  return { blob, filename };
 }
 
 export async function fetchLaAraucanaFilters(periodo = "") {
@@ -340,7 +304,7 @@ export async function fetchBitCastigoGeneral(filters) {
 //   const res = await apiFetch(withQuery(`${API_BASE}/api/factura/bit`, { periodo, scope }));
 //   const body = await res.json().catch(() => ({}));
 //   if (!res.ok) {
-//     throw new Error(body?.detail || "No se pudo cargar la simulacion de factura BIT");
+//     throw new Error(body?.detail || "No se pudo cargar la simulación de factura BIT");
 //   }
 //   return body;
 // }
@@ -446,7 +410,7 @@ export async function fetchKpiAvancePhoenixFilters(filters = {}) {
 export async function fetchKpiAvancePhoenixComparison(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-avance-phoenix/comparacion`, filters));
   if (!res.ok) {
-    throw new Error("No se pudo cargar la comparacion de KPI Phoenix");
+    throw new Error("No se pudo cargar la comparación de KPI Phoenix");
   }
   return res.json();
 }
@@ -527,7 +491,7 @@ export async function fetchSthOperationsDetail(filters) {
 export async function fetchAdminModules() {
   const res = await apiFetch(`${API_BASE}/api/admin/modules`);
   if (!res.ok) {
-    throw new Error("No se pudieron cargar los modulos");
+    throw new Error("No se pudieron cargar los módulos");
   }
   const body = await res.json();
   return body.data || [];
@@ -563,7 +527,20 @@ export async function updateAdminUserModules(userId, moduleCodes) {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(body?.detail || "No se pudieron actualizar los modulos");
+    throw new Error(body?.detail || "No se pudieron actualizar los módulos");
+  }
+  return body;
+}
+
+export async function bulkUpdateAdminUserModules(userIds, { add = [], remove = [] }) {
+  const res = await apiFetch(`${API_BASE}/api/admin/users/modules/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_ids: userIds, add, remove }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron actualizar los módulos");
   }
   return body;
 }

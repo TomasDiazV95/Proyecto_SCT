@@ -31,7 +31,7 @@ def resumen(
     ejecutivo: str | None = Query(default=None),
 ) -> dict:
     if cartera_crm != 531:
-        raise HTTPException(status_code=400, detail="Para este modulo cartera_crm debe ser 531")
+        raise HTTPException(status_code=400, detail="Para este módulo cartera_crm debe ser 531")
     try:
         return {
             "periodo": periodo,
@@ -56,7 +56,7 @@ def productividad_detalle(
     ejecutivo: str | None = Query(default=None),
 ) -> dict:
     if cartera_crm != 531:
-        raise HTTPException(status_code=400, detail="Para este modulo cartera_crm debe ser 531")
+        raise HTTPException(status_code=400, detail="Para este módulo cartera_crm debe ser 531")
     try:
         return {
             "periodo": periodo,

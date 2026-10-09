@@ -18,7 +18,6 @@ from routers.itau_vigente import router as itau_vigente_router
 from routers.kpi_diario import router as kpi_diario_router
 from routers.kpi_operacional import router as kpi_operacional_router
 from routers.la_araucana import router as la_araucana_router
-from routers.porsche import router as porsche_router
 from routers.rrhh import router as rrhh_router
 from routers.sc_tardia import router as sc_tardia_router
 from routers.sc_temprana import router as sc_temprana_router
@@ -67,7 +66,6 @@ app.include_router(bit_castigo_router, prefix="/api/bit-castigo", tags=["bit-cas
 app.include_router(bit_router, prefix="/api/bit", tags=["bit"])
 # app.include_router(factura_router, prefix="/api/factura", tags=["factura"])
 app.include_router(la_araucana_router, prefix="/api/la-araucana", tags=["la-araucana"])
-app.include_router(porsche_router, prefix="/api", tags=["porsche"])
 app.include_router(sth_router, prefix="/api/sth", tags=["sth"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users_router, prefix="/api/admin", tags=["admin-users"])

@@ -4,7 +4,7 @@ import { useAuth } from "../auth/AuthContext";
 import { canAccessPanel, getVisibleModules } from "../auth/permissions";
 import { SectionCard } from "../components/productividad/ui";
 
-export default function PanelPage({ panelCode, emptyTitle = "Modulo en preparacion", emptyDescription = "Este panel quedo reservado para una siguiente etapa." }) {
+export default function PanelPage({ panelCode }) {
   const { user } = useAuth();
   const panel = modulePanels.find((item) => item.code === panelCode);
 
@@ -41,8 +41,8 @@ export default function PanelPage({ panelCode, emptyTitle = "Modulo en preparaci
           ))}
         </div>
       ) : (
-        <SectionCard title={emptyTitle}>
-          <p className="pd-muted m-0">{emptyDescription}</p>
+        <SectionCard title={panel.emptyTitle || "Módulo en preparación"}>
+          <p className="pd-muted m-0">{panel.emptyDescription || "Este panel quedó reservado para una siguiente etapa."}</p>
         </SectionCard>
       )}
     </div>

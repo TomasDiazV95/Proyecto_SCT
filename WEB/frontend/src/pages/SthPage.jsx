@@ -264,8 +264,8 @@ export default function SthPage() {
         </Field>
         {view === "detalle" && (
           <>
-            <Field label="Operacion">
-              <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operacion" />
+            <Field label="Operación">
+              <input className="form-control" value={operationSearch} onChange={(e) => setOperationSearch(e.target.value)} placeholder="Buscar operación" />
             </Field>
             <Field label="Producto">
               <select className="form-select" value={operationsFilters.producto} onChange={(e) => onOperationsChange("producto", e.target.value)}>
@@ -328,7 +328,7 @@ export default function SthPage() {
           footer={
             loading ? null : view === "detalle" ? (
               <Pagination
-                summary={`Mostrando ${operationsFrom}-${operationsTo} de ${operationsTotal} operaciones. Pagina ${operationsPage} de ${operationsTotalPages}.`}
+                summary={`Mostrando ${operationsFrom}-${operationsTo} de ${operationsTotal} operaciones. Página ${operationsPage} de ${operationsTotalPages}.`}
                 onPrev={() => setOperationsPage((prev) => Math.max(1, prev - 1))}
                 onNext={() => setOperationsPage((prev) => Math.min(operationsTotalPages, prev + 1))}
                 prevDisabled={operationsPage <= 1 || loading}
@@ -474,15 +474,15 @@ export default function SthPage() {
                 <thead>
                   <tr>
                     <th>Ejecutivo</th>
-                    <th>Operacion</th>
+                    <th>Operación</th>
                     <th>Contenido</th>
                     <th>Ciclo</th>
                     <th className="pd-num">Deuda</th>
                     <th>Producto</th>
-                    <th>Usuario Gestion</th>
-                    <th>Mejor Gestion</th>
-                    <th>Fecha Gestion</th>
-                    <th>Telefono</th>
+                    <th>Usuario Gestión</th>
+                    <th>Mejor Gestión</th>
+                    <th>Fecha Gestión</th>
+                    <th>Teléfono</th>
                     <th>Fecha Compromiso</th>
                   </tr>
                 </thead>

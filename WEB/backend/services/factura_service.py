@@ -4,8 +4,7 @@ from database import run_query
 MIN_FACTURA_PERIOD = "2026-06"
 GLOBAL_SCOPE = "global"
 BIT_SCOPE = "bco_internacional"
-PORSCHE_SCOPE = "porsche"
-SUPPORTED_SCOPES = {GLOBAL_SCOPE, BIT_SCOPE, PORSCHE_SCOPE}
+SUPPORTED_SCOPES = {GLOBAL_SCOPE, BIT_SCOPE}
 
 
 def _safe_float(value: object) -> float:
@@ -15,15 +14,6 @@ def _safe_float(value: object) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _safe_int(value: object) -> int:
-    if value is None:
-        return 0
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
 
 
 def _zero_matrix() -> dict:
@@ -74,29 +64,6 @@ def _percentages() -> dict:
             "bajo_lo_esperado": 0.25,
             "esperado": 0.25,
             "sobre_lo_esperado": 0.25,
-        },
-    }
-
-
-def _porsche_percentages() -> dict:
-    return {
-        "tramo_30_90": {
-            "muy_bajo_lo_esperado": 0.0,
-            "bajo_lo_esperado": 0.0,
-            "esperado": 0.0,
-            "sobre_lo_esperado": 0.0,
-        },
-        "tramo_90_mas": {
-            "muy_bajo_lo_esperado": 0.0,
-            "bajo_lo_esperado": 0.0,
-            "esperado": 0.0,
-            "sobre_lo_esperado": 0.0,
-        },
-        "castigo": {
-            "muy_bajo_lo_esperado": 1.0,
-            "bajo_lo_esperado": 1.0,
-            "esperado": 1.0,
-            "sobre_lo_esperado": 1.0,
         },
     }
 
@@ -160,29 +127,8 @@ def get_factura_bit_periods() -> list[str]:
     return _normalize_periods(rows, "periodo")
 
 
-def get_factura_porsche_periods() -> list[str]:
-    rows = run_query(
-        """
-        SELECT DISTINCT mes_proceso
-        FROM dbo.tmp_PW_pagos
-        WHERE mes_proceso >= ?
-          AND mes_proceso IS NOT NULL
-          AND LTRIM(RTRIM(mes_proceso)) <> ''
-        ORDER BY mes_proceso DESC
-        """,
-        (MIN_FACTURA_PERIOD,),
-    )
-    return _normalize_periods(rows, "mes_proceso")
-
-
 def _get_available_periods(selected_scope: str) -> list[str]:
-    if selected_scope == BIT_SCOPE:
-        return get_factura_bit_periods()
-    if selected_scope == PORSCHE_SCOPE:
-        return get_factura_porsche_periods()
-
-    periods = sorted(set(get_factura_bit_periods()) | set(get_factura_porsche_periods()), reverse=True)
-    return periods
+    return get_factura_bit_periods()
 
 
 def _select_period(periodo: str | None, available_periods: list[str]) -> str:
@@ -203,20 +149,13 @@ def _empty_business_row(key: str, label: str) -> dict:
 
 
 def _build_empty_dashboard(selected_scope: str, available_periods: list[str]) -> dict:
-    businesses = [
-        _empty_business_row(BIT_SCOPE, "Bco Internacional"),
-        _empty_business_row(PORSCHE_SCOPE, "Porsche"),
-    ]
-    if selected_scope == BIT_SCOPE:
-        businesses = [_empty_business_row(BIT_SCOPE, "Bco Internacional")]
-    elif selected_scope == PORSCHE_SCOPE:
-        businesses = [_empty_business_row(PORSCHE_SCOPE, "Porsche")]
+    businesses = [_empty_business_row(BIT_SCOPE, "Bco Internacional")]
 
     matrix = _zero_matrix()
     return {
         "periodo": "",
         "scope": selected_scope,
-        "available_scopes": [GLOBAL_SCOPE, BIT_SCOPE, PORSCHE_SCOPE],
+        "available_scopes": [GLOBAL_SCOPE, BIT_SCOPE],
         "businesses": businesses,
         "scope_summary": {
             "simulado_total": 0.0,
@@ -361,7 +300,7 @@ def _build_bit_response(selected_period: str, available_periods: list[str]) -> d
     return {
         "periodo": selected_period,
         "scope": BIT_SCOPE,
-        "available_scopes": [GLOBAL_SCOPE, BIT_SCOPE, PORSCHE_SCOPE],
+        "available_scopes": [GLOBAL_SCOPE, BIT_SCOPE],
         "businesses": [
             {
                 "key": BIT_SCOPE,
@@ -378,112 +317,13 @@ def _build_bit_response(selected_period: str, available_periods: list[str]) -> d
     }
 
 
-def _build_porsche_response(selected_period: str, available_periods: list[str]) -> dict:
-    rows = run_query(
-        """
-        SELECT
-            SUM(
-                CASE
-                    WHEN LTRIM(RTRIM(LOWER(COALESCE(origen_registro, '')))) = 'pagos'
-                    THEN
-                        CASE
-                            WHEN total_pagos_excel IS NULL THEN 0
-                            WHEN ISNUMERIC(CONVERT(VARCHAR(255), total_pagos_excel)) = 1 THEN CAST(total_pagos_excel AS float)
-                            ELSE 0
-                        END * 0.04
-                    ELSE 0
-                END
-            ) AS simulado_total,
-            SUM(
-                CASE
-                    WHEN LTRIM(RTRIM(LOWER(COALESCE(origen_registro, '')))) = 'factura'
-                    THEN
-                        CASE
-                            WHEN total_pagos_excel IS NULL THEN 0
-                            WHEN ISNUMERIC(CONVERT(VARCHAR(255), total_pagos_excel)) = 1 THEN CAST(total_pagos_excel AS float)
-                            ELSE 0
-                        END * 0.04
-                    ELSE 0
-                END
-            ) AS factura_real_total,
-            SUM(CASE WHEN LTRIM(RTRIM(LOWER(COALESCE(origen_registro, '')))) = 'pagos' THEN 1 ELSE 0 END) AS pagos_count,
-            SUM(CASE WHEN LTRIM(RTRIM(LOWER(COALESCE(origen_registro, '')))) = 'factura' THEN 1 ELSE 0 END) AS factura_count
-        FROM dbo.tmp_PW_pagos
-        WHERE mes_proceso = ?
-          AND mes_proceso >= ?
-        """,
-        (selected_period, MIN_FACTURA_PERIOD),
-    )
-    row = rows[0] if rows else {}
-    simulado_total = _safe_float(row.get("simulado_total"))
-    factura_real_total = _safe_float(row.get("factura_real_total"))
-    factura_count = _safe_int(row.get("factura_count"))
-    percentages = _porsche_percentages()
-    matrix = _zero_matrix()
-    for key in ("muy_bajo_lo_esperado", "bajo_lo_esperado", "esperado", "sobre_lo_esperado"):
-        matrix["castigo"][key] = simulado_total
-        matrix["simulacion_total"][key] = simulado_total
-
-    summary = {
-        "base_30_90": 0.0,
-        "base_90_mas": 0.0,
-        "base_castigo": simulado_total,
-        "castigo_simulado": simulado_total,
-        "total_esperado": simulado_total,
-        "total_sobre": simulado_total,
-    }
-    business_summary_rows = [
-        _build_business_summary(
-            business_key=PORSCHE_SCOPE,
-            business_label="Porsche",
-            summary=summary,
-            matrix=matrix,
-            has_real_invoice=factura_count > 0,
-            factura_real_total=factura_real_total if factura_count > 0 else None,
-            factura_real_periodo=selected_period if factura_count > 0 else None,
-        )
-    ]
-    scope_summary = {
-        "simulado_total": simulado_total,
-        "simulado_esperado": simulado_total,
-        "factura_real_total": factura_real_total if factura_count > 0 else None,
-        "factura_real_periodo": selected_period if factura_count > 0 else None,
-        "negocios_con_datos": 1 if simulado_total or factura_count > 0 else 0,
-        "negocios_con_factura_real": 1 if factura_count > 0 else 0,
-    }
-
-    return {
-        "periodo": selected_period,
-        "scope": PORSCHE_SCOPE,
-        "available_scopes": [GLOBAL_SCOPE, BIT_SCOPE, PORSCHE_SCOPE],
-        "businesses": [
-            {
-                "key": PORSCHE_SCOPE,
-                "label": "Porsche",
-                "has_real_invoice": factura_count > 0,
-            }
-        ],
-        "scope_summary": scope_summary,
-        "business_summary_rows": business_summary_rows,
-        "available_periods": available_periods,
-        "matrix": matrix,
-        "percentages": percentages,
-        "summary": summary,
-    }
-
-
 def _build_global_response(selected_period: str, available_periods: list[str]) -> dict:
     bit_available = get_factura_bit_periods()
-    porsche_available = get_factura_porsche_periods()
     business_summary_rows: list[dict] = []
 
     if selected_period in bit_available:
         bit_response = _build_bit_response(selected_period, bit_available)
         business_summary_rows.extend(bit_response["business_summary_rows"])
-
-    if selected_period in porsche_available:
-        porsche_response = _build_porsche_response(selected_period, porsche_available)
-        business_summary_rows.extend(porsche_response["business_summary_rows"])
 
     scope_summary = {
         "simulado_total": sum(row["simulado_total"] for row in business_summary_rows),
@@ -501,17 +341,12 @@ def _build_global_response(selected_period: str, available_periods: list[str]) -
     return {
         "periodo": selected_period,
         "scope": GLOBAL_SCOPE,
-        "available_scopes": [GLOBAL_SCOPE, BIT_SCOPE, PORSCHE_SCOPE],
+        "available_scopes": [GLOBAL_SCOPE, BIT_SCOPE],
         "businesses": [
             {
                 "key": BIT_SCOPE,
                 "label": "Bco Internacional",
                 "has_real_invoice": any(row["key"] == BIT_SCOPE and row["has_real_invoice"] for row in business_summary_rows),
-            },
-            {
-                "key": PORSCHE_SCOPE,
-                "label": "Porsche",
-                "has_real_invoice": any(row["key"] == PORSCHE_SCOPE and row["has_real_invoice"] for row in business_summary_rows),
             },
         ],
         "scope_summary": scope_summary,
@@ -533,7 +368,7 @@ def _build_global_response(selected_period: str, available_periods: list[str]) -
 def get_factura_bit_dashboard(periodo: str | None, scope: str | None = None) -> dict:
     selected_scope = (str(scope or "").strip()) or GLOBAL_SCOPE
     if selected_scope not in SUPPORTED_SCOPES:
-        raise ValueError(f"El scope {selected_scope} no esta soportado para factura")
+        raise ValueError(f"El scope {selected_scope} no está soportado para factura")
 
     available_periods = _get_available_periods(selected_scope)
     selected_period = _select_period(periodo, available_periods)
@@ -546,6 +381,4 @@ def get_factura_bit_dashboard(periodo: str | None, scope: str | None = None) -> 
 
     if selected_scope == BIT_SCOPE:
         return _build_bit_response(selected_period, available_periods)
-    if selected_scope == PORSCHE_SCOPE:
-        return _build_porsche_response(selected_period, available_periods)
     return _build_global_response(selected_period, available_periods)

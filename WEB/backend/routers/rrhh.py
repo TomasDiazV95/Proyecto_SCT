@@ -21,12 +21,11 @@ from services.rrhh_service import (
 def negocios_permitidos(user: dict = Depends(current_user)) -> set[str]:
     """RRHH, administradores y acceso global ven todos los negocios; el resto (supervisores),
     solo los negocios cuyo panel de productividad tienen asignado."""
-    modules = set(user.get("modules", []))
-    if user["role"] in {"super_admin", "admin"} or modules & {"global", "rrhh"}:
+    if user["role"] in {"super_admin", "admin"} or set(user.get("modules", [])) & {"global", "rrhh"}:
         return set(NEGOCIOS)
-    permitidos = modules & set(NEGOCIOS)
+    permitidos = set(user.get("access", [])) & set(NEGOCIOS)
     if not permitidos:
-        raise HTTPException(status_code=403, detail="Sin permiso para modulo rrhh")
+        raise HTTPException(status_code=403, detail="Sin permiso para módulo rrhh")
     return permitidos
 
 

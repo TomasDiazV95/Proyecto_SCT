@@ -42,7 +42,7 @@ def _parse_fecha_carga(value: str | None) -> str:
         except ValueError:
             pass
 
-    raise RuntimeError(f"Fecha de carga invalida: {value}")
+    raise RuntimeError(f"Fecha de carga inválida: {value}")
 
 
 def _periodo_from_fecha(fecha_carga: str) -> str:

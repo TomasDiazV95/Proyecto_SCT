@@ -1681,6 +1681,33 @@
   box-shadow: 0 0 0 3px var(--pd-primary-ring);
 }
 
+/* "Todo el panel": ocupa la fila completa sobre los modulos del panel. */
+.pd-module-option-panel {
+  margin-bottom: var(--pd-space-2);
+  font-weight: 600;
+}
+
+.pd-module-option-panel small {
+  display: block;
+  font-weight: 400;
+  color: var(--pd-text-muted);
+}
+
+/* Modulo ya incluido por tener el panel completo. */
+.pd-module-option.is-included {
+  cursor: default;
+  color: var(--pd-text-muted);
+}
+
+.pd-users-check {
+  width: 1%;
+  text-align: center;
+}
+
+.pd-bulk-mode {
+  margin: 0 0 var(--pd-space-4);
+}
+
 @media (max-width: 575.98px) {
   .pd-user-form-grid {
     grid-template-columns: 1fr;

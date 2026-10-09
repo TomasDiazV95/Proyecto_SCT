@@ -24,7 +24,7 @@ export async function authLogin(email, password) {
   });
   if (!res.ok) {
     const body = await safeJson(res);
-    throw new Error(body?.detail || "No se pudo iniciar sesion");
+    throw new Error(body?.detail || "No se pudo iniciar sesión");
   }
   return res.json();
 }
@@ -36,7 +36,7 @@ export async function authRefresh() {
   });
   if (!res.ok) {
     notifySessionExpired();
-    throw new Error("Sesion expirada");
+    throw new Error("Sesión expirada");
   }
   return res.json();
 }
@@ -47,7 +47,7 @@ export async function authMe(accessToken) {
   });
   if (!res.ok) {
     notifySessionExpired();
-    throw new Error("No se pudo validar sesion");
+    throw new Error("No se pudo validar sesión");
   }
   return res.json();
 }
@@ -71,7 +71,7 @@ export async function authChangePassword(accessToken, currentPassword, newPasswo
   });
   if (!res.ok) {
     const body = await safeJson(res);
-    throw new Error(body?.detail || "No se pudo cambiar la contrasena");
+    throw new Error(body?.detail || "No se pudo cambiar la contraseña");
   }
   return res.json();
 }
@@ -96,7 +96,7 @@ export async function authVerifyResetCode(email, code) {
   });
   if (!res.ok) {
     const body = await safeJson(res);
-    throw new Error(body?.detail || "Codigo invalido o expirado");
+    throw new Error(body?.detail || "Código inválido o expirado");
   }
   return res.json();
 }
@@ -109,7 +109,7 @@ export async function authResetPassword(email, code, newPassword) {
   });
   if (!res.ok) {
     const body = await safeJson(res);
-    throw new Error(body?.detail || "No se pudo restablecer la contrasena");
+    throw new Error(body?.detail || "No se pudo restablecer la contraseña");
   }
   return res.json();
 }

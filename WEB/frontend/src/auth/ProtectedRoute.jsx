@@ -11,6 +11,11 @@ export default function ProtectedRoute({ children, moduleCode = "", allowedRoles
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
+  // Sesion guardada antes de que el backend enviara los accesos: AuthProvider la esta renovando.
+  if (!Array.isArray(user?.access)) {
+    return null;
+  }
+
   if (user?.must_change_password && location.pathname !== "/change-password") {
     return <Navigate to="/change-password" replace />;
   }

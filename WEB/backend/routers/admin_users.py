@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from auth.dependencies import current_user
+from auth.dependencies import current_user, require_module
 from auth.security import hash_password
 from repositories.users_repo import (
+    change_user_modules,
     create_user,
     get_modules_for_user,
     get_user_by_id,
@@ -13,27 +14,27 @@ from repositories.users_repo import (
     set_user_modules,
 )
 from repositories.session_control_repo import invalidate_all_sessions
-from schemas import CreateUserRequest, UpdateUserModulesRequest, UpdateUserStatusRequest
+from schemas import BulkUserModulesRequest, CreateUserRequest, UpdateUserModulesRequest, UpdateUserStatusRequest
 from services.mail_service import send_welcome_email
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_module("admin"))])
 
 
-def _ensure_admin(user: dict) -> None:
-    if user["role"] not in {"super_admin", "admin"} and "admin" not in user.get("modules", []):
-        raise HTTPException(status_code=403, detail="Sin permiso para Panel Admin")
+def _ensure_can_modify(target: dict | None, user: dict) -> None:
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if str(target["role_code"]) == "admin" and user["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Solo super_admin puede modificar admin")
 
 
 @router.get("/modules")
-def modules_catalog(user: dict = Depends(current_user)) -> dict:
-    _ensure_admin(user)
+def modules_catalog() -> dict:
     return {"data": list_modules()}
 
 
 @router.get("/users")
-def users_list(user: dict = Depends(current_user)) -> dict:
-    _ensure_admin(user)
+def users_list() -> dict:
     rows = list_users()
     data = []
     for row in rows:
@@ -45,7 +46,6 @@ def users_list(user: dict = Depends(current_user)) -> dict:
 
 @router.post("/users")
 def users_create(payload: CreateUserRequest, user: dict = Depends(current_user)) -> dict:
-    _ensure_admin(user)
     role = payload.role.strip().lower()
     if role == "admin" and user["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Solo super_admin puede crear admin")
@@ -59,7 +59,10 @@ def users_create(payload: CreateUserRequest, user: dict = Depends(current_user))
         role_code=role,
         created_by_user_id=int(user["id"]),
     )
-    set_user_modules(new_user_id, payload.module_codes, int(user["id"]))
+    try:
+        set_user_modules(new_user_id, payload.module_codes, int(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     insert_audit(int(user["id"]), "USER_CREATE", "user", new_user_id, f"role={role}")
 
     email_sent = True
@@ -83,27 +86,40 @@ def users_create(payload: CreateUserRequest, user: dict = Depends(current_user))
     return response
 
 
+@router.post("/users/modules/bulk")
+def users_bulk_modules(payload: BulkUserModulesRequest, user: dict = Depends(current_user)) -> dict:
+    """Agrega y quita modulos a varios usuarios, sin tocar el resto de sus permisos."""
+    user_ids = list(dict.fromkeys(payload.user_ids))
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="Selecciona al menos un usuario")
+    if not payload.add and not payload.remove:
+        raise HTTPException(status_code=400, detail="Indica al menos un módulo para agregar o quitar")
+    for user_id in user_ids:
+        _ensure_can_modify(get_user_by_id(user_id), user)
+
+    try:
+        result = change_user_modules(user_ids, payload.add, payload.remove, int(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    for user_id, codes in result.items():
+        insert_audit(int(user["id"]), "USER_MODULES_UPDATE", "user", user_id, ",".join(codes))
+    return {"ok": True, "updated": len(result)}
+
+
 @router.put("/users/{user_id}/modules")
 def users_update_modules(user_id: int, payload: UpdateUserModulesRequest, user: dict = Depends(current_user)) -> dict:
-    _ensure_admin(user)
-    target = get_user_by_id(user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    if str(target["role_code"]) == "admin" and user["role"] != "super_admin":
-        raise HTTPException(status_code=403, detail="Solo super_admin puede modificar admin")
-    set_user_modules(user_id, payload.module_codes, int(user["id"]))
+    _ensure_can_modify(get_user_by_id(user_id), user)
+    try:
+        set_user_modules(user_id, payload.module_codes, int(user["id"]))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     insert_audit(int(user["id"]), "USER_MODULES_UPDATE", "user", user_id, ",".join(payload.module_codes))
     return {"ok": True}
 
 
 @router.put("/users/{user_id}/status")
 def users_update_status(user_id: int, payload: UpdateUserStatusRequest, user: dict = Depends(current_user)) -> dict:
-    _ensure_admin(user)
-    target = get_user_by_id(user_id)
-    if not target:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    if str(target["role_code"]) == "admin" and user["role"] != "super_admin":
-        raise HTTPException(status_code=403, detail="Solo super_admin puede modificar admin")
+    _ensure_can_modify(get_user_by_id(user_id), user)
     set_user_active(user_id, payload.is_active)
     insert_audit(int(user["id"]), "USER_STATUS_UPDATE", "user", user_id, f"is_active={payload.is_active}")
     return {"ok": True}

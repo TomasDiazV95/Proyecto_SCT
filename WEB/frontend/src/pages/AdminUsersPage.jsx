@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { modulePanels } from "../app/moduleCatalog";
 import { useAuth } from "../auth/AuthContext";
 import {
+  bulkUpdateAdminUserModules,
   createAdminUser,
   fetchAdminModules,
   fetchAdminUsers,
@@ -37,34 +37,53 @@ function roleLabel(code) {
   return ROLE_LABEL[code] || code || "-";
 }
 
-// Agrupa los modulos del backend segun el panel del catalogo al que pertenecen, en el orden de los paneles.
+// Agrupa los modulos por panel (parent_code del backend). Los que no pertenecen a un panel van juntos al final.
 function groupModules(modules) {
-  const groups = modulePanels.map((panel) => ({
-    title: panel.title,
-    items: modules.filter((module) => module.code === panel.code || (panel.modules || []).some((item) => item.code === module.code)),
+  const panels = modules.filter((module) => modules.some((item) => item.parent_code === module.code));
+  const groups = panels.map((panel) => ({
+    panel,
+    title: panel.display_name,
+    items: modules.filter((module) => module.parent_code === panel.code),
   }));
-  const usados = new Set(groups.flatMap((group) => group.items.map((item) => item.code)));
-  const otros = modules.filter((module) => !usados.has(module.code));
-  return [...groups, { title: "Otros accesos", items: otros }].filter((group) => group.items.length);
+  const sueltos = modules.filter((module) => !module.parent_code && !panels.includes(module));
+  return [...groups, { panel: null, title: "Otros paneles y accesos", items: sueltos }].filter((group) => group.items.length);
 }
 
-function ModulePicker({ modules, selected, onToggle }) {
+// panelIncludes: al marcar "Todo el panel" sus modulos se muestran incluidos (asi es como da acceso).
+// En la asignacion masiva se apaga, porque ahi cada casilla es solo lo que se agrega o se quita.
+function ModulePicker({ modules, selected, onToggle, panelIncludes = true }) {
   const groups = useMemo(() => groupModules(modules), [modules]);
   return (
     <div className="pd-module-picker">
-      {groups.map((group) => (
-        <fieldset className="pd-module-picker-group" key={group.title}>
-          <legend>{group.title}</legend>
-          <div className="pd-module-picker-items">
-            {group.items.map((module) => (
-              <label key={module.code} className={`pd-module-option${selected.includes(module.code) ? " is-selected" : ""}`}>
-                <input className="form-check-input" type="checkbox" checked={selected.includes(module.code)} onChange={() => onToggle(module.code)} />
-                <span>{module.display_name}</span>
+      {groups.map((group) => {
+        const panelOn = Boolean(group.panel && selected.includes(group.panel.code));
+        const included = panelOn && panelIncludes;
+        return (
+          <fieldset className="pd-module-picker-group" key={group.title}>
+            <legend>{group.title}</legend>
+            {group.panel && (
+              <label className={`pd-module-option pd-module-option-panel${panelOn ? " is-selected" : ""}`}>
+                <input className="form-check-input" type="checkbox" checked={panelOn} onChange={() => onToggle(group.panel.code)} />
+                <span>
+                  Todo el panel
+                  <small>Incluye sus módulos actuales y los que se agreguen después.</small>
+                </span>
               </label>
-            ))}
-          </div>
-        </fieldset>
-      ))}
+            )}
+            <div className="pd-module-picker-items">
+              {group.items.map((module) => {
+                const checked = included || selected.includes(module.code);
+                return (
+                  <label key={module.code} className={`pd-module-option${checked ? " is-selected" : ""}${included ? " is-included" : ""}`}>
+                    <input className="form-check-input" type="checkbox" checked={checked} disabled={included} onChange={() => onToggle(module.code)} />
+                    <span>{module.display_name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        );
+      })}
     </div>
   );
 }
@@ -87,6 +106,12 @@ export default function AdminUsersPage() {
   const [editUser, setEditUser] = useState(null);
   const [editModules, setEditModules] = useState([]);
 
+  // Asignacion masiva: usuarios marcados en la tabla y modulos a agregar o quitar.
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkMode, setBulkMode] = useState("add");
+  const [bulkModules, setBulkModules] = useState([]);
+
   const canCreateAdmin = user?.role === "super_admin";
 
   async function loadAll() {
@@ -96,6 +121,7 @@ export default function AdminUsersPage() {
       const [usersData, modulesData] = await Promise.all([fetchAdminUsers(), fetchAdminModules()]);
       setUsers(usersData);
       setModules(modulesData);
+      setSelectedIds((prev) => prev.filter((id) => usersData.some((item) => item.id === id)));
     } catch (err) {
       setError(err.message || "No se pudo cargar la administración de usuarios.");
     } finally {
@@ -219,6 +245,46 @@ export default function AdminUsersPage() {
     }
   }
 
+  const allFilteredSelected = filteredUsers.length > 0 && filteredUsers.every((row) => selectedIds.includes(row.id));
+
+  function toggleSelected(id) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleSelectFiltered() {
+    const ids = filteredUsers.map((row) => row.id);
+    setSelectedIds((prev) => (allFilteredSelected ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])]));
+  }
+
+  function openBulk() {
+    setError("");
+    setBulkMode("add");
+    setBulkModules([]);
+    setShowBulk(true);
+  }
+
+  function toggleBulkModule(code) {
+    setBulkModules((prev) => (prev.includes(code) ? prev.filter((x) => x !== code) : [...prev, code]));
+  }
+
+  async function saveBulk() {
+    setError("");
+    setMessage("");
+    if (!bulkModules.length) {
+      setError("Marca al menos un módulo.");
+      return;
+    }
+    try {
+      const result = await bulkUpdateAdminUserModules(selectedIds, bulkMode === "add" ? { add: bulkModules } : { remove: bulkModules });
+      await loadAll();
+      setShowBulk(false);
+      setSelectedIds([]);
+      setMessage(`Módulos ${bulkMode === "add" ? "agregados a" : "quitados de"} ${result.updated} ${result.updated === 1 ? "usuario" : "usuarios"}.`);
+    } catch (err) {
+      setError(err.message || "No se pudieron actualizar los módulos.");
+    }
+  }
+
   async function onToggleStatus(row) {
     setError("");
     setMessage("");
@@ -238,9 +304,14 @@ export default function AdminUsersPage() {
         subtitle="Crea usuarios, asigna los módulos que pueden ver y activa o desactiva su acceso."
         breadcrumb={BREADCRUMB}
         actions={
-          <button type="button" className="pd-btn pd-btn-primary" onClick={() => setShowCreate(true)}>
-            <i className="bi bi-person-plus" aria-hidden="true" /> Crear usuario
-          </button>
+          <>
+            <button type="button" className="pd-btn pd-btn-secondary" onClick={openBulk} disabled={!selectedIds.length} title={selectedIds.length ? undefined : "Marca usuarios en la tabla para asignarles módulos a la vez"}>
+              <i className="bi bi-grid" aria-hidden="true" /> Asignar módulos{selectedIds.length ? ` (${selectedIds.length})` : ""}
+            </button>
+            <button type="button" className="pd-btn pd-btn-primary" onClick={() => setShowCreate(true)}>
+              <i className="bi bi-person-plus" aria-hidden="true" /> Crear usuario
+            </button>
+          </>
         }
       />
 
@@ -269,7 +340,7 @@ export default function AdminUsersPage() {
       </FilterBar>
 
       {message && <div className="alert alert-success">{message}</div>}
-      {error && !showCreate && !editUser && <div className="alert alert-danger">{error}</div>}
+      {error && !showCreate && !editUser && !showBulk && <div className="alert alert-danger">{error}</div>}
 
       <SectionCard bodyClassName="" footer={<span>Mostrando {filteredUsers.length} de {users.length} usuarios</span>}>
         {loading ? (
@@ -279,6 +350,9 @@ export default function AdminUsersPage() {
             <table className="pd-table pd-users-table">
               <thead>
                 <tr>
+                  <th className="pd-users-check">
+                    <input className="form-check-input" type="checkbox" checked={allFilteredSelected} onChange={toggleSelectFiltered} aria-label="Seleccionar todos los usuarios mostrados" />
+                  </th>
                   <th>Usuario</th>
                   <th>Rol</th>
                   <th>Módulos</th>
@@ -293,6 +367,9 @@ export default function AdminUsersPage() {
                   const extra = userModules.length - MAX_MODULE_CHIPS;
                   return (
                     <tr key={row.id} className={row.is_active ? undefined : "pd-row-inactive"}>
+                      <td className="pd-users-check">
+                        <input className="form-check-input" type="checkbox" checked={selectedIds.includes(row.id)} onChange={() => toggleSelected(row.id)} aria-label={`Seleccionar a ${row.full_name || row.email}`} />
+                      </td>
                       <td>
                         <span className="pd-user-name">{row.full_name || "Sin nombre"}</span>
                         <span className="pd-cell-sub">{row.email}</span>
@@ -344,7 +421,7 @@ export default function AdminUsersPage() {
                   );
                 })}
                 {!filteredUsers.length && (
-                  <EmptyRow colSpan={6} text={users.length ? "Ningún usuario coincide con los filtros. Prueba con otro nombre o limpia los filtros." : "Aún no hay usuarios. Crea el primero con el botón Crear usuario."} />
+                  <EmptyRow colSpan={7} text={users.length ? "Ningún usuario coincide con los filtros. Prueba con otro nombre o limpia los filtros." : "Aún no hay usuarios. Crea el primero con el botón Crear usuario."} />
                 )}
               </tbody>
             </table>
@@ -409,6 +486,37 @@ export default function AdminUsersPage() {
         {error && <div className="alert alert-danger">{error}</div>}
         <span className="pd-label">Módulos que puede ver ({editModules.length})</span>
         <ModulePicker modules={modules} selected={editModules} onToggle={toggleEditModule} />
+      </Drawer>
+
+      <Drawer
+        open={showBulk}
+        onClose={() => setShowBulk(false)}
+        title={`Asignar módulos a ${selectedIds.length} ${selectedIds.length === 1 ? "usuario" : "usuarios"}`}
+        subtitle="Solo cambian los módulos que marques; el resto de los permisos de cada usuario queda igual."
+        wide
+        footer={
+          <>
+            <button type="button" className="pd-btn pd-btn-ghost" onClick={() => setShowBulk(false)}>Cancelar</button>
+            <button type="button" className="pd-btn pd-btn-primary" onClick={saveBulk}>
+              <i className="bi bi-check2" aria-hidden="true" /> {bulkMode === "add" ? "Agregar módulos" : "Quitar módulos"}
+            </button>
+          </>
+        }
+      >
+        {error && <div className="alert alert-danger">{error}</div>}
+        <div className="pd-user-form-section pd-bulk-mode">
+          <span className="pd-label">Acción</span>
+          <Segmented
+            value={bulkMode}
+            onChange={setBulkMode}
+            options={[
+              { value: "add", label: "Agregar" },
+              { value: "remove", label: "Quitar" },
+            ]}
+          />
+        </div>
+        <span className="pd-label">Módulos a {bulkMode === "add" ? "agregar" : "quitar"} ({bulkModules.length})</span>
+        <ModulePicker modules={modules} selected={bulkModules} onToggle={toggleBulkModule} panelIncludes={false} />
       </Drawer>
     </div>
   );
