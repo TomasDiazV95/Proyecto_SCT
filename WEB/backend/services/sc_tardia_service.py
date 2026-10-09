@@ -201,7 +201,9 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
         MAX(v.fecha) AS fecha_utilizada
     INTO #ultimas_fechas
     FROM dbo.vw_stc_sabana_avance v
-    WHERE v.fecha <= @fecha_consulta
+    -- Solo cargas del mes consultado: un origen sin carga en el mes no arrastra el cierre anterior.
+    WHERE v.fecha >= @periodo
+      AND v.fecha <= @fecha_consulta
     GROUP BY v.origen;
 {_base_zona_sql(version)}
     SELECT
