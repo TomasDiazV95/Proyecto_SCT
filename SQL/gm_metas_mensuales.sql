@@ -19,6 +19,10 @@ USING (
     UNION ALL SELECT CAST('2026-04-01' AS DATE), '31 a 60', 77.00, 24.00, 80.00, 20.00
     UNION ALL SELECT CAST('2026-04-01' AS DATE), '61 a 90', 72.00, 22.00, 70.00, 30.00
     UNION ALL SELECT CAST('2026-04-01' AS DATE), '91 a 150', 71.00, 20.00, 70.00, 30.00
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), '6 a 30', 82.00, 26.00, 80.00, 20.00
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), '31 a 60', 73.00, 24.00, 80.00, 20.00
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), '61 a 90', 72.00, 23.00, 70.00, 30.00
+    UNION ALL SELECT CAST('2026-09-01' AS DATE), '91 a 150', 72.00, 21.00, 70.00, 30.00
 ) AS source
 ON target.periodo = source.periodo
 AND target.bucket = source.bucket
@@ -49,6 +53,23 @@ WHEN NOT MATCHED THEN
         1
     );
 GO
+
+-- Ponderador 2: peso del tramo en el cumplimiento individual de la ejecutiva (pestaña General).
+-- Los tramos tempranos llevan el mismo peso y, sumado al del 91 a 150, da 100.
+-- NULL = el mes no tiene pesos y el cumplimiento individual pondera por deuda.
+IF COL_LENGTH('dbo.gm_metas_mensuales', 'ponderador_tramo_pct') IS NULL
+    ALTER TABLE dbo.gm_metas_mensuales ADD ponderador_tramo_pct DECIMAL(10,2) NULL;
+GO
+
+UPDATE dbo.gm_metas_mensuales
+SET ponderador_tramo_pct = CASE WHEN bucket = '91 a 150' THEN 30.00 ELSE 70.00 END
+WHERE periodo IN ('2026-09-01', '2026-10-01');
+GO
+
+-- Pesos de otro mes (ejemplo):
+-- UPDATE dbo.gm_metas_mensuales
+-- SET ponderador_tramo_pct = CASE WHEN bucket = '91 a 150' THEN 40.00 ELSE 60.00 END
+-- WHERE periodo = '2026-10-01';
 
 -- Para crear un nuevo mes, copiar mes anterior y editar solo metas/ponderadores.
 -- Ejemplo:

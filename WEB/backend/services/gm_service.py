@@ -188,7 +188,8 @@ def get_cycle_view(filters: dict) -> list[dict]:
         m.meta_contencion_pct,
         m.meta_normalizacion_pct,
         m.ponderador_contencion_pct,
-        m.ponderador_normalizacion_pct
+        m.ponderador_normalizacion_pct,
+        m.ponderador_tramo_pct
     FROM agg
     LEFT JOIN dbo.gm_metas_mensuales m
         ON m.periodo = ?
@@ -214,6 +215,8 @@ def get_cycle_view(filters: dict) -> list[dict]:
         meta_norm = float(row.get("meta_normalizacion_pct") or 0)
         pond_cont = float(row.get("ponderador_contencion_pct") or 0)
         pond_norm = float(row.get("ponderador_normalizacion_pct") or 0)
+        # Ponderador 2: peso del tramo en el cumplimiento individual; NULL si el mes no lo tiene cargado.
+        pond_tramo = row.get("ponderador_tramo_pct")
 
         cumpl_cont = _cumpl_variable(pct_cont, meta_cont)
         cumpl_norm = _cumpl_variable(pct_norm, meta_norm)
@@ -233,6 +236,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
                 "meta_normalizacion_pct": meta_norm,
                 "ponderador_contencion_pct": pond_cont,
                 "ponderador_normalizacion_pct": pond_norm,
+                "ponderador_tramo_pct": float(pond_tramo) if pond_tramo is not None else None,
                 "cumplimiento_final": cumplimiento,
             }
         )
@@ -241,53 +245,71 @@ def get_cycle_view(filters: dict) -> list[dict]:
     return rows
 
 
+def _cumpl_por_bucket(rows: list[dict]) -> dict[str, float]:
+    # Cumplimiento de cada bucket, ponderado por deuda cuando hay mas de una fila.
+    acumulado: dict[str, list[float]] = {}
+    for row in rows:
+        deuda = float(row["deuda_asignada"])
+        item = acumulado.setdefault(row["bucket"], [0.0, 0.0])
+        item[0] += float(row["cumplimiento_final"]) * deuda
+        item[1] += deuda
+    return {bucket: (pond / deuda) if deuda else 0.0 for bucket, (pond, deuda) in acumulado.items()}
+
+
+def _ponderador_tramo(rows: list[dict]) -> dict[str, float] | None:
+    # Ponderador 2 del periodo por bucket (dbo.gm_metas_mensuales.ponderador_tramo_pct); None si el mes no lo tiene.
+    pesos = {row["bucket"]: row["ponderador_tramo_pct"] for row in rows if row.get("ponderador_tramo_pct") is not None}
+    return pesos or None
+
+
+def _cumpl_individual(rows: list[dict]) -> float:
+    # Pondera el tramo temprano y el 91 a 150 con el Ponderador 2 del periodo.
+    # Si falta uno de los dos grupos, el que existe pesa 100%; un mes sin pesos cargados pondera por deuda.
+    pesos = _ponderador_tramo(rows)
+    grupos: dict[float, list[float]] = {}
+    for row in rows:
+        peso = pesos.get(row["bucket"], 0.0) if pesos else 100.0
+        deuda = float(row["deuda_asignada"])
+        if not peso or not deuda:
+            continue
+        item = grupos.setdefault(peso, [0.0, 0.0])
+        item[0] += float(row["cumplimiento_final"]) * deuda
+        item[1] += deuda
+
+    peso_total = sum(grupos)
+    if not peso_total:
+        return 0.0
+    return sum(peso * (pond / deuda) for peso, (pond, deuda) in grupos.items()) / peso_total
+
+
 @cached_view
 def get_general_view(filters: dict) -> list[dict]:
     cycle_rows = get_cycle_view(filters)
 
-    grouped: dict[str, dict] = {}
+    grouped: dict[str, list[dict]] = {}
     for row in cycle_rows:
-        ejecutivo = row["ejecutivo"]
-        current = grouped.setdefault(
-            ejecutivo,
-            {
-                "ejecutivo": ejecutivo,
-                "deuda_total": 0.0,
-                "ponderado": 0.0,
-                "buckets": {},
-            },
-        )
-        deuda = float(row["deuda_asignada"])
-        current["deuda_total"] += deuda
-        current["ponderado"] += float(row["cumplimiento_final"]) * deuda
-        current["buckets"][row["bucket"]] = float(row["cumplimiento_final"])
+        grouped.setdefault(row["ejecutivo"], []).append(row)
 
     response: list[dict] = []
-    total_deuda = 0.0
-    total_ponderado = 0.0
-
-    for ejecutivo, item in grouped.items():
-        deuda = item["deuda_total"]
-        cumpl = (item["ponderado"] / deuda) if deuda else 0.0
+    for ejecutivo, rows in grouped.items():
         response.append(
             {
                 "ejecutivo": ejecutivo,
-                "deuda_total": deuda,
-                "cumplimiento_final": cumpl,
-                "buckets": item["buckets"],
+                "deuda_total": sum(float(r["deuda_asignada"]) for r in rows),
+                "cumplimiento_final": _cumpl_individual(rows),
+                "buckets": _cumpl_por_bucket(rows),
             }
         )
-        total_deuda += deuda
-        total_ponderado += item["ponderado"]
 
     response.sort(key=lambda x: x["cumplimiento_final"], reverse=True)
 
     response.append(
         {
             "ejecutivo": "Total general",
-            "deuda_total": total_deuda,
-            "cumplimiento_final": (total_ponderado / total_deuda) if total_deuda else 0.0,
-            "buckets": {},
+            "deuda_total": sum(float(r["deuda_asignada"]) for r in cycle_rows),
+            "cumplimiento_final": _cumpl_individual(cycle_rows),
+            "ponderador_tramo": _ponderador_tramo(cycle_rows),
+            "buckets": _cumpl_por_bucket(cycle_rows),
         }
     )
     return response

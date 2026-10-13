@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { Fragment, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
-import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters } from "../api";
+import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters, fetchGmGeneral } from "../api";
 import NegociosCard from "../components/productividad/NegociosCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
@@ -36,13 +36,14 @@ function formatPeriodo(value) {
 
 export default function GmPage() {
   const { user } = useAuth();
-  const [view, setView] = useState("productividad");
+  const [view, setView] = useState("general");
   const [bucketTab, setBucketTab] = useState(bucketOrder[0]);
   const [filters, setFilters] = useState(initialFilters);
   const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
   const [bucketRows, setBucketRows] = useState([]);
+  const [generalRows, setGeneralRows] = useState([]);
   const [detailRows, setDetailRows] = useState([]);
   const [detailSortDir, setDetailSortDir] = useState("desc");
   const [loading, setLoading] = useState(false);
@@ -109,12 +110,14 @@ export default function GmPage() {
           const detailData = await fetchGmDetail({ ...filters, ...detailFilters });
           setDetailRows(detailData);
         } else {
-          const [cycleData, bucketData] = await Promise.all([
+          const [cycleData, bucketData, generalData] = await Promise.all([
             fetchGmCycle(filters),
             fetchGmBucket({ periodo: filters.periodo }),
+            fetchGmGeneral(filters),
           ]);
           setRows(cycleData);
           setBucketRows(bucketData);
+          setGeneralRows(generalData);
         }
       } catch (err) {
         setError(err.message);
@@ -158,6 +161,12 @@ export default function GmPage() {
     };
   }, [bucketTabRows]);
 
+  // Vista general: un cumplimiento individual por ejecutivo; el total viene como ultima fila del backend.
+  const generalTotalRow = useMemo(() => generalRows.find((row) => row.ejecutivo === "Total general") || null, [generalRows]);
+  const generalEjecutivoRows = useMemo(() => phoenixGrupalAlFinal(generalRows.filter((row) => row.ejecutivo !== "Total general")), [generalRows]);
+  // Ponderador 2 del periodo (peso de cada tramo en el cumplimiento individual); null si el mes no tiene pesos cargados.
+  const ponderadorTramo = generalTotalRow?.ponderador_tramo || null;
+
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
@@ -200,6 +209,64 @@ export default function GmPage() {
     } finally {
       setDownloading(false);
     }
+  }
+
+  function renderGeneralBucketCell(row, bucket, isTotal) {
+    const cumplimiento = row.buckets?.[bucket];
+    return (
+      <td className="pd-num pd-group-start">
+        {cumplimiento === undefined ? "-" : <span className={isTotal ? "pd-status pd-status-none" : cumplimientoClass(cumplimiento)}>{formatCumpl(cumplimiento)}</span>}
+      </td>
+    );
+  }
+
+  function renderGeneralRow(row, key, isTotal = false) {
+    return (
+      <tr key={key} className={isTotal ? "pd-row-total" : undefined}>
+        <td className={isTotal ? undefined : "pd-cell-ejecutivo"}>{row.ejecutivo}</td>
+        {bucketOrder.map((bucket) => (
+          <Fragment key={bucket}>{renderGeneralBucketCell(row, bucket, isTotal)}</Fragment>
+        ))}
+        <td className="pd-num pd-group-start">
+          <span className={isTotal ? "pd-status pd-status-none" : cumplimientoClass(row.cumplimiento_final)}>{formatCumpl(row.cumplimiento_final)}</span>
+        </td>
+      </tr>
+    );
+  }
+
+  function renderGeneralTable() {
+    const subHeaders = ["Cumplimiento"];
+    return (
+      <div className="pd-table-scroll">
+        <table className="pd-table">
+          <thead>
+            <tr>
+              <th rowSpan={2}>Ejecutivo</th>
+              {bucketOrder.map((bucket, idx) => (
+                <th key={bucket} colSpan={subHeaders.length} className={`pd-th-group-${(idx % 2) + 1} pd-group-start`}>
+                  Bucket {bucket} <span className="pd-th-note">{ponderadorTramo ? `pondera ${Math.round(ponderadorTramo[bucket])}%` : "pondera por deuda"}</span>
+                </th>
+              ))}
+              <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+            </tr>
+            <tr>
+              {bucketOrder.map((bucket, idx) =>
+                subHeaders.map((label, subIdx) => (
+                  <th key={`${bucket}-${label}`} className={`pd-num pd-th-sub-${(idx % 2) + 1}${subIdx === 0 ? " pd-group-start" : ""}`}>
+                    {label}
+                  </th>
+                ))
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {generalEjecutivoRows.map((row, idx) => renderGeneralRow(row, `gm-general-${row.ejecutivo}-${idx}`))}
+            {!generalEjecutivoRows.length && <EmptyRow colSpan={bucketOrder.length * subHeaders.length + 2} />}
+            {generalTotalRow && generalEjecutivoRows.length > 0 && renderGeneralRow(generalTotalRow, "gm-general-total", true)}
+          </tbody>
+        </table>
+      </div>
+    );
   }
 
   function renderProductividadTable() {
@@ -344,7 +411,7 @@ export default function GmPage() {
             {bucketOrder.map((bucket, idx) => {
               const meta = metaByBucket.get(bucket);
               return (
-                <MetasBlock key={bucket} title={`Bucket ${bucket}`} accent={idx % 2 === 0 ? "consumo" : "hipot"}>
+                <MetasBlock key={bucket} title={`Bucket ${bucket}${ponderadorTramo ? ` · pondera ${Math.round(ponderadorTramo[bucket])}%` : ""}`} accent={idx % 2 === 0 ? "consumo" : "hipot"}>
                   <table className="pd-table pd-table-plain pd-table-compact pd-table-static">
                     <thead>
                       <tr>
@@ -380,6 +447,7 @@ export default function GmPage() {
           value={view}
           onChange={setView}
           options={[
+            { value: "general", label: "Vista General" },
             { value: "productividad", label: "Productividad" },
             { value: "bucket", label: "Bucket" },
             { value: "detalle", label: "Detalle" },
@@ -400,6 +468,8 @@ export default function GmPage() {
         >
           {loading ? (
             <LoadingState />
+          ) : view === "general" ? (
+            renderGeneralTable()
           ) : view === "productividad" ? (
             renderProductividadTable()
           ) : view === "bucket" ? (

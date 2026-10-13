@@ -399,15 +399,14 @@ def _la_araucana(p: _Planilla) -> None:
     for row in data["detalle"]:
         if not _es_colaborador(row["ejecutivo"]):
             continue
-        # Vigente = reprogramacion (va con la deuda); castigo y +365 = nuevo convenio (va ademas con el abono).
-        vigente = str(row["tipo_cartera"] or "").strip().upper() == "VIGENTE"
+        # Los pagos NE-REPRO son todos reprogramaciones, sea cual sea la cartera; van con la deuda y el abono.
         p.add_negocio(
-            "Reprogramación" if vigente else f"Nuevo Convenio ({str(row['tipo_cartera']).strip()})",
+            "Reprogramación",
             row["contrato"],
             row["ejecutivo"],
             rut=row["rut"],
             deuda=float(row["deuda"] or 0),
-            abono=None if vigente else float(row["recupero"] or 0),
+            abono=float(row["recupero"] or 0),
             tramo=tramos.get(row["tramo_deuda"]),
             fecha=row["fecha_pago"],
         )
