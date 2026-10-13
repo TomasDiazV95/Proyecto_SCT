@@ -39,6 +39,9 @@ BENCH_PATTERN = require_env("BENCH_TEMP_PATTERN")
 SHEET_NAME = require_env("BENCH_TEMP_SHEET_NAME")
 
 TABLE = "dbo.tmp_bench_temp_STC"
+# Desde octubre 2026 el bench diario llega partido en un archivo por tramo de mora
+# (YYYYMMDD_PHOENIX (TELEFONIA)_C1_BENCH_MORA_TEMPRANA.XLSX, _C2_, _C3_), con las mismas columnas.
+CICLOS = ("C1", "C2", "C3")
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
 BATCH_SIZE = 10000
 
@@ -270,12 +273,48 @@ def should_skip_load(current_source_file: str, fecha_visor) -> bool:
     return not cargar
 
 
-def pick_files_to_process() -> list[Path]:
-    # Del mas antiguo al mas nuevo segun su carga en el visor (el pre-cierre antes que el cierre),
-    # incluyendo el mismo bench con el nombre escrito de otra forma.
+def archivos_por_ciclo() -> dict[str, dict[str, Path]]:
+    """Archivos del bench partido por tramo: {foto YYYYMMDD: {ciclo: archivo}}.
+
+    Si un tramo de la misma foto esta mas de una vez, queda el de carga mas reciente en el visor."""
+    esperado = bench_recarga.tokens_bench(BENCH_PATTERN.replace("*", " ").replace("?", " "))
+    fotos: dict[str, dict[str, Path]] = {}
+    for p in BENCH_FOLDER.iterdir():
+        match = re.match(r"(\d{8})(?!\d)", p.name)
+        if not match or not p.is_file() or p.suffix.lower() not in (".xlsx", ".xls") or p.name.startswith("~$"):
+            continue
+        ciclo = bench_recarga.tokens_bench(p.name) - esperado
+        if len(ciclo) != 1 or not ciclo <= set(CICLOS) or not esperado <= bench_recarga.tokens_bench(p.name):
+            continue
+        partes = fotos.setdefault(match.group(1), {})
+        (nombre_ciclo,) = ciclo
+        if nombre_ciclo not in partes or p.stat().st_mtime > partes[nombre_ciclo].stat().st_mtime:
+            partes[nombre_ciclo] = p
+    return fotos
+
+
+def pick_files_to_process() -> list[tuple[str, list[Path]]]:
+    """Cargas a procesar como (source_file, archivos), de la mas antigua a la mas nueva segun su carga
+    en el visor (el pre-cierre antes que el cierre).
+
+    El bench en un solo archivo se carga con su nombre. El bench partido por tramo se carga como una
+    sola foto, con el nombre que tenia el archivo unico (sin el tramo): asi todo lo que lee la tabla
+    sigue viendo un source_file por foto."""
     if not BENCH_FOLDER.exists():
         return []
-    return bench_recarga.archivos_bench(BENCH_FOLDER, BENCH_PATTERN)
+    cargas = [(p.name, [p]) for p in bench_recarga.archivos_bench(BENCH_FOLDER, BENCH_PATTERN)]
+    sufijo = BENCH_PATTERN.replace("*", "").replace("?", "").strip()
+    for foto, partes in archivos_por_ciclo().items():
+        faltan = [ciclo for ciclo in CICLOS if ciclo not in partes]
+        if faltan:
+            print(f"ADVERTENCIA: la foto {foto} no trae los tramos {', '.join(faltan)}; se carga con los que hay.")
+        cargas.append((f"{foto}_{sufijo}", [partes[ciclo] for ciclo in CICLOS if ciclo in partes]))
+    return sorted(cargas, key=lambda carga: (fecha_visor_carga(carga[1]), carga[0]))
+
+
+def fecha_visor_carga(archivos: list[Path]):
+    # Si resuben un solo tramo, la foto completa se vuelve a cargar.
+    return max(bench_recarga.fecha_visor_archivo(p) for p in archivos)
 
 
 def main():
@@ -289,19 +328,17 @@ def main():
             f"con el patrón {BENCH_PATTERN}. Archivos vistos: {available}"
         )
 
-    for excel_file in files:
-        if not excel_file.exists():
-            print(f"No existe archivo: {excel_file}")
-            continue
-
-        source_file = excel_file.name
-        fecha_visor = bench_recarga.fecha_visor_archivo(excel_file)
+    for source_file, excel_files in files:
+        fecha_visor = fecha_visor_carga(excel_files)
         if should_skip_load(source_file, fecha_visor):
             continue
 
-        df = read_excel(str(excel_file), SHEET_NAME)
+        df = pd.concat([read_excel(str(p), SHEET_NAME) for p in excel_files], ignore_index=True)
+        df = df.where(pd.notnull(df), None)
 
         print(f"Archivo: {source_file}")
+        if len(excel_files) > 1:
+            print("Tramos unidos: " + ", ".join(p.name for p in excel_files))
         print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
 
         df = data_cleaners.apply_fuzzy_matching_to_cobrador(df, threshold=90)

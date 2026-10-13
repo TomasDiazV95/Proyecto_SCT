@@ -175,7 +175,6 @@ export default function LaAraucanaPage() {
     })
   );
   const { rows: negocioRows, total: negocioTotal } = pivotNegocios(negocios.rows);
-  const sinGestion = negocios.sin_gestion;
   const ejecutivoOptions = Array.from(new Set([...(filters.ejecutivos || []), "PHOENIX"]));
 
   useEffect(() => {
@@ -629,12 +628,6 @@ export default function LaAraucanaPage() {
       {view === "negocios" && !loading && (
         <SectionCard
           title="Detalle de negocios"
-          description={
-            "Pagos NE-REPRO del mes, asignados a la ejecutiva de la mejor gestión del RUT." +
-            (sinGestion && Number(sinGestion.q_negocios) > 0 && (!selected.ejecutivo || selected.ejecutivo === "PHOENIX")
-              ? ` PHOENIX incluye ${formatMoney(sinGestion.q_negocios)} negocios sin gestión en el mes (${formatRecovero(sinGestion.monto)}).`
-              : "")
-          }
           exportName={exportFileName("La-Araucana", "Negocios-detalle", selected.periodo)}
           bodyClassName=""
         >
