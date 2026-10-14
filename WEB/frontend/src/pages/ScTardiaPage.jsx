@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchCycle, fetchFilters, fetchGeneral, fetchScTardiaMetas } from "../api";
 import NegociosCard from "../components/productividad/NegociosCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoLegendItems, cumplimientoStatus, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 
 const initialFilters = {
   periodo: "",
@@ -91,6 +92,7 @@ function sortBlocks(a, b) {
 }
 
 export default function ScTardiaPage() {
+  const dataVersion = useDataVersion();
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
   const [options, setOptions] = useState({ periodos: [], zonas: [], ejecutivos: [] });
@@ -111,13 +113,13 @@ export default function ScTardiaPage() {
           zonas: data.zonas || [],
           ejecutivos: data.ejecutivos || [],
         });
-        setFilters((prev) => ({ ...prev, periodo: data.periodos?.[0] || "" }));
+        setFilters((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   // El filtro de ejecutivo ofrece solo los que aparecen en la tabla para la fecha y zona elegidas.
   useEffect(() => {
@@ -131,7 +133,7 @@ export default function ScTardiaPage() {
         setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
       })
       .catch((err) => setError(err.message));
-  }, [filters.periodo, filters.zona]);
+  }, [filters.periodo, filters.zona, dataVersion]);
 
   useEffect(() => {
     async function loadData() {
@@ -149,7 +151,7 @@ export default function ScTardiaPage() {
       }
     }
     loadData();
-  }, [filters, view]);
+  }, [filters, view, dataVersion]);
 
   // Las metas se cargan al abrir el panel, para el mes de la fecha consultada.
   useEffect(() => {
@@ -157,7 +159,7 @@ export default function ScTardiaPage() {
     fetchScTardiaMetas(filters)
       .then(setMetas)
       .catch((err) => setError(err.message));
-  }, [metasOpen, filters.periodo]);
+  }, [metasOpen, filters.periodo, dataVersion]);
 
   function renderMetasDrawer() {
     const tipos = Array.from(new Set(metas.map((meta) => meta.meta_tipo)));

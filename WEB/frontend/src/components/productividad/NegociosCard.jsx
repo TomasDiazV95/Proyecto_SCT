@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { fetchNegociosConteo } from "../../api";
 import { EmptyRow, LoadingState, SectionCard } from "./ui";
+import useDataVersion from "../../hooks/useDataVersion";
 
 // Pestaña Negocios de una productividad: negocios cerrados del mes por ejecutivo y producto,
 // segun los archivos que suben las administrativas (Panel Administrativo > Negocios).
 // modulo: "sc-tardia", "sc-temprana" o "gm".
 export default function NegociosCard({ modulo, periodo, ejecutivo, exportName }) {
+  const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -24,7 +26,7 @@ export default function NegociosCard({ modulo, periodo, ejecutivo, exportName })
     return () => {
       vigente = false;
     };
-  }, [modulo, periodo, ejecutivo]);
+  }, [modulo, periodo, ejecutivo, dataVersion]);
 
   const productos = data?.productos || [];
   const filas = data?.filas || [];

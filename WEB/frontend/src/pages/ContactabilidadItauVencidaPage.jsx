@@ -6,6 +6,7 @@ import {
   fetchContactabilidadItauFilters,
 } from "../api";
 import { saveDownload } from "../utils/download";
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 
 const PAGE_SIZE = 10;
 
@@ -343,6 +344,7 @@ function ComparativeChart({ data }) {
 }
 
 export default function ContactabilidadItauVencidaPage() {
+  const dataVersion = useDataVersion();
   const [options, setOptions] = useState({
     periodos: [], segmentos: [], canales: [],
     fases_cliente: [], glosas_tipo_cartera: [], sub_productos: [],
@@ -376,14 +378,17 @@ export default function ContactabilidadItauVencidaPage() {
         estados_contencion: body.estados_contencion || [],
         estados_contacto: body.estados_contacto || [],
       });
-      setFilters((prev) => ({ ...prev, periodo: body.periodo || body.periodos?.[0] || "" }));
+      setFilters((prev) => ({
+        ...prev,
+        periodo: prev.periodo ? fechaVigente(prev.periodo, options.periodos, body.periodos) : body.periodo || body.periodos?.[0] || "",
+      }));
     }).catch((err) => {
       if (!controller.signal.aborted) setError(err.message || "No se pudieron cargar los filtros");
     }).finally(() => {
       if (!controller.signal.aborted) setFiltersLoading(false);
     });
     return () => controller.abort();
-  }, []);
+  }, [dataVersion]);
 
   const requestFilters = useMemo(
     () => ({ ...filters, search, page, page_size: PAGE_SIZE, sort_by: "rut", sort_direction: "asc" }),
@@ -418,7 +423,7 @@ export default function ContactabilidadItauVencidaPage() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [requestFilters, filters.periodo]);
+  }, [requestFilters, filters.periodo, dataVersion]);
 
   function updateFilter(name, value) {
     setPage(1);

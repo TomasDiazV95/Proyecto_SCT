@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { fetchBitFilters, fetchBitGeneral, fetchBitNegocios, fetchBitTramos } from "../api";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 
 const TRAMOS = ["30-90", "90+"];
 const TRAMO_GROUP_CLASS = { "30-90": "1", "90+": "2" };
@@ -40,6 +41,7 @@ function cumplimientoFraccionClass(value) {
 
 
 export default function BitPage() {
+  const dataVersion = useDataVersion();
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState({ periodo: "", ejecutivo: "" });
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
@@ -56,13 +58,13 @@ export default function BitPage() {
       try {
         const data = await fetchBitFilters();
         setOptions({ periodos: data.periodos || [], ejecutivos: data.ejecutivos || [] });
-        setFilters((prev) => ({ ...prev, periodo: data.periodos?.[0] || "" }));
+        setFilters((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
   useEffect(() => {
@@ -76,7 +78,7 @@ export default function BitPage() {
         setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
       })
       .catch((err) => setError(err.message));
-  }, [filters.periodo]);
+  }, [filters.periodo, dataVersion]);
 
   useEffect(() => {
     if (!filters.periodo) {
@@ -106,7 +108,7 @@ export default function BitPage() {
       }
     }
     loadData();
-  }, [view, filters]);
+  }, [view, filters, dataVersion]);
 
   useEffect(() => {
     if (!metasOpen) {

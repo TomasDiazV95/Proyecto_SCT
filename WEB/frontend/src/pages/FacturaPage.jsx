@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchFacturaBitDashboard } from "../api";
+import useDataVersion from "../hooks/useDataVersion";
 
 function HomeIcon() {
   return (
@@ -80,6 +81,7 @@ function getLatestPeriodo(periods = []) {
 }
 
 export default function FacturaPage() {
+  const dataVersion = useDataVersion();
   const [selectedScope, setSelectedScope] = useState("global");
   const [selectedPeriod, setSelectedPeriod] = useState("");
   const [selectedScenario30_90, setSelectedScenario30_90] = useState("sobre_lo_esperado");
@@ -122,7 +124,7 @@ export default function FacturaPage() {
       }
     }
     loadPeriod();
-  }, [selectedPeriod, selectedScope]);
+  }, [selectedPeriod, selectedScope, dataVersion]);
 
   const availablePeriods = dashboard?.available_periods || [];
   const hasPeriods = availablePeriods.length > 0;

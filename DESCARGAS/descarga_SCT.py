@@ -10,7 +10,7 @@ from datetime import datetime, timezone, timedelta
 from urllib.parse import quote
 
 import requests
-from playwright.sync_api import Playwright, sync_playwright
+from playwright.sync_api import Playwright, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 
 # ============================================================
@@ -232,6 +232,11 @@ DESCARGAS = [
 
         "fin_de_mes":
             True,
+
+        # El bench diario llega en un archivo por tramo de mora
+        # (..._C1_BENCH_MORA_TEMPRANA, _C2_, _C3_): se bajan los tres.
+        "ciclos":
+            ("C1", "C2", "C3"),
     },
 
     # Asignacion de apertura mensual: YYYYMM - ASIGNACION_APERTURA - PHOENIX[ (TELEFONIA)].XLSX
@@ -711,40 +716,217 @@ def fecha_carga_fila(
         return None
 
 
-def buscar_fila_ultima_carga(
+def nombre_fila(
+    texto_fila: str
+) -> str:
+
+    # El nombre del archivo es lo que antecede a la fecha de carga.
+    match_carga = REGEX_FECHA_CARGA.search(texto_fila)
+
+    if not match_carga:
+        return ""
+
+    return texto_fila[:match_carga.start()].strip()
+
+
+def leer_filas_estables(
     page,
-    frame,
-    patron_archivo: str,
-):
-
-    # Espera a que exista al menos una fila coincidente.
-    buscar_primera_fila(
-        frame,
-        patron_archivo,
-    )
-
-    filas = (
-        frame
-        .locator("tr")
-        .filter(
-            has_text=patron_archivo
-        )
-    )
+    filas,
+) -> list[str]:
 
     # La carpeta puede seguir cargando filas: se espera
     # a que el listado deje de cambiar antes de comparar.
+    # Las filas llegan por tandas con pausas: se exige que el
+    # listado se mantenga igual durante varias lecturas seguidas.
     textos = filas.all_inner_texts()
+    lecturas_iguales = 0
 
-    for _ in range(20):
+    for _ in range(60):
 
         page.wait_for_timeout(500)
 
         textos_nuevos = filas.all_inner_texts()
 
         if textos_nuevos == textos:
-            break
 
-        textos = textos_nuevos
+            lecturas_iguales += 1
+
+            if lecturas_iguales >= 6:
+                break
+
+        else:
+
+            lecturas_iguales = 0
+            textos = textos_nuevos
+
+    return textos
+
+
+def ciclo_bench(
+    nombre: str,
+    esperado: frozenset,
+    ciclos,
+) -> str | None:
+
+    # Tramo (C1, C2, C3) de un archivo del bench partido por tramo:
+    # 20261009_PHOENIX (TELEFONIA)_C1_BENCH_MORA_TEMPRANA.XLSX
+    tokens = tokens_bench(nombre)
+    extra = tokens - esperado
+
+    if (
+        esperado <= tokens
+        and len(extra) == 1
+        and extra <= set(ciclos)
+    ):
+        return next(iter(extra))
+
+    return None
+
+
+def nombres_por_ciclo(
+    page,
+    frame,
+    patron_archivo: str,
+    ciclos,
+) -> list[str]:
+
+    # Si la carga mas reciente del bench viene partida por tramo,
+    # devuelve el archivo de cada tramo de esa foto (la fecha del nombre).
+    # Si viene en un solo archivo, devuelve [] y se descarga como siempre.
+    esperado = tokens_bench(patron_archivo)
+
+    textos = leer_filas_estables(
+        page,
+        frame.locator("tr"),
+    )
+
+    # (fecha de carga, foto, ciclo o "", nombre)
+    candidatas = []
+
+    for texto in textos:
+
+        fecha_carga = fecha_carga_fila(texto)
+        nombre = nombre_fila(texto)
+
+        match_nombre = re.match(
+            r"(\d{8})(?!\d)",
+            nombre,
+        )
+
+        if fecha_carga is None or not match_nombre:
+            continue
+
+        ciclo = ciclo_bench(nombre, esperado, ciclos)
+
+        if ciclo is None and tokens_bench(nombre) != esperado:
+            continue
+
+        candidatas.append(
+            (
+                fecha_carga,
+                match_nombre.group(1),
+                ciclo or "",
+                nombre,
+            )
+        )
+
+    if not candidatas:
+        return []
+
+    _, ultima_foto, ultimo_ciclo, _ = max(candidatas)
+
+    if not ultimo_ciclo:
+        return []
+
+    # Por tramo, la carga mas reciente de esa foto.
+    por_ciclo = {}
+
+    for fecha_carga, foto, ciclo, nombre in sorted(candidatas):
+
+        if foto == ultima_foto and ciclo:
+            por_ciclo[ciclo] = nombre
+
+    faltan = [
+        ciclo
+        for ciclo in ciclos
+        if ciclo not in por_ciclo
+    ]
+
+    if faltan:
+
+        print(
+            f"ADVERTENCIA: la foto {ultima_foto} no tiene "
+            f"en el visor los tramos: {', '.join(faltan)}"
+        )
+
+    print(
+        f"Bench por tramo, foto {ultima_foto}: "
+        f"{len(por_ciclo)} archivos."
+    )
+
+    return [
+        por_ciclo[ciclo]
+        for ciclo in ciclos
+        if ciclo in por_ciclo
+    ]
+
+
+def buscar_fila_ultima_carga(
+    page,
+    frame,
+    patron_archivo: str,
+    por_tokens: bool = False,
+):
+
+    esperado = tokens_bench(patron_archivo)
+
+    def coincide(texto: str) -> bool:
+        return (
+            not por_tokens
+            or tokens_bench(nombre_fila(texto)) == esperado
+        )
+
+    if por_tokens:
+
+        # El bench llega con el nombre escrito de varias formas
+        # (20261009_BENCH CASTIGO_PHOENIX / 20260930 - BENCH CASTIGO - PHOENIX):
+        # se comparan las palabras del nombre, no el texto exacto.
+        filas = frame.locator("tr")
+
+        for _ in range(20):
+
+            if any(coincide(texto) for texto in filas.all_inner_texts()):
+                break
+
+            page.wait_for_timeout(500)
+
+        else:
+
+            raise FileNotFoundError(
+                f"No se encontró "
+                f"'{patron_archivo}'."
+            )
+
+    else:
+
+        # Espera a que exista al menos una fila coincidente.
+        buscar_primera_fila(
+            frame,
+            patron_archivo,
+        )
+
+        filas = (
+            frame
+            .locator("tr")
+            .filter(
+                has_text=patron_archivo
+            )
+        )
+
+    textos = leer_filas_estables(
+        page,
+        filas,
+    )
 
     # Si suben el mismo periodo mas de una vez, manda la ultima carga;
     # a igual fecha de carga, la fecha mas alta en el nombre.
@@ -755,7 +937,7 @@ def buscar_fila_ultima_carga(
 
         fecha_carga = fecha_carga_fila(texto)
 
-        if fecha_carga is None:
+        if fecha_carga is None or not coincide(texto):
             continue
 
         match_nombre = REGEX_FECHA_NOMBRE.search(texto)
@@ -777,7 +959,7 @@ def buscar_fila_ultima_carga(
         )
 
     print(
-        f"Coincidencias: {len(textos)} | "
+        f"Coincidencias: {sum(coincide(texto) for texto in textos)} | "
         f"Última carga: {mejor_clave[0]:%d-%m-%Y %H:%M}"
     )
 
@@ -815,6 +997,7 @@ def nombres_fin_de_mes(
     frame,
     patron_archivo: str,
     hoy: datetime | None = None,
+    ciclos=(),
 ) -> list[str]:
 
     hoy = hoy or datetime.now()
@@ -858,7 +1041,10 @@ def nombres_fin_de_mes(
         if (
             not match_nombre
             or not match_nombre.group(1).startswith(mes_anterior)
-            or tokens_bench(nombre) != esperado
+            or (
+                tokens_bench(nombre) != esperado
+                and ciclo_bench(nombre, esperado, ciclos) is None
+            )
         ):
             continue
 
@@ -1047,6 +1233,9 @@ def descargar_desde_carpeta(
             page,
             frame,
             patron_archivo,
+            por_tokens=bool(
+                configuracion.get("fin_de_mes")
+            ),
         )
 
     texto_archivo = (
@@ -1159,11 +1348,31 @@ def descargar_desde_carpeta(
     # DESCARGAR
     # ========================================================
 
-    with page.expect_download(
-        timeout=120000
-    ) as download_info:
+    # A veces el visor no entrega la descarga tras el clic: se reintenta.
+    for intento in range(1, 4):
 
-        boton_descarga.click()
+        try:
+
+            with page.expect_download(
+                timeout=60000
+            ) as download_info:
+
+                boton_descarga.click()
+
+            break
+
+        except PlaywrightTimeoutError:
+
+            if intento == 3:
+                raise
+
+            print(
+                f"El visor no entregó la descarga "
+                f"(intento {intento} de 3); se reintenta."
+            )
+
+            if not checkbox.is_checked():
+                checkbox.check()
 
     download = (
         download_info.value
@@ -1328,7 +1537,7 @@ def autenticar_visor(
     )
 
     print(
-        "Solicitando código..."
+        "Ingresando al visor..."
     )
 
     page.get_by_role(
@@ -1337,32 +1546,68 @@ def autenticar_visor(
     ).click()
 
     # ========================================================
-    # CERRAR AVISO
+    # ¿EL VISOR PIDE CODIGO?
     # ========================================================
 
-    boton_cerrar = page.get_by_text(
-        "CERRAR"
+    # El multifactor se activa y desactiva del lado del visor: en cada
+    # login se mira que aparece y solo se consulta el correo si hay
+    # campo de codigo.
+
+    # El sitio tiene otros textos con "cerrar" (Cerrar Sesión, volver de
+    # cambio de clave): se busca solo el boton del dialogo de aviso.
+    boton_cerrar = page.get_by_label(
+        "Mensaje"
+    ).get_by_text(
+        "CERRAR",
+        exact=True,
     )
 
-    boton_cerrar.wait_for(
-        state="visible",
-        timeout=30000,
+    link_explorador = page.get_by_role(
+        "link",
+        name=" explorador archivos",
     )
-
-    boton_cerrar.click()
-
-    # ========================================================
-    # CAMPO OTP
-    # ========================================================
 
     campo_codigo = page.get_by_role(
         "textbox",
         name="Código de 8 caracteres",
     )
 
-    campo_codigo.wait_for(
-        state="visible",
-        timeout=30000,
+    # (El boton del aviso existe oculto en el home, por eso no sirve or_().first.)
+    for _ in range(60):
+
+        if link_explorador.is_visible():
+
+            print(
+                "El visor entró sin código."
+            )
+
+            return ""
+
+        # El aviso previo al codigo es opcional: si aparece, se cierra.
+        if boton_cerrar.is_visible():
+
+            boton_cerrar.click()
+
+            boton_cerrar.wait_for(
+                state="hidden",
+                timeout=10000,
+            )
+
+        elif campo_codigo.is_visible():
+
+            break
+
+        page.wait_for_timeout(500)
+
+    else:
+
+        raise TimeoutError(
+            "Tras ingresar no apareció el inicio del visor "
+            "ni el campo 'Código de 8 caracteres'."
+        )
+
+    print(
+        "El visor pidió código: se consulta el correo (Graph)."
     )
 
     # ========================================================
@@ -1545,23 +1790,59 @@ def descargar_con_sesion(
                 f"{len(descargas)}"
             )
 
-            ruta_zip, fecha_visor, texto_archivo = (
-                descargar_desde_carpeta(
+            ciclos = configuracion.get("ciclos", ())
+            nombres_ciclo = []
+
+            if ciclos:
+
+                if configuracion["carpeta_visor"] != carpeta_abierta:
+
+                    frame.get_by_role(
+                        "link",
+                        name=configuracion["carpeta_visor"],
+                    ).click()
+
+                    frame.locator(
+                        "tr"
+                    ).first.wait_for(
+                        state="visible",
+                        timeout=10000,
+                    )
+
+                    carpeta_abierta = configuracion["carpeta_visor"]
+
+                nombres_ciclo = nombres_por_ciclo(
                     page,
                     frame,
-                    configuracion,
-                    abrir_carpeta=(
-                        configuracion["carpeta_visor"]
-                        != carpeta_abierta
-                    ),
+                    configuracion["patron_archivo"],
+                    ciclos,
                 )
-            )
 
-            carpeta_abierta = configuracion["carpeta_visor"]
+            # Archivos ya descargados de esta configuracion.
+            textos_descargados = []
 
-            zips_descargados.append(
-                (ruta_zip, configuracion["nombre"], fecha_visor)
-            )
+            # Sin tramos (None): el archivo de carga mas reciente.
+            for nombre_archivo in (nombres_ciclo or [None]):
+
+                ruta_zip, fecha_visor, texto_archivo = (
+                    descargar_desde_carpeta(
+                        page,
+                        frame,
+                        configuracion,
+                        abrir_carpeta=(
+                            configuracion["carpeta_visor"]
+                            != carpeta_abierta
+                        ),
+                        nombre_archivo=nombre_archivo,
+                    )
+                )
+
+                carpeta_abierta = configuracion["carpeta_visor"]
+                textos_descargados.append(texto_archivo)
+
+                zips_descargados.append(
+                    (ruta_zip, configuracion["nombre"], fecha_visor)
+                )
 
             if not configuracion.get("fin_de_mes"):
                 continue
@@ -1571,10 +1852,14 @@ def descargar_con_sesion(
             for nombre_archivo in nombres_fin_de_mes(
                 frame,
                 configuracion["patron_archivo"],
+                ciclos=ciclos,
             ):
 
-                # El archivo mas reciente ya se descargo arriba.
-                if texto_archivo.startswith(nombre_archivo):
+                # Los archivos mas recientes ya se descargaron arriba.
+                if any(
+                    texto.startswith(nombre_archivo)
+                    for texto in textos_descargados
+                ):
                     continue
 
                 print()
@@ -1687,7 +1972,9 @@ def run(
             )
 
             zips_descargados.extend(zips)
-            codigos_usados.add(codigo)
+
+            if codigo:
+                codigos_usados.add(codigo)
 
         # ====================================================
         # USUARIO JUDICIAL
@@ -1719,7 +2006,9 @@ def run(
             )
 
             zips_descargados.extend(zips)
-            codigos_usados.add(codigo)
+
+            if codigo:
+                codigos_usados.add(codigo)
 
         # ====================================================
         # EXTRAER

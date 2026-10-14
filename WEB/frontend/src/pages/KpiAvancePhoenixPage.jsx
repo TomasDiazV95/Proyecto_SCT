@@ -4,6 +4,7 @@ import {
   fetchKpiAvancePhoenixComparison,
   fetchKpiAvancePhoenixFilters,
 } from "../api";
+import useDataVersion from "../hooks/useDataVersion";
 
 const MONTH_NAMES = {
   "01": "Enero",
@@ -461,6 +462,7 @@ function PhoenixComparisonChart({ series }) {
 }
 
 export default function KpiAvancePhoenixPage() {
+  const dataVersion = useDataVersion();
   const [filters, setFilters] = useState({
     negocio: "",
     segmento: "",
@@ -554,7 +556,7 @@ export default function KpiAvancePhoenixPage() {
     return () => {
       active = false;
     };
-  }, [filters.negocio, filters.segmento]);
+  }, [filters.negocio, filters.segmento, dataVersion]);
 
   const selectedPeriodsKey = filters.periodos.join("|");
 
@@ -587,7 +589,7 @@ export default function KpiAvancePhoenixPage() {
     return () => {
       active = false;
     };
-  }, [filters.negocio, filters.segmento, selectedPeriodsKey]);
+  }, [filters.negocio, filters.segmento, selectedPeriodsKey, dataVersion]);
 
   function onNegocioChange(value) {
     setFilters((previous) => ({

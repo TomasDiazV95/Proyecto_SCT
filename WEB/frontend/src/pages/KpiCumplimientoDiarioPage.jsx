@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchKpiDiarioCycle, fetchKpiDiarioFilters, fetchKpiDiarioGeneral } from "../api";
+import useDataVersion from "../hooks/useDataVersion";
 
 const initialFilters = {
   periodo: "",
@@ -46,6 +47,7 @@ function dotClassByThresholds(value, thresholds) {
 }
 
 export default function KpiCumplimientoDiarioPage() {
+  const dataVersion = useDataVersion();
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
   const [options, setOptions] = useState({
@@ -86,7 +88,7 @@ export default function KpiCumplimientoDiarioPage() {
       }
     }
     loadFilters();
-  }, [filters.negocio]);
+  }, [filters.negocio, dataVersion]);
 
   useEffect(() => {
     async function loadData() {
@@ -115,7 +117,7 @@ export default function KpiCumplimientoDiarioPage() {
       return;
     }
     loadData();
-  }, [view, filters]);
+  }, [view, filters, dataVersion]);
 
   const cycleColumns = useMemo(() => {
     const set = new Set();

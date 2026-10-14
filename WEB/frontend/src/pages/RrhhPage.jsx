@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { downloadRrhhConsolidado, downloadRrhhPlanilla, fetchRrhhNegocios, fetchRrhhPeriodos, fetchRrhhPlanilla } from "../api";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, SectionCard, ViewTabs } from "../components/productividad/ui";
 import { saveDownload } from "../utils/download";
+import useDataVersion, { mantenerSiExiste } from "../hooks/useDataVersion";
 
 const BREADCRUMB = [
   { label: "Inicio", to: "/" },
@@ -53,6 +54,7 @@ function formatValue(value, type) {
 }
 
 export default function RrhhPage() {
+  const dataVersion = useDataVersion();
   const [periodos, setPeriodos] = useState([]);
   const [periodo, setPeriodo] = useState("");
   const [negocios, setNegocios] = useState([]);
@@ -76,10 +78,10 @@ export default function RrhhPage() {
       .then((data) => {
         setPeriodos(data);
         // Por defecto el mes anterior: es el que se cierra y se paga.
-        setPeriodo(data[1] || data[0] || "");
+        setPeriodo((prev) => mantenerSiExiste(prev, data, data[1] || data[0] || ""));
       })
       .catch((err) => setError(err.message));
-  }, []);
+  }, [dataVersion]);
 
   useEffect(() => {
     if (!periodo) {
@@ -92,7 +94,7 @@ export default function RrhhPage() {
       .then(setNegocios)
       .catch((err) => setError(err.message))
       .finally(() => setLoadingNegocios(false));
-  }, [periodo]);
+  }, [periodo, dataVersion]);
 
   async function onPreview(negocio) {
     setLoadingPreview(negocio.codigo);

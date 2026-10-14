@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 
 import { downloadLaAraucanaExcel, fetchLaAraucanaDetalle, fetchLaAraucanaFilters, fetchLaAraucanaNegocios, fetchLaAraucanaResumen } from "../api";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
@@ -134,6 +135,7 @@ function totalByCartera(rows) {
 }
 
 export default function LaAraucanaPage() {
+  const dataVersion = useDataVersion();
   const { user } = useAuth();
   const [filters, setFilters] = useState({ periodos: [], ejecutivos: [] });
   const [selected, setSelected] = useState({ periodo: "", cartera_crm: 531, ejecutivo: "" });
@@ -175,7 +177,6 @@ export default function LaAraucanaPage() {
     })
   );
   const { rows: negocioRows, total: negocioTotal } = pivotNegocios(negocios.rows);
-  const sinGestion = negocios.sin_gestion;
   const ejecutivoOptions = Array.from(new Set([...(filters.ejecutivos || []), "PHOENIX"]));
 
   useEffect(() => {
@@ -184,8 +185,7 @@ export default function LaAraucanaPage() {
       try {
         const data = await fetchLaAraucanaFilters();
         setFilters({ periodos: data.periodos || [], ejecutivos: data.ejecutivos || [] });
-        const periodo = data.periodos?.[0] || "";
-        setSelected((prev) => ({ ...prev, periodo }));
+        setSelected((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, filters.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       } finally {
@@ -193,7 +193,7 @@ export default function LaAraucanaPage() {
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   useEffect(() => {
     if (!selected.periodo) {
@@ -214,7 +214,7 @@ export default function LaAraucanaPage() {
     }
 
     loadPeriodFilters();
-  }, [selected.periodo]);
+  }, [selected.periodo, dataVersion]);
 
   useEffect(() => {
     if (!selected.periodo || view === "detalle") {
@@ -259,7 +259,7 @@ export default function LaAraucanaPage() {
     return () => {
       cancelled = true;
     };
-  }, [selected.periodo, view]);
+  }, [selected.periodo, view, dataVersion]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -303,7 +303,7 @@ export default function LaAraucanaPage() {
     return () => {
       cancelled = true;
     };
-  }, [selected.periodo, selected.ejecutivo, detailFilters, detailPage, detailPageSize, view]);
+  }, [selected.periodo, selected.ejecutivo, detailFilters, detailPage, detailPageSize, view, dataVersion]);
 
   function onFilter(name, value) {
     setSelected((prev) => ({ ...prev, [name]: value }));
@@ -629,12 +629,6 @@ export default function LaAraucanaPage() {
       {view === "negocios" && !loading && (
         <SectionCard
           title="Detalle de negocios"
-          description={
-            "Pagos NE-REPRO del mes, asignados a la ejecutiva de la mejor gestión del RUT." +
-            (sinGestion && Number(sinGestion.q_negocios) > 0 && (!selected.ejecutivo || selected.ejecutivo === "PHOENIX")
-              ? ` PHOENIX incluye ${formatMoney(sinGestion.q_negocios)} negocios sin gestión en el mes (${formatRecovero(sinGestion.monto)}).`
-              : "")
-          }
           exportName={exportFileName("La-Araucana", "Negocios-detalle", selected.periodo)}
           bodyClassName=""
         >

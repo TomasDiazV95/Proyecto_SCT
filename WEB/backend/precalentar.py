@@ -5,6 +5,7 @@ PRECALENTAR=0 en el entorno.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
 import os
@@ -49,8 +50,10 @@ def precalentar_modulo(nombre: str, fn_filtros: str, clave_fecha: str, vistas: l
         getattr(servicio, vista)({clave_fecha: fechas[0]})
 
 
-def precalentar() -> None:
-    with cache.refrescando():
+def precalentar(renovar: bool = True) -> None:
+    """renovar=True vuelve a consultar aunque haya algo guardado (ciclo periodico). Con False usa los
+    candados de la cache: sirve justo despues de limpiarla, cuando las paginas abiertas tambien piden."""
+    with cache.refrescando() if renovar else contextlib.nullcontext():
         for modulo in MODULOS:
             inicio = time.perf_counter()
             try:

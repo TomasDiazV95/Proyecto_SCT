@@ -8,6 +8,7 @@ import {
 import { PageHeader, SectionCard } from "../../components/productividad/ui";
 import { saveDownload } from "../../utils/download";
 import MediblesItauCard from "./MediblesItauCard";
+import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
 const BREADCRUMB = [
   { label: "Inicio", to: "/" },
@@ -50,6 +51,7 @@ const DESCARGAS = [
 ];
 
 export default function ItauAdministrativasPage() {
+  const dataVersion = useDataVersion();
   const [periodos, setPeriodos] = useState({ cuotas: [], asignacion: [] });
   const [selected, setSelected] = useState({ cuotas: "", asignacion: "", cuotasPagadas: "" });
   const [loadingPeriodos, setLoadingPeriodos] = useState(false);
@@ -65,7 +67,11 @@ export default function ItauAdministrativasPage() {
         const cuotas = data.cuotas || [];
         const asignacion = data.asignacion || [];
         setPeriodos({ cuotas, asignacion });
-        setSelected({ cuotas: cuotas[0] || "", asignacion: asignacion[0] || "", cuotasPagadas: cuotas[0] || "" });
+        setSelected((prev) => ({
+          cuotas: fechaVigente(prev.cuotas, periodos.cuotas, cuotas),
+          asignacion: fechaVigente(prev.asignacion, periodos.asignacion, asignacion),
+          cuotasPagadas: fechaVigente(prev.cuotasPagadas, periodos.cuotas, cuotas),
+        }));
       } catch (err) {
         setError(err.message || "No se pudieron cargar los periodos disponibles.");
       } finally {
@@ -74,7 +80,7 @@ export default function ItauAdministrativasPage() {
     }
 
     loadPeriodos();
-  }, []);
+  }, [dataVersion]);
 
   async function onDownload(item) {
     setDownloading(item.key);

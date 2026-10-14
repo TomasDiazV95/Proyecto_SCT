@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { fetchBenchFilters, fetchBenchKpi } from "../api";
 
 
+import useDataVersion, { fechaVigente, mantenerSiExiste } from "../hooks/useDataVersion";
 function formatPct(value) {
   return `${Number(value || 0).toFixed(1)} %`;
 }
@@ -332,6 +333,7 @@ function MetricCard({ title, value, subtitle, tone = "neutral", active = false, 
 
 
 export default function BenchPage() {
+  const dataVersion = useDataVersion();
   const [filters, setFilters] = useState({ periodo: "", negocio: "", segmento: "" });
   const [options, setOptions] = useState({ periodos: [], negocios: [], segmentos: [] });
   const [data, setData] = useState(null);
@@ -343,17 +345,17 @@ export default function BenchPage() {
       try {
         const response = await fetchBenchFilters();
         setOptions(response);
-        setFilters({
-          periodo: response.periodos?.[0] || "",
-          negocio: response.negocios?.[0] || "",
-          segmento: response.segmentos?.[0] || "",
-        });
+        setFilters((prev) => ({
+          periodo: fechaVigente(prev.periodo, options.periodos, response.periodos),
+          negocio: mantenerSiExiste(prev.negocio, response.negocios, response.negocios?.[0] || ""),
+          segmento: mantenerSiExiste(prev.segmento, response.segmentos, response.segmentos?.[0] || ""),
+        }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   useEffect(() => {
     async function refreshFilterOptions() {
@@ -383,7 +385,7 @@ export default function BenchPage() {
       }
     }
     refreshFilterOptions();
-  }, [filters.negocio, filters.periodo]);
+  }, [filters.negocio, filters.periodo, dataVersion]);
 
   useEffect(() => {
     async function loadData() {
@@ -402,7 +404,7 @@ export default function BenchPage() {
       }
     }
     loadData();
-  }, [filters]);
+  }, [filters, dataVersion]);
 
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));

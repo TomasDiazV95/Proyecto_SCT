@@ -4,6 +4,7 @@ import { fetchItauVencidaFilters, fetchItauVencidaGeneral } from "../api";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 function formatMoney(value) {
   return `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0) / 1e6)} M`;
 }
@@ -45,6 +46,7 @@ function cumplimientoFraccionClass(value) {
 
 
 export default function ItauVencidaPage() {
+  const dataVersion = useDataVersion();
   const [filters, setFilters] = useState({ fecha_carga: "", ejecutivo: "" });
   const [options, setOptions] = useState({ fechas_carga: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
@@ -63,13 +65,13 @@ export default function ItauVencidaPage() {
       try {
         const data = await fetchItauVencidaFilters();
         setOptions(data);
-        setFilters((prev) => ({ ...prev, fecha_carga: data.fechas_carga?.[0] || "" }));
+        setFilters((prev) => ({ ...prev, fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   // Al cambiar la fecha de carga, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
   useEffect(() => {
@@ -83,7 +85,7 @@ export default function ItauVencidaPage() {
         setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
       })
       .catch((err) => setError(err.message));
-  }, [filters.fecha_carga]);
+  }, [filters.fecha_carga, dataVersion]);
 
   useEffect(() => {
     if (!filters.fecha_carga) {
@@ -108,7 +110,7 @@ export default function ItauVencidaPage() {
     }
 
     loadData();
-  }, [filters]);
+  }, [filters, dataVersion]);
 
   useEffect(() => {
     if (!metasOpen) {
