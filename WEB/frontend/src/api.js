@@ -37,6 +37,15 @@ async function apiFetch(url, options = {}, retry = true) {
   return apiFetch(url, options, false);
 }
 
+export async function fetchDataVersion() {
+  const res = await apiFetch(`${API_BASE}/api/datos/version`);
+  if (!res.ok) {
+    throw new Error("No se pudo consultar la version de los datos");
+  }
+  const body = await res.json();
+  return body.version;
+}
+
 function withQuery(url, params = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {

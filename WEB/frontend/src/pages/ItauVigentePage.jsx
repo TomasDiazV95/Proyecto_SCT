@@ -4,6 +4,7 @@ import { fetchItauVigenteFilters, fetchItauVigenteGeneral } from "../api";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../components/productividad/ui";
 
 
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 function formatMoney(value) {
   return `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0) / 1e6)} M`;
 }
@@ -54,6 +55,7 @@ function cumplimientoFraccionClass(value) {
 
 
 export default function ItauVigentePage() {
+  const dataVersion = useDataVersion();
   const [filters, setFilters] = useState({ fecha_carga: "", ejecutivo: "" });
   const [options, setOptions] = useState({ fechas_carga: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
@@ -72,13 +74,13 @@ export default function ItauVigentePage() {
       try {
         const data = await fetchItauVigenteFilters();
         setOptions(data);
-        setFilters((prev) => ({ ...prev, fecha_carga: data.fechas_carga?.[0] || "" }));
+        setFilters((prev) => ({ ...prev, fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   useEffect(() => {
     if (!filters.fecha_carga) {
@@ -103,7 +105,7 @@ export default function ItauVigentePage() {
     }
 
     loadData();
-  }, [filters]);
+  }, [filters, dataVersion]);
 
   useEffect(() => {
     if (!metasOpen) {

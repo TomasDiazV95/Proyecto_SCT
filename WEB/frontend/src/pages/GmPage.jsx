@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters, fetchGmGeneral } from "../api";
 import NegociosCard from "../components/productividad/NegociosCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 
 const initialFilters = {
   periodo: "",
@@ -35,6 +36,7 @@ function formatPeriodo(value) {
 }
 
 export default function GmPage() {
+  const dataVersion = useDataVersion();
   const { user } = useAuth();
   const [view, setView] = useState("general");
   const [bucketTab, setBucketTab] = useState(bucketOrder[0]);
@@ -73,14 +75,14 @@ export default function GmPage() {
         setOptions(data);
         setFilters((prev) => ({
           ...prev,
-          periodo: data.periodos?.[0] || "",
+          periodo: fechaVigente(prev.periodo, options.periodos, data.periodos),
         }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los carterizados ese mes.
   useEffect(() => {
@@ -94,7 +96,7 @@ export default function GmPage() {
         setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
       })
       .catch((err) => setError(err.message));
-  }, [filters.periodo]);
+  }, [filters.periodo, dataVersion]);
 
   useEffect(() => {
     async function loadData() {
@@ -127,7 +129,7 @@ export default function GmPage() {
     }
 
     loadData();
-  }, [filters, detailFilters, view]);
+  }, [filters, detailFilters, view, dataVersion]);
 
   // Las metas salen de la vista bucket (todo el periodo), asi no dependen del filtro de ejecutivo.
   const metaByBucket = useMemo(() => {

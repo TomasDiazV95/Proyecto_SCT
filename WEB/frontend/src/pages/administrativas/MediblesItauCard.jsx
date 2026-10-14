@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { addItauMedibles, deleteItauMedible, fetchItauMedibles } from "../../api";
 import { LoadingState, SectionCard } from "../../components/productividad/ui";
 import MediblesBuscador from "./MediblesBuscador";
+import useDataVersion from "../../hooks/useDataVersion";
 
 const COLUMNAS = [
   { value: "DETALLE_MARCA", label: "Detalle marca" },
@@ -28,6 +29,7 @@ function columnaLabel(value) {
 }
 
 export default function MediblesItauCard() {
+  const dataVersion = useDataVersion();
   const [periodo, setPeriodo] = useState(currentPeriodo());
   const [data, setData] = useState({ filtros: [], fijos: [], valores: {}, periodos_configurados: [], cargas: [], fases_meta: {} });
   const [form, setForm] = useState({ columna: "DETALLE_MARCA", valores: [] });
@@ -87,7 +89,7 @@ export default function MediblesItauCard() {
     return () => {
       cancelled = true;
     };
-  }, [periodo]);
+  }, [periodo, dataVersion]);
 
   async function onAdd(event) {
     event.preventDefault();

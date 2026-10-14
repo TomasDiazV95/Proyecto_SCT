@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { fetchSthDetail, fetchSthFilters, fetchSthGeneral, fetchSthMetas, fetchSthOperationsDetail } from "../api";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 
 const initialFilters = {
   periodo: "",
@@ -58,6 +59,7 @@ function formatPeriodo(value) {
 }
 
 export default function SthPage() {
+  const dataVersion = useDataVersion();
   const [view, setView] = useState("general");
   const [filters, setFilters] = useState(initialFilters);
   const [operationsFilters, setOperationsFilters] = useState(initialOperationsFilters);
@@ -81,14 +83,14 @@ export default function SthPage() {
         setOptions(data);
         setFilters((prev) => ({
           ...prev,
-          periodo: data.periodos?.[0] || "",
+          periodo: fechaVigente(prev.periodo, options.periodos, data.periodos),
         }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los carterizados ese mes.
   useEffect(() => {
@@ -102,7 +104,7 @@ export default function SthPage() {
         setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
       })
       .catch((err) => setError(err.message));
-  }, [filters.periodo]);
+  }, [filters.periodo, dataVersion]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -142,7 +144,7 @@ export default function SthPage() {
       }
     }
     loadData();
-  }, [filters, operationsFilters, operationsPage, operationsPageSize, view]);
+  }, [filters, operationsFilters, operationsPage, operationsPageSize, view, dataVersion]);
 
   const generalHeaders = useMemo(
     () => [
@@ -165,7 +167,7 @@ export default function SthPage() {
     fetchSthMetas(filters)
       .then(setMetas)
       .catch((err) => setError(err.message));
-  }, [metasOpen, filters.periodo]);
+  }, [metasOpen, filters.periodo, dataVersion]);
 
   function renderMetasDrawer() {
     const productos = Array.from(new Set(metas.map((meta) => meta.producto)));

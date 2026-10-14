@@ -3,11 +3,13 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import datos_version
 import precalentar
 
 from routers.admin_users import router as admin_users_router
 from routers.administrativas import router as administrativas_router
 from routers.contactabilidad import router as contactabilidad_router
+from routers.datos import router as datos_router
 from routers.bench import router as bench_router
 from routers.auth import router as auth_router
 from routers.bit_castigo import router as bit_castigo_router
@@ -31,6 +33,7 @@ from routers.sth import router as sth_router
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     precalentar.iniciar()
+    datos_version.iniciar()
     yield
 
 
@@ -83,3 +86,4 @@ app.include_router(administrativas_router, prefix="/api/administrativas", tags=[
 app.include_router(contactabilidad_router, prefix="/api/contactabilidad", tags=["contactabilidad"])
 app.include_router(estrategia_asignacion_router, prefix="/api/estrategia-asignacion", tags=["estrategia-asignacion"])
 app.include_router(rrhh_router, prefix="/api/rrhh", tags=["rrhh"])
+app.include_router(datos_router, prefix="/api/datos", tags=["datos"])

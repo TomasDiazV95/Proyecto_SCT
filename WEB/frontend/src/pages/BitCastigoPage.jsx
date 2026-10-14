@@ -4,6 +4,7 @@ import { fetchBitCastigoFilters, fetchBitCastigoGeneral } from "../api";
 import { Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
 
 
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 function formatMoney(value) {
   return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
 }
@@ -47,6 +48,7 @@ function cumplimientoFraccionClass(value) {
 
 
 export default function BitCastigoPage() {
+  const dataVersion = useDataVersion();
   const [filters, setFilters] = useState({ periodo: "", ejecutivo: "" });
   const [options, setOptions] = useState({ periodos: [], ejecutivos: [] });
   const [rows, setRows] = useState([]);
@@ -63,13 +65,13 @@ export default function BitCastigoPage() {
       try {
         const data = await fetchBitCastigoFilters();
         setOptions(data);
-        setFilters((prev) => ({ ...prev, periodo: data.periodos?.[0] || "" }));
+        setFilters((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
   useEffect(() => {
@@ -83,7 +85,7 @@ export default function BitCastigoPage() {
         setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
       })
       .catch((err) => setError(err.message));
-  }, [filters.periodo]);
+  }, [filters.periodo, dataVersion]);
 
   useEffect(() => {
     if (!filters.periodo) {
@@ -107,7 +109,7 @@ export default function BitCastigoPage() {
     }
 
     loadData();
-  }, [filters]);
+  }, [filters, dataVersion]);
 
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));

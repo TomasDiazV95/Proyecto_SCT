@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 
 import { fetchKpiOperacionalDashboard, fetchKpiOperacionalFilters } from "../api";
 import "./kpiOperacional.css";
+import useDataVersion from "../hooks/useDataVersion";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const MONTHS_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -442,6 +443,7 @@ function MultiSelect({ id, label, value, options, allLabel, onChange }) {
 // Pagina
 // ------------------------------------------------------------
 export default function KpiOperacionalPage() {
+  const dataVersion = useDataVersion();
   const [filters, setFilters] = useState(emptyFilters);
   const [options, setOptions] = useState(emptyOptions);
   const [data, setData] = useState(null);
@@ -457,7 +459,7 @@ export default function KpiOperacionalPage() {
     return () => {
       active = false;
     };
-  }, [filters.mandante, filters.cartera, filters.tramo, filters.producto]);
+  }, [filters.mandante, filters.cartera, filters.tramo, filters.producto, dataVersion]);
 
   useEffect(() => {
     let active = true;
@@ -470,7 +472,7 @@ export default function KpiOperacionalPage() {
     return () => {
       active = false;
     };
-  }, [filters]);
+  }, [filters, dataVersion]);
 
   function onFilter(field, value) {
     setFilters((prev) => {

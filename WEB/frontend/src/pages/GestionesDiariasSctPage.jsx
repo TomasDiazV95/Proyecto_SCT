@@ -13,6 +13,7 @@ import {
   exportFileName,
   phoenixGrupalAlFinal,
 } from "../components/productividad/ui";
+import useDataVersion from "../hooks/useDataVersion";
 
 const BREADCRUMB = [
   { label: "Inicio", to: "/" },
@@ -77,6 +78,7 @@ function formatGestionDate(value) {
 }
 
 export default function GestionesDiariasSctPage() {
+  const dataVersion = useDataVersion();
   const [view, setView] = useState("resumen");
   const [sharedFilters, setSharedFilters] = useState(initialSharedFilters);
   const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
@@ -188,7 +190,7 @@ export default function GestionesDiariasSctPage() {
     return () => {
       cancelled = true;
     };
-  }, [sharedFilters, detailFilters, summaryFilters, view]);
+  }, [sharedFilters, detailFilters, summaryFilters, view, dataVersion]);
 
   useEffect(() => {
     async function loadData() {
@@ -211,7 +213,7 @@ export default function GestionesDiariasSctPage() {
       }
     }
     loadData();
-  }, [sharedFilters, detailFilters, summaryFilters, page, pageSize, view]);
+  }, [sharedFilters, detailFilters, summaryFilters, page, pageSize, view, dataVersion]);
 
   function onFilter(name, value) {
     if (name === "fecha_desde" || name === "fecha_hasta") {

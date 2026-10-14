@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters } from "../api";
 import NegociosCard from "../components/productividad/NegociosCard";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../components/productividad/ui";
+import useDataVersion, { fechaVigente } from "../hooks/useDataVersion";
 
 const initialFilters = {
   periodo: "",
@@ -79,6 +80,7 @@ function formatPeriodLabel(value) {
 }
 
 export default function ScTempranaPage() {
+  const dataVersion = useDataVersion();
   const [view, setView] = useState("ejecutivos");
   const [executiveSubview, setExecutiveSubview] = useState("c1c2");
   const [filters, setFilters] = useState(initialFilters);
@@ -122,14 +124,14 @@ export default function ScTempranaPage() {
         });
         setFilters((prev) => ({
           ...prev,
-          periodo: data.periodos?.[0] || "",
+          periodo: fechaVigente(prev.periodo, options.periodos, data.periodos),
         }));
       } catch (err) {
         setError(err.message);
       }
     }
     loadFilters();
-  }, []);
+  }, [dataVersion]);
 
   // Al cambiar el periodo, el filtro de ejecutivo solo ofrece los disponibles en ese periodo.
   useEffect(() => {
@@ -143,7 +145,7 @@ export default function ScTempranaPage() {
         setFilters((prev) => (prev.ejecutivo && !disponibles.includes(prev.ejecutivo) ? { ...prev, ejecutivo: "" } : prev));
       })
       .catch((err) => setError(err.message));
-  }, [filters.periodo]);
+  }, [filters.periodo, dataVersion]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -177,7 +179,7 @@ export default function ScTempranaPage() {
       }
     }
     loadData();
-  }, [filters, detailFilters, detailPage, detailPageSize, view]);
+  }, [filters, detailFilters, detailPage, detailPageSize, view, dataVersion]);
 
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { downloadEstrategiaItauCastigo, fetchEstrategiaItauCastigoPeriodos } from "../../api";
 import { Field, FilterBar, PageHeader } from "../../components/productividad/ui";
 import { saveDownload } from "../../utils/download";
+import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
 const BREADCRUMB = [
   { label: "Inicio", to: "/" },
@@ -19,6 +20,7 @@ function formatPeriodo(periodo) {
 }
 
 export default function EstrategiaItauCastigoPage() {
+  const dataVersion = useDataVersion();
   const [periodos, setPeriodos] = useState([]);
   const [limites, setLimites] = useState({ min: 2, max: 50 });
   const [periodo, setPeriodo] = useState("");
@@ -35,7 +37,7 @@ export default function EstrategiaItauCastigoPage() {
         const data = await fetchEstrategiaItauCastigoPeriodos();
         const lista = data.periodos || [];
         setPeriodos(lista);
-        setPeriodo(lista[0] || "");
+        setPeriodo((prev) => fechaVigente(prev, periodos, lista));
         setLimites({ min: data.min_ejecutivos || 2, max: data.max_ejecutivos || 50 });
       } catch (err) {
         setError(err.message || "No se pudieron cargar los periodos disponibles.");
@@ -45,7 +47,7 @@ export default function EstrategiaItauCastigoPage() {
     }
 
     loadPeriodos();
-  }, []);
+  }, [dataVersion]);
 
   const cantidad = Number(ejecutivos);
   const cantidadValida = Number.isInteger(cantidad) && cantidad >= limites.min && cantidad <= limites.max;

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { deleteNegocioCarga, downloadNegociosPlantilla, fetchNegociosCargas, uploadNegocioCarga } from "../../api";
 import { PageHeader, SectionCard } from "../../components/productividad/ui";
 import { saveDownload } from "../../utils/download";
+import useDataVersion from "../../hooks/useDataVersion";
 
 const BREADCRUMB = [
   { label: "Inicio", to: "/" },
@@ -40,6 +41,7 @@ function formatFecha(value) {
 }
 
 export default function NegociosAdministrativasPage() {
+  const dataVersion = useDataVersion();
   const [cargas, setCargas] = useState([]);
   const [archivos, setArchivos] = useState({});
   const [busy, setBusy] = useState("");
@@ -56,7 +58,7 @@ export default function NegociosAdministrativasPage() {
 
   useEffect(() => {
     loadCargas();
-  }, []);
+  }, [dataVersion]);
 
   async function run(key, action) {
     setBusy(key);
