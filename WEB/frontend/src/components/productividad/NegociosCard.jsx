@@ -38,7 +38,15 @@ export default function NegociosCard({ modulo, periodo, ejecutivo, exportName })
         <LoadingState />
       ) : (
         <div className="pd-table-scroll">
-          <table className="pd-table">
+          <table className="pd-table pd-table-equal">
+            {/* Ejecutivo con ancho propio; los productos y el total se reparten el resto por igual. */}
+            <colgroup>
+              <col className="pd-col-ejecutivo" />
+              {productos.map((producto) => (
+                <col key={producto.codigo} />
+              ))}
+              <col />
+            </colgroup>
             <thead>
               <tr>
                 <th>Ejecutivo</th>

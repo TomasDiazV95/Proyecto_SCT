@@ -829,6 +829,33 @@
   overflow-wrap: anywhere;
 }
 
+.pd-negocios-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pd-space-2);
+}
+
+.pd-negocios-filtros .form-select {
+  width: auto;
+  min-width: 190px;
+}
+
+/* Columnas de igual ancho (salvo la primera, definida con .pd-col-ejecutivo en el colgroup). */
+.pd-table-equal {
+  table-layout: fixed;
+  min-width: 720px;
+}
+
+.pd-table-equal .pd-col-ejecutivo {
+  width: 240px;
+}
+
+.pd-table-equal th,
+.pd-table-equal td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .pd-table th:first-child,
 .pd-table td:first-child {
   padding-left: var(--pd-space-4);

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchCycle, fetchFilters, fetchGeneral, fetchScTardiaMetas } from "../../api";
 import NegociosCard from "../../components/productividad/NegociosCard";
+import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoLegendItems, cumplimientoStatus, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
@@ -137,8 +138,8 @@ export default function ScTardiaPage() {
 
   useEffect(() => {
     async function loadData() {
-      // La pestaña Negocios carga sus propios datos (NegociosCard).
-      if (!filters.periodo || view === "negocios") return;
+      // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
+      if (!filters.periodo || view === "negocios" || view === "negocios-detalle") return;
       setLoading(true);
       setError("");
       try {
@@ -280,6 +281,7 @@ export default function ScTardiaPage() {
         { value: "general", label: "Vista general", icon: "bi-grid" },
         { value: "ciclo", label: "Por ciclo", icon: "bi-layers" },
         { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+        { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
       ]}
     />
   );
@@ -395,6 +397,11 @@ export default function ScTardiaPage() {
         <div className="pd-tabbed">
           {viewTabs}
           <NegociosCard modulo="sc-tardia" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Tardia", "negocios", filters.periodo)} />
+        </div>
+      ) : view === "negocios-detalle" ? (
+        <div className="pd-tabbed">
+          {viewTabs}
+          <NegociosDetalleCard modulo="sc-tardia" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Tardia", "negocios-detalle", filters.periodo)} />
         </div>
       ) : loading ? (
         <>
