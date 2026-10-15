@@ -674,6 +674,16 @@ export async function fetchNegociosConteo(modulo, filters) {
   return body;
 }
 
+// Una fila por operacion del mes: OP, ejecutivo y tipo de negocio.
+export async function fetchNegociosDetalle(modulo, filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/${modulo}/negocios/detalle`, filters));
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo cargar el detalle de negocios");
+  }
+  return body;
+}
+
 export async function fetchItauAdministrativasPeriodos() {
   const res = await apiFetch(`${API_BASE}/api/administrativas/itau/periodos`);
   if (!res.ok) {

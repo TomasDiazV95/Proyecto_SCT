@@ -466,6 +466,38 @@ def _conteo_mes(negocio: str, mes: str) -> list[dict]:
     )
 
 
+def _detalle_mes(negocio: str, mes: str) -> list[dict]:
+    _ensure_tables()
+    return run_query(
+        f"""
+        SELECT operacion, ejecutivo, producto
+        FROM {CIERRE}
+        WHERE negocio = ? AND periodo = CAST(? AS date)
+        """,
+        (negocio, f"{mes}-01"),
+    )
+
+
+def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None) -> dict:
+    """Una fila por operacion del mes (OP, ejecutivo y tipo de negocio), para la pestaña Detalle negocios."""
+    mes = _mes(periodo)
+    rows = cache.cached(("negocios", "detalle", negocio, mes), lambda: _detalle_mes(negocio, mes))
+    filtro = _norm(ejecutivo)
+
+    filas = [
+        {
+            "operacion": row["operacion"] or "",
+            "ejecutivo": row["ejecutivo"],
+            "producto": row["producto"],
+            "producto_nombre": PRODUCTO_NOMBRE.get(row["producto"], row["producto"].capitalize()),
+        }
+        for row in rows
+        if not filtro or _norm(row["ejecutivo"]) == filtro
+    ]
+    filas.sort(key=lambda f: (f["ejecutivo"], _orden_producto(f["producto"]), f["operacion"]))
+    return {"periodo": mes, "filas": filas, "total": len(filas)}
+
+
 def get_conteo(negocio: str, periodo: str | None, ejecutivo: str | None = None) -> dict:
     """Negocios del mes por ejecutivo y producto, para la pestaña Negocios de la productividad."""
     mes = _mes(periodo)
