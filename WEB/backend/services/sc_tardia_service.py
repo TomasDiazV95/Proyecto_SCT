@@ -420,7 +420,8 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
         CROSS JOIN metas_castigo mc
     ),
 
-    -- Cumplimiento castigo = SUM(recupero F1..F3) / SUM(meta F1..F3): se suma primero y se divide despues.
+    -- Cumplimiento castigo = SUM(recupero F1..F4) / SUM(meta F1..F3): se suma primero y se divide despues.
+    -- F4 aporta recupero y casos; su deuda asignada no entra al total ni a la meta.
     resultado_castigo_consolidado_base AS (
         SELECT
             'CASTIGO CONSOLIDADO' AS reporte,
@@ -431,11 +432,11 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
             SUM(CASE WHEN ciclo = 'F1' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f1,
             SUM(CASE WHEN ciclo = 'F2' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f2,
             SUM(CASE WHEN ciclo = 'F3' THEN ISNULL(deuda, 0) ELSE 0 END) AS deuda_f3,
-            SUM(CASE WHEN ciclo IN ('F1', 'F2', 'F3') THEN ISNULL(contenido, 0) ELSE 0 END) AS contenido,
+            SUM(ISNULL(contenido, 0)) AS contenido,
             COUNT(DISTINCT operacion) AS cantidad_casos
         FROM base
         WHERE origen = 'CASTIGO'
-          AND ciclo IN ('F1', 'F2', 'F3')
+          AND ciclo IN ('F1', 'F2', 'F3', 'F4')
         GROUP BY ejecutivo, zona
     ),
 
@@ -651,14 +652,24 @@ def get_general_view(filters: dict) -> list[dict]:
             {
                 "ejecutivo": row["ejecutivo"],
                 "casos_asignados": 0,
+                "casos_fases": 0,
+                "tiene_fases": False,
+                "casos_total_castigo": 0,
                 "sumas": {},
                 "bloques_activos": set(),
                 "ponderadores_nivel_1": {"PTC": 0.0, "STOCK": 0.0},
             },
         )
         # C1 y C2 ya vienen sumados en el consolidado de altas cuantias.
-        if row["bloque"] not in ("C1", "C2"):
-            current["casos_asignados"] += int(row.get("cantidad_casos") or 0)
+        # Castigo: se usan las fases F1..F4 si el ejecutivo las tiene; si no, el TOTAL F1 - F4.
+        casos = int(row.get("cantidad_casos") or 0)
+        if row["bloque"] in ("F1", "F2", "F3", "F4"):
+            current["casos_fases"] += casos
+            current["tiene_fases"] = True
+        elif row["bloque"] == CASTIGO_TOTAL_BLOCK:
+            current["casos_total_castigo"] += casos
+        elif row["bloque"] not in ("C1", "C2"):
+            current["casos_asignados"] += casos
         # Se suma primero y se divide despues: el ejecutivo puede tener el bloque en mas de una fila.
         suma = current["sumas"].setdefault(
             row["bloque"],
@@ -710,7 +721,8 @@ def get_general_view(filters: dict) -> list[dict]:
         response.append(
             {
                 "ejecutivo": item["ejecutivo"],
-                "casos_asignados": item["casos_asignados"],
+                "casos_asignados": item["casos_asignados"]
+                + (item["casos_fases"] if item["tiene_fases"] else item["casos_total_castigo"]),
                 "bloques": bloques,
                 "ponderadores_nivel_1": pesos,
                 "cumplimiento_operativo": _cap_pct(cumplimiento),
