@@ -32,6 +32,13 @@ PRODUCT_CONFIG = {
         "empresa": "PHOENIX TC",
         "ciclos": [0, 99],
     },
+    # Desde octubre 2026: la cartera 'Grupal' de todos los productos se mide junta.
+    "multiproducto": {
+        "nombre_meta": "Multiproducto Grupal",
+        "producto_cliente": None,
+        "empresa": None,
+        "ciclos": [0],
+    },
 }
 
 PRODUCT_ORDER = ["hipotecario", "consumo", "pyme", "tarjeta"]
@@ -40,12 +47,37 @@ GENERAL_PRODUCT_ORDER = {
     "consumo": 2,
     "pyme": 3,
     "tarjeta": 4,
+    "multiproducto": 5,
 }
+
+# Reglas que rigen desde este periodo:
+#  - Tarjeta solo ciclos 1 a 4, en un unico tramo 'Multiciclo' (sin Ciclo 0).
+#  - Hipotecario pondera sus ciclos como Pyme y Consumo (antes tomaba el ciclo de mayor deuda).
+#  - Los RUT 'Grupal' salen de cada producto y forman el bloque 'multiproducto' (ciclos 0 a 7),
+#    trabajado por los ejecutivos cargados con producto 'multiproducto' en dbo.sth_ejecutivos_ciclo.
+REGLAS_MULTIPRODUCTO_DESDE = "2026-10-01"
+MULTIPRODUCTO_CICLOS = (0, 7)
+MULTIPRODUCTO_TRAMO = "Todos"
+TARJETA_CICLOS_MULTIPRODUCTO = (1, 4)
+
+
+def _reglas_multiproducto(periodo: str) -> bool:
+    return str(periodo)[:10] >= REGLAS_MULTIPRODUCTO_DESDE
+
+
+def _productos_del_periodo(periodo: str) -> list[str]:
+    return PRODUCT_ORDER + ["multiproducto"] if _reglas_multiproducto(periodo) else PRODUCT_ORDER
+
+
+def _producto_grupal(periodo: str) -> str:
+    """Producto cuya fila 'Grupal' se reparte entre integrantes (dbo.sth_ejecutivos_ciclo)."""
+    return "multiproducto" if _reglas_multiproducto(periodo) else "tarjeta"
 TRAMO_ORDER = {
     "Ciclo 1": 1,
     "Ciclo 2": 2,
     "Ciclo 3": 3,
     "Multiciclo": 4,
+    "Ciclos 1 a 4": 4,
 }
 
 
@@ -83,10 +115,10 @@ def _products_with_cycle_config(periodo: str) -> set[str]:
 def _grupal_members(periodo: str) -> dict[str, list[str]]:
     """Ejecutivos que componen el grupal de cada producto en el periodo.
 
-    Solo tarjeta: sus filas en dbo.sth_ejecutivos_ciclo no filtran ciclos (la cartera
-    no esta carterizada), indican quienes trabajan el grupal. Va una fila por ejecutivo
-    y el ciclo se ignora. Cada uno reemplaza a la fila 'Grupal' con las mismas cifras.
-    Si no hay filas para el periodo, se sigue mostrando la fila 'Grupal'.
+    Hasta septiembre 2026 es tarjeta y desde octubre es multiproducto (ver _producto_grupal):
+    sus filas en dbo.sth_ejecutivos_ciclo no filtran ciclos, indican quienes trabajan el
+    grupal. Va una fila por ejecutivo y el ciclo se ignora. Cada uno reemplaza a la fila
+    'Grupal' con las mismas cifras. Si no hay filas para el periodo, se sigue mostrando 'Grupal'.
     """
     sql = """
     SELECT DISTINCT
@@ -94,12 +126,12 @@ def _grupal_members(periodo: str) -> dict[str, list[str]]:
         LTRIM(RTRIM(ejecutivo)) AS ejecutivo
     FROM dbo.sth_ejecutivos_ciclo
     WHERE periodo = ?
-      AND LOWER(LTRIM(RTRIM(producto))) = 'tarjeta'
+      AND LOWER(LTRIM(RTRIM(producto))) = ?
       AND activo = 1
     ORDER BY ejecutivo
     """
     members: dict[str, list[str]] = {}
-    for row in run_query(sql, (periodo,)):
+    for row in run_query(sql, (periodo, _producto_grupal(periodo))):
         if row.get("producto") and row.get("ejecutivo"):
             members.setdefault(row["producto"], []).append(row["ejecutivo"])
     return members
@@ -142,8 +174,23 @@ def _cumplimiento_meta(pct_real: float, meta: float) -> float:
     return _cap(_safe_div(pct_real, meta))
 
 
-def _tramo_meta(product_key: str, ciclo: int) -> str:
+def _tramos_trabajados(tramos: list[str]) -> str:
+    """'Ciclo 2' + 'Ciclo 3' -> 'Ciclos 2 y 3'. Otros nombres de tramo se unen con ' y '."""
+    if len(tramos) == 1:
+        return tramos[0]
+    if all(t.startswith("Ciclo ") for t in tramos):
+        numeros = [t[len("Ciclo "):] for t in tramos]
+        return f"Ciclos {', '.join(numeros[:-1])} y {numeros[-1]}"
+    return " y ".join(tramos)
+
+
+def _tramo_meta(product_key: str, ciclo: int, periodo: str) -> str:
+    """Nombre del tramo que se muestra. El cruce con las metas usa el tramo de la tabla."""
+    if product_key == "multiproducto":
+        return f"Ciclos {MULTIPRODUCTO_CICLOS[0]} a {MULTIPRODUCTO_CICLOS[1]}"
     if product_key == "tarjeta":
+        if _reglas_multiproducto(periodo):
+            return f"Ciclos {TARJETA_CICLOS_MULTIPRODUCTO[0]} a {TARJETA_CICLOS_MULTIPRODUCTO[1]}"
         if ciclo == 0:
             return "Ciclo 0"
         return "Multiciclo"
@@ -160,13 +207,70 @@ def _build_detail_for_product(
     if productos_con_ciclo is None:
         productos_con_ciclo = _products_with_cycle_config(periodo)
 
-    if product_key == "tarjeta":
-        sql = """
+    if product_key == "multiproducto":
+        # Cartera 'Grupal' de los cuatro productos, ciclos 0 a 7, medida contra una sola meta.
+        pares = [
+            (cfg["producto_cliente"], cfg["empresa"])
+            for key, cfg in PRODUCT_CONFIG.items()
+            if key != "multiproducto"
+        ]
+        pares_sql = " OR ".join("(b.[fld_Producto cliente] = ? AND b.fld_Empresa = ?)" for _ in pares)
+        sql = f"""
+        WITH base AS (
+            SELECT
+                CAST(b.fld_Contenido AS INT) AS contenido,
+                CAST(b.[fld_MM$ Monto] AS FLOAT) AS monto
+            FROM dbo.tmp_bench_STH b
+            LEFT JOIN dbo.tmp_carterizado_STH c
+                ON b.fld_Rut = c.rut
+               AND CONVERT(date, c.mes_carterizado) = ?
+            WHERE b.fecha_carga = (
+                SELECT MIN(t.fecha_carga)
+                FROM dbo.tmp_bench_STH t
+                WHERE t.fecha_carga BETWEEN ? AND EOMONTH(?)
+            )
+              AND ({pares_sql})
+              AND CAST(b.fld_Ciclo AS INT) BETWEEN ? AND ?
+              AND ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal') = 'Grupal'
+        )
+        SELECT
+            'Grupal' AS ejecutivo,
+            0 AS ciclo,
+            SUM(base.monto) AS deuda_asignada,
+            SUM(CASE WHEN base.contenido = 1 THEN base.monto ELSE 0 END) AS saldo_contenido,
+            m.meta_contenido_pct,
+            m.ponderador_nivel_1_pct
+        FROM base
+        LEFT JOIN dbo.sth_metas_mensuales m
+          ON m.periodo = ?
+         AND m.producto = ?
+         AND m.tramo = ?
+         AND m.activo = 1
+        GROUP BY m.meta_contenido_pct, m.ponderador_nivel_1_pct
+        HAVING COUNT(*) > 0
+        """
+        params = [
+            periodo, periodo, periodo,
+            *[valor for par in pares for valor in par],
+            *MULTIPRODUCTO_CICLOS,
+            periodo, config["nombre_meta"], MULTIPRODUCTO_TRAMO,
+        ]
+        rows = run_query(sql, tuple(params))
+    elif product_key == "tarjeta":
+        if _reglas_multiproducto(periodo):
+            ciclo_sql = "99"
+            tramo_sql = "'Multiciclo'"
+            filtro_ciclo = f"CAST(b.fld_Ciclo AS INT) BETWEEN {TARJETA_CICLOS_MULTIPRODUCTO[0]} AND {TARJETA_CICLOS_MULTIPRODUCTO[1]}"
+        else:
+            ciclo_sql = "CASE WHEN CAST(b.fld_Ciclo AS INT) = 0 THEN 0 ELSE 99 END"
+            tramo_sql = "CASE WHEN CAST(b.fld_Ciclo AS INT) = 0 THEN 'Ciclo 0' ELSE 'Multiciclo' END"
+            filtro_ciclo = "(CAST(b.fld_Ciclo AS INT) = 0 OR CAST(b.fld_Ciclo AS INT) BETWEEN 1 AND 6)"
+        sql = f"""
         WITH base AS (
             SELECT
                 ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal') AS ejecutivo,
-                CASE WHEN CAST(b.fld_Ciclo AS INT) = 0 THEN 0 ELSE 99 END AS ciclo,
-                CASE WHEN CAST(b.fld_Ciclo AS INT) = 0 THEN 'Ciclo 0' ELSE 'Multiciclo' END AS tramo,
+                {ciclo_sql} AS ciclo,
+                {tramo_sql} AS tramo,
                 CAST(b.fld_Contenido AS INT) AS contenido,
                 CAST(b.[fld_MM$ Monto] AS FLOAT) AS monto
             FROM dbo.tmp_bench_STH b
@@ -180,7 +284,7 @@ def _build_detail_for_product(
             )
               AND b.[fld_Producto cliente] = ?
               AND b.fld_Empresa = ?
-              AND (CAST(b.fld_Ciclo AS INT) = 0 OR CAST(b.fld_Ciclo AS INT) BETWEEN 1 AND 6)
+              AND {filtro_ciclo}
         )
         SELECT
             base.ejecutivo,
@@ -285,7 +389,7 @@ def _build_detail_for_product(
                 "producto_meta": config["nombre_meta"],
                 "ejecutivo": row.get("ejecutivo") or "Grupal",
                 "ciclo": int(row.get("ciclo") or 0),
-                "tramo": _tramo_meta(product_key, int(row.get("ciclo") or 0)),
+                "tramo": _tramo_meta(product_key, int(row.get("ciclo") or 0), periodo),
                 "deuda_asignada": deuda,
                 "saldo_contenido": saldo,
                 "porcentaje_contenido": pct,
@@ -359,8 +463,11 @@ def get_filter_values(periodo: str | None = None) -> dict:
         # Los integrantes del grupal no estan carterizados, pero tienen fila propia en las vistas.
         integrantes = {n for nombres in _grupal_members(_period_start(periodo)).values() for n in nombres}
         ejecutivos = sorted(set(ejecutivos) | integrantes)
+        # Con reglas multiproducto la fila 'Grupal' se reemplaza por sus integrantes en todas las vistas.
+        if integrantes and _reglas_multiproducto(_period_start(periodo)):
+            ejecutivos = [e for e in ejecutivos if e.strip().lower() != "grupal"]
 
-    productos_detalle = sorted({config["producto_cliente"] for config in PRODUCT_CONFIG.values()})
+    productos_detalle = sorted({config["producto_cliente"] for config in PRODUCT_CONFIG.values() if config["producto_cliente"]})
 
     return {
         "periodos": periodos,
@@ -377,9 +484,10 @@ def get_detail_view(filters: dict) -> list[dict]:
     ejecutivo_filter = (filters.get("ejecutivo") or "").strip().lower()
     productos_con_ciclo = _products_with_cycle_config(periodo)
     integrantes_grupal = _grupal_members(periodo)
+    multiproducto = _reglas_multiproducto(periodo)
 
     result: list[dict] = []
-    for product in PRODUCT_ORDER:
+    for product in _productos_del_periodo(periodo):
         # La consulta del producto no depende del ejecutivo: se guarda una vez por periodo.
         data = copy.deepcopy(
             cached(
@@ -389,7 +497,9 @@ def get_detail_view(filters: dict) -> list[dict]:
         )
         rows = _expand_grupal(data["rows"], integrantes_grupal.get(product, []))
 
-        if product in ("hipotecario", "consumo"):
+        # Con reglas multiproducto la cartera 'Grupal' solo se mide en su propio bloque.
+        sin_grupal = product != "multiproducto" if multiproducto else product in ("hipotecario", "consumo")
+        if sin_grupal:
             rows = [r for r in rows if (r.get("ejecutivo") or "").strip().lower() != "grupal"]
 
         if ejecutivo_filter:
@@ -405,7 +515,7 @@ def get_detail_view(filters: dict) -> list[dict]:
                 ciclo,
                 {
                     "ciclo": ciclo,
-                    "tramo": _tramo_meta(product, ciclo),
+                    "tramo": _tramo_meta(product, ciclo, periodo),
                     "deuda_asignada": 0.0,
                     "saldo_contenido": 0.0,
                     "meta_contenido_pct": float(row.get("meta_contenido_pct") or 0),
@@ -463,7 +573,8 @@ def get_detail_view(filters: dict) -> list[dict]:
                 row_exec["cumplimiento_final"] = _cap(
                     sum(float(x.get("cumplimiento_meta") or 0) * (float(x.get("ponderador_nivel_1_pct") or 0) / 100.0) for x in ciclos_data)
                 )
-            elif product == "hipotecario":
+            elif product == "hipotecario" and not multiproducto:
+                # Hasta septiembre 2026: el ciclo con mas deuda. Desde octubre pondera como los demas.
                 elegido = max(ciclos_data, key=lambda x: float(x.get("deuda_asignada") or 0))
                 row_exec["cumplimiento_final"] = float(elegido.get("cumplimiento_meta") or 0)
             else:
@@ -957,14 +1068,16 @@ def get_operations_detail_view(filters: dict) -> dict:
 @cached_view
 def get_general_view(filters: dict) -> list[dict]:
     detail = get_detail_view(filters)
+    producto_grupal = _producto_grupal(_period_start(filters.get("periodo")))
     by_exec: dict[str, dict] = {}
 
     for block in detail:
         product = block["producto"]
         for row in block["rows"]:
             ejecutivo = row["ejecutivo"]
-            # Grupal se muestra en la vista general solo asociado a TC (tarjeta).
-            if str(ejecutivo).strip().lower() == "grupal" and product != "tarjeta":
+            # Grupal se muestra en la vista general solo asociado a su producto grupal
+            # (TC hasta septiembre 2026, Multiproducto desde octubre).
+            if str(ejecutivo).strip().lower() == "grupal" and product != producto_grupal:
                 continue
             current = by_exec.setdefault(
                 ejecutivo,
@@ -974,6 +1087,7 @@ def get_general_view(filters: dict) -> list[dict]:
                     "consumo": None,
                     "pyme": None,
                     "tarjeta": None,
+                    "multiproducto": None,
                     "cumplimiento_final": 0.0,
                     "producto_trabajado": "",
                     "tramo_trabajado": "",
@@ -983,24 +1097,43 @@ def get_general_view(filters: dict) -> list[dict]:
             )
 
             current[product] = float(row["cumplimiento_final"])
-            deuda = float(row["deuda_asignada"] or 0)
-            if deuda >= float(current["deuda_referencia"]):
-                current["deuda_referencia"] = deuda
-                current["grupal"] = bool(row.get("grupal"))
-                current["cumplimiento_final"] = float(row["cumplimiento_final"])
-                current["producto_trabajado"] = product
-                # Tarjeta se trabaja completa (Ciclo 0 y Multiciclo), no por tramo.
-                current["tramo_trabajado"] = "Todos" if product == "tarjeta" else row["tramo"]
+            # Se acumula por producto: el ejecutivo puede ver varios ciclos del mismo producto.
+            acc = current.setdefault("_productos", {}).setdefault(
+                product,
+                {"deuda": 0.0, "ciclos": [], "grupal": False, "cumplimiento_final": 0.0},
+            )
+            acc["deuda"] += float(row["deuda_asignada"] or 0)
+            acc["ciclos"].append((int(row["ciclo"]), row["tramo"]))
+            acc["grupal"] = bool(row.get("grupal"))
+            acc["cumplimiento_final"] = float(row["cumplimiento_final"])
+
+    for current in by_exec.values():
+        productos = current.pop("_productos")
+        # Producto trabajado: el de mayor deuda asignada.
+        product, acc = max(productos.items(), key=lambda kv: kv[1]["deuda"])
+        ciclos = sorted(set(acc["ciclos"]))
+        current["producto_trabajado"] = product
+        current["deuda_referencia"] = acc["deuda"]
+        current["grupal"] = acc["grupal"]
+        current["cumplimiento_final"] = acc["cumplimiento_final"]
+        current["_orden_tramo"] = min(TRAMO_ORDER.get(tramo, 99) for _, tramo in ciclos)
+        if product == producto_grupal == "tarjeta":
+            # Hasta septiembre 2026 TC (grupal) se trabaja completo, no por tramo.
+            current["tramo_trabajado"] = "Todos"
+        else:
+            current["tramo_trabajado"] = _tramos_trabajados([tramo for _, tramo in ciclos])
 
     rows = list(by_exec.values())
     rows.sort(
         key=lambda x: (
             GENERAL_PRODUCT_ORDER.get(str(x.get("producto_trabajado") or "").strip().lower(), 99),
-            TRAMO_ORDER.get(str(x.get("tramo_trabajado") or "").strip(), 99),
+            x.get("_orden_tramo", 99),
             -float(x.get("cumplimiento_final") or 0),
             str(x.get("ejecutivo") or ""),
         )
     )
+    for r in rows:
+        r.pop("_orden_tramo", None)
 
     # Los integrantes de un grupal comparten la misma deuda: pesa una sola vez en el total.
     total_deuda = 0.0
@@ -1021,6 +1154,7 @@ def get_general_view(filters: dict) -> list[dict]:
             "consumo": None,
             "pyme": None,
             "tarjeta": None,
+            "multiproducto": None,
             "cumplimiento_final": (total_cumpl / total_deuda) if total_deuda else 0.0,
             "producto_trabajado": "",
             "tramo_trabajado": "",

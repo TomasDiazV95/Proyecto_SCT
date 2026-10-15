@@ -1,4 +1,4 @@
-"""KPI Operacional: lee las tablas consolidadas que arma dbo.sp_kpi_operacional_cargar (sql/007_kpi_operacional.sql).
+"""KPI Operacional: lee las tablas consolidadas que arma dbo.sp_kpi_operacional_cargar (SQL/007_kpi_operacional.sql).
 
 Sin filtro de periodo: compara el mes en curso (hasta hoy) con el cierre de los 3 meses anteriores
 (la ultima informacion disponible de cada mes).
