@@ -3,11 +3,11 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { modulePanels } from "./app/moduleCatalog";
 import { modulePages } from "./app/routes";
 import ProtectedRoute from "./auth/ProtectedRoute";
-import ChangePasswordPage from "./pages/ChangePasswordPage";
-import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import HomePage from "./pages/HomePage";
-import LoginPage from "./pages/LoginPage";
-import PanelPage from "./pages/PanelPage";
+import ChangePasswordPage from "./pages/auth/ChangePasswordPage";
+import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import HomePage from "./pages/inicio/HomePage";
+import LoginPage from "./pages/auth/LoginPage";
+import PanelPage from "./pages/inicio/PanelPage";
 
 // Direccion antigua de un modulo: lleva a la nueva conservando los parametros.
 function LegacyRedirect({ to }) {

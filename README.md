@@ -207,11 +207,14 @@ Comportamiento del job diario:
 
 ## Scripts SQL
 
-- `sql\bit_setup.sql`: crea tablas base, indices y vista `dbo.vw_BIT_data` para BIT.
-- `sql\bit_metas_template.sql`: plantilla mensual para cargar metas BIT por tramo.
-- `sql\gm_metas_mensuales.sql`: crea/actualiza metas y ponderadores mensuales de GM.
+Todos los scripts SQL viven en la carpeta `SQL\`, que no se versiona (esta en `.gitignore`): cada equipo mantiene su copia local.
 
-Antes de usar el modulo BIT, ejecutar `sql\bit_setup.sql` en la base destino y luego cargar metas con `sql\bit_metas_template.sql`.
+- `SQL\001_...` a `SQL\008_...`: estructura de la web (autenticacion, roles y modulos, indices, KPI Operacional, paneles).
+- `SQL\bit_setup.sql`: crea tablas base, indices y vista `dbo.vw_BIT_data` para BIT.
+- `SQL\bit_metas_template.sql`: plantilla mensual para cargar metas BIT por tramo.
+- `SQL\gm_metas_mensuales.sql`: crea/actualiza metas y ponderadores mensuales de GM.
+
+Antes de usar el modulo BIT, ejecutar `SQL\bit_setup.sql` en la base destino y luego cargar metas con `SQL\bit_metas_template.sql`.
 
 ## Tablas y vistas relevantes
 

@@ -1,6 +1,6 @@
 """Ejecuta la carga del KPI Operacional (dbo.sp_kpi_operacional_cargar).
 
-Toda la logica vive en el stored procedure (WEB/backend/sql/007_kpi_operacional.sql);
+Toda la logica vive en el stored procedure (SQL/007_kpi_operacional.sql);
 este script solo lo invoca para poder encadenarlo con los demas ETL.
 
 Uso:

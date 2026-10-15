@@ -8,11 +8,12 @@ dist/
 downloads/
 WEB/automation/logs/
 *.log
-sql/create_dashboard_view.sql
 archivos/
 !.env.example
 /Logs
-/sql
+
+# Scripts SQL: todos viven en SQL/ y no se versionan
+/SQL/
 
 # Skills descargadas para agentes (npx skills add): se instalan en cada equipo, no se versionan
 /.agents/
