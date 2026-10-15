@@ -151,7 +151,7 @@ export default function BitCastigoPage() {
             <tr key={`bit-castigo-${row.ejecutivo}-${idx}`}>
               <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
               <td className="pd-num pd-group-start">${formatMoney(row.monto_asignado)}</td>
-              <td className="pd-num">${formatMoney(row.recupero_asignado)}</td>
+              <td className="pd-num">${formatMoney(row.monto_contenido)}</td>
               <td className="pd-num">{formatEfectividad(row)}</td>
               <td className="pd-num">{Number(row.nuevos_convenios || 0)}</td>
               <td className="pd-num" title={`${row.ruts_gestionados || 0} de ${row.ruts_asignados || 0} RUT`}>{formatCobertura(row)}</td>
@@ -164,7 +164,7 @@ export default function BitCastigoPage() {
             <tr className="pd-row-total">
               <td>{totalRow.ejecutivo}</td>
               <td className="pd-num pd-group-start">${formatMoney(totalRow.monto_asignado)}</td>
-              <td className="pd-num">${formatMoney(totalRow.recupero_asignado)}</td>
+              <td className="pd-num">${formatMoney(totalRow.monto_contenido)}</td>
               <td className="pd-num">{formatEfectividad(totalRow)}</td>
               <td className="pd-num">{Number(totalRow.nuevos_convenios || 0)}</td>
               <td className="pd-num" title={`${totalRow.ruts_gestionados || 0} de ${totalRow.ruts_asignados || 0} RUT`}>{formatCobertura(totalRow)}</td>
