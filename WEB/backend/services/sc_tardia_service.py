@@ -639,12 +639,6 @@ def get_general_view(filters: dict) -> list[dict]:
     """Una fila por ejecutivo con el cumplimiento de cada bloque y el cumplimiento final."""
     rows = _rows_from_query(filters)
 
-    # Ponderador nivel 2 de cada bloque de mora tardia (es el mismo para todos los ejecutivos del mes).
-    peso_nivel_2: dict[str, float] = {}
-    for row in rows:
-        if row.get("pond_n2") is not None:
-            peso_nivel_2[row["bloque"]] = _num(row["pond_n2"])
-
     grouped: dict[str, dict] = {}
     for row in rows:
         current = grouped.setdefault(
@@ -692,17 +686,12 @@ def get_general_view(filters: dict) -> list[dict]:
     for item in grouped.values():
         bloques = {suma["bloque"]: _row_compliance(suma) for suma in item["sumas"].values()}
         activos = item["bloques_activos"]
-        mora_blocks = [b for b in MORA_TARDIA_BLOCKS if b in activos or b in bloques]
+        # Solo los ciclos que el ejecutivo trae en la cartera: un bloque asignado sin datos no entra como 0.
+        mora_blocks = [b for b in MORA_TARDIA_BLOCKS if b in bloques]
         tiene_castigo = CASTIGO_TOTAL_BLOCK in activos or CASTIGO_TOTAL_BLOCK in bloques
 
-        # Mora tardia = promedio de los bloques activos ponderado por nivel 2 (se re-normaliza sobre los activos).
-        peso_total = sum(peso_nivel_2.get(b, 0.0) for b in mora_blocks)
-        if not mora_blocks:
-            mora = 0.0
-        elif peso_total > 0:
-            mora = sum(bloques.get(b, 0.0) * peso_nivel_2.get(b, 0.0) for b in mora_blocks) / peso_total
-        else:
-            mora = sum(bloques.get(b, 0.0) for b in mora_blocks) / len(mora_blocks)
+        # Mora tardia = promedio simple de los ciclos que ve el ejecutivo (no pondera por nivel 2).
+        mora = sum(bloques.get(b, 0.0) for b in mora_blocks) / len(mora_blocks) if mora_blocks else 0.0
         castigo = bloques.get(CASTIGO_TOTAL_BLOCK, 0.0)
 
         pesos = item["ponderadores_nivel_1"]
