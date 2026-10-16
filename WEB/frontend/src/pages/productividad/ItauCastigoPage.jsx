@@ -238,12 +238,17 @@ export default function ItauCastigoPage() {
 
   function renderGeneralTable() {
     const groupClass = productoTab === "Phoenix" ? 1 : 2;
-    // Phoenix MCV suma la contencion cruce vigente.
+    // Phoenix MCV suma la contencion cruce vigente; Phoenix, el efectivo recuperado stock.
     const esMcv = productoTab === "Phoenix MCV";
-    const columnas = ["Deuda Asignada", "Recupero", "% Efectividad", "% Cobertura gestión 4° día hábil"];
+    const columnas = ["Deuda Asignada", "Recupero"];
+    if (!esMcv) {
+      columnas.push("Efectivo recuperado stock");
+    }
+    columnas.push("% Efectividad", "% Cobertura gestión 4° día hábil");
     if (esMcv) {
       columnas.push("% Contención cruce vigente");
     }
+    const stockTitle = "Recupero solo de los RUT Phoenix, sin Phoenix MCV";
     return (
       <>
         <div className="pd-card-toolbar">
@@ -270,6 +275,7 @@ export default function ItauCastigoPage() {
                   <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                   <td className="pd-num pd-group-start">${formatMoney(row.monto_asignado)}</td>
                   <td className="pd-num">${formatMoney(row.recupero_meta)}</td>
+                  {!esMcv && <td className="pd-num" title={stockTitle}>${formatMoney(row.recupero_total)}</td>}
                   <td className="pd-num" title={efectividadTitle(row)}>{formatEfectividad(row)}</td>
                   <td className="pd-num" title={`${row.ruts_gestionados || 0} de ${row.ruts_asignados || 0} RUT`}>{formatCobertura(row)}</td>
                   {esMcv && <td className="pd-num" title={contencionCruceTitle(row)}>{formatContencionCruce(row)}</td>}
@@ -284,6 +290,7 @@ export default function ItauCastigoPage() {
                   <td>{tabTotal.ejecutivo}</td>
                   <td className="pd-num pd-group-start">${formatMoney(tabTotal.monto_asignado)}</td>
                   <td className="pd-num">${formatMoney(tabTotal.recupero_meta)}</td>
+                  {!esMcv && <td className="pd-num" title={stockTitle}>${formatMoney(tabTotal.recupero_total)}</td>}
                   <td className="pd-num" title={efectividadTitle(tabTotal)}>{formatEfectividad(tabTotal)}</td>
                   <td className="pd-num" title={`${tabTotal.ruts_gestionados} de ${tabTotal.ruts_asignados} RUT`}>{formatCobertura(tabTotal)}</td>
                   {esMcv && <td className="pd-num" title={contencionCruceTitle(tabTotal)}>{formatContencionCruce(tabTotal)}</td>}

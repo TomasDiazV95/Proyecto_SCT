@@ -20,6 +20,9 @@ RESULTADO_OFICIAL_BUCKET = {
     },
 }
 
+# Periodos en que el cumplimiento individual es solo el bucket propio: el 91 a 150 no pondera.
+SIN_TRAMO_91_150 = {"2026-09-01"}
+
 
 def _clean_text(value) -> str:
     if value is None:
@@ -217,6 +220,8 @@ def get_cycle_view(filters: dict) -> list[dict]:
         pond_norm = float(row.get("ponderador_normalizacion_pct") or 0)
         # Ponderador 2: peso del tramo en el cumplimiento individual; NULL si el mes no lo tiene cargado.
         pond_tramo = row.get("ponderador_tramo_pct")
+        if periodo in SIN_TRAMO_91_150:
+            pond_tramo = 0.0 if row.get("bucket") == "91 a 150" else 100.0
 
         cumpl_cont = _cumpl_variable(pct_cont, meta_cont)
         cumpl_norm = _cumpl_variable(pct_norm, meta_norm)
