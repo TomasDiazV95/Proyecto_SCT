@@ -761,9 +761,11 @@ def _load_filter_lists() -> dict:
     sql = f"""
     SET NOCOUNT ON;
 
-    SELECT DISTINCT CONVERT(char(10), fecha, 126) AS valor
+    -- Solo la ultima fecha de cada mes.
+    SELECT CONVERT(char(10), MAX(fecha), 126) AS valor
     FROM dbo.vw_stc_sabana_avance
     WHERE fecha IS NOT NULL
+    GROUP BY YEAR(fecha), MONTH(fecha)
     ORDER BY valor DESC;
 
     SELECT DISTINCT {_zona_sql("zona")} AS valor

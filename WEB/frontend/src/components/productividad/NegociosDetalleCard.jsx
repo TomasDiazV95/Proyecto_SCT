@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchNegociosDetalle } from "../../api";
-import { EmptyRow, LoadingState, SectionCard } from "./ui";
+import { EmptyRow, LoadingState, SectionCard, opcionesEjecutivoDetalle } from "./ui";
 import useDataVersion from "../../hooks/useDataVersion";
 
 // Pestaña Detalle negocios: una fila por operacion del mes (OP, ejecutivo, tipo de negocio),
@@ -36,7 +36,7 @@ export default function NegociosDetalleCard({ modulo, periodo, ejecutivo, export
     filas.forEach((fila) => vistos.set(fila.producto, fila.producto_nombre));
     return Array.from(vistos, ([codigo, nombre]) => ({ codigo, nombre }));
   }, [filas]);
-  const ejecutivos = useMemo(() => Array.from(new Set(filas.map((fila) => fila.ejecutivo))).sort(), [filas]);
+  const ejecutivos = useMemo(() => opcionesEjecutivoDetalle(filas), [filas]);
 
   // Si el filtro elegido ya no existe en el mes consultado, se limpia.
   useEffect(() => {

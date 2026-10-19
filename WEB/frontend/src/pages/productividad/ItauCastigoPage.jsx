@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { fetchItauCastigoFilters, fetchItauCastigoGeneral } from "../../api";
-import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
+import { fetchItauCastigoFilters, fetchItauCastigoGeneral, fetchItauCastigoNuevosConvenios } from "../../api";
+import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, EjecutivoDetalleFilter, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
@@ -74,6 +74,9 @@ function cumplimientoFraccionClass(value) {
 }
 
 
+const CONVENIOS_TABS = ["Nuevos convenios", "Detalle convenios"];
+
+
 export default function ItauCastigoPage() {
   const dataVersion = useDataVersion();
   const [productoTab, setProductoTab] = useState("Phoenix");
@@ -84,6 +87,9 @@ export default function ItauCastigoPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [metasOpen, setMetasOpen] = useState(false);
+  const [convenios, setConvenios] = useState(null);
+  const [conveniosLoading, setConveniosLoading] = useState(false);
+  const [ejecutivoDetalle, setEjecutivoDetalle] = useState("");
   const { user, logout } = useAuth();
   
   useEffect(() => {
@@ -140,6 +146,22 @@ export default function ItauCastigoPage() {
     loadData();
   }, [filters, dataVersion]);
 
+  // Pestañas Nuevos convenios y su detalle: cargan sus propios datos solo cuando estan abiertas.
+  useEffect(() => {
+    if (!filters.fecha_carga || !CONVENIOS_TABS.includes(productoTab)) {
+      return undefined;
+    }
+    let vigente = true;
+    setConveniosLoading(true);
+    fetchItauCastigoNuevosConvenios(filters)
+      .then((data) => vigente && setConvenios(data))
+      .catch((err) => vigente && setError(err.message))
+      .finally(() => vigente && setConveniosLoading(false));
+    return () => {
+      vigente = false;
+    };
+  }, [filters, productoTab, dataVersion]);
+
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
@@ -147,8 +169,10 @@ export default function ItauCastigoPage() {
   // Pestañas Phoenix / Phoenix MCV: cada ejecutivo va en el cobrador donde tiene mas RUT; el resto de los RUT
   // de ese cobrador (otros ejecutivos o sin carterizar) queda en la fila grupal PHOENIX.
   const productoTabs = [
-    { value: "Phoenix", label: "Phoenix" },
-    { value: "Phoenix MCV", label: "Phoenix MCV" },
+    { value: "Phoenix", label: "Phoenix", icon: "bi-grid" },
+    { value: "Phoenix MCV", label: "Phoenix MCV", icon: "bi-layers" },
+    { value: "Nuevos convenios", label: "Nuevos convenios", icon: "bi-briefcase" },
+    { value: "Detalle convenios", label: "Detalle convenios", icon: "bi-list-ul" },
   ];
 
   const tabRows = useMemo(
@@ -251,10 +275,6 @@ export default function ItauCastigoPage() {
     const stockTitle = "Recupero solo de los RUT Phoenix, sin Phoenix MCV";
     return (
       <>
-        <div className="pd-card-toolbar">
-          <span className="pd-label">Producto</span>
-          <Segmented value={productoTab} onChange={setProductoTab} options={productoTabs} />
-        </div>
         <div className="pd-table-scroll">
           <table className="pd-table">
             <thead>
@@ -306,6 +326,106 @@ export default function ItauCastigoPage() {
     );
   }
 
+  // Nuevos convenios del mes: RUT Phoenix en la asignacion del mes que pasan a Phoenix MCV en la del mes siguiente.
+  // Abono inicial = recupero del RUT en el ultimo archivo de recupero del mes. Ejecutivo segun el carterizado del mes.
+  // Detalle de nuevos convenios: un RUT por fila, con los datos del convenio segun la asignacion del mes siguiente.
+  function renderDetalleConvenios() {
+    const mes = formatDate(convenios?.periodo).slice(3);
+    const mesSiguiente = formatDate(convenios?.periodo_siguiente).slice(3);
+    const filas = (convenios?.detalle || []).filter((row) => !ejecutivoDetalle || row.ejecutivo === ejecutivoDetalle);
+    if (conveniosLoading || !convenios) {
+      return <LoadingState />;
+    }
+    if (!convenios.asignacion_siguiente_cargada) {
+      return (
+        <div className="alert alert-light border m-3">
+          Aún no se carga la asignación de castigo de {mesSiguiente}: los nuevos convenios de {mes} se ven cuando esté cargada.
+        </div>
+      );
+    }
+    return (
+      <div className="pd-table-scroll">
+        <table className="pd-table pd-table-compact pd-table-plain">
+          <thead>
+            <tr>
+              <th>Ejecutivo</th>
+              <th>RUT</th>
+              <th>Cliente</th>
+              <th>COBRADOR_VISTA</th>
+              <th className="pd-num">Saldo castigado</th>
+              <th className="pd-num">Abono inicial</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((row) => (
+              <tr key={`ncd-${row.rut}`}>
+                <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                <td>{row.rut}</td>
+                <td>{row.nombre}</td>
+                <td>{row.cobrador_vista}</td>
+                <td className="pd-num">${formatMoney(row.saldo_castigado)}</td>
+                <td className="pd-num pd-cell-strong">${formatMoney(row.abono_inicial)}</td>
+              </tr>
+            ))}
+            {!filas.length && <EmptyRow colSpan={6} text={`No hay nuevos convenios en ${mes}.`} />}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  function renderNuevosConvenios() {
+    const mes = formatDate(convenios?.periodo).slice(3);
+    const mesSiguiente = formatDate(convenios?.periodo_siguiente).slice(3);
+    const filas = convenios?.rows || [];
+    return (
+      <>
+        {conveniosLoading || !convenios ? (
+          <LoadingState />
+        ) : !convenios.asignacion_siguiente_cargada ? (
+          <div className="alert alert-light border m-3">
+            Aún no se carga la asignación de castigo de {mesSiguiente}: los nuevos convenios de {mes} se ven cuando esté cargada.
+          </div>
+        ) : (
+          <>
+            <p className="pd-small pd-muted px-3 pt-2 mb-0">
+              RUT Phoenix en la asignación de {mes} que pasan a Phoenix MCV en {mesSiguiente}. Abono inicial = recupero del{" "}
+              {formatDate(convenios.fecha_recupero) || "N/D"}.
+            </p>
+            <div className="pd-table-scroll">
+              <table className="pd-table">
+                <thead>
+                  <tr>
+                    <th>Ejecutivo</th>
+                    <th className="pd-num pd-th-key">Nuevos convenios</th>
+                    <th className="pd-num">Abono inicial</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((row) => (
+                    <tr key={`nc-${row.ejecutivo}`}>
+                      <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                      <td className="pd-num pd-cell-strong">{row.nuevos_convenios}</td>
+                      <td className="pd-num">${formatMoney(row.abono_inicial)}</td>
+                    </tr>
+                  ))}
+                  {!filas.length && <EmptyRow colSpan={3} text={`No hay nuevos convenios en ${mes}.`} />}
+                  {filas.length > 0 && (
+                    <tr className="pd-row-total">
+                      <td>Total general</td>
+                      <td className="pd-num">{convenios.total.nuevos_convenios}</td>
+                      <td className="pd-num">${formatMoney(convenios.total.abono_inicial)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
+
   return (
     <div className="pd-page">
       <PageHeader
@@ -346,9 +466,28 @@ export default function ItauCastigoPage() {
 
       {renderMetasDrawer()}
 
-      <SectionCard exportName={exportFileName("Itau-Castigo", productoTab, filters.fecha_carga)} bodyClassName="" footer={<StatusLegend items={cumplimientoLegendItems} />}>
-        {loading ? <LoadingState /> : renderGeneralTable()}
-      </SectionCard>
+      {/* Pestañas como en SC Tardia: Phoenix, Phoenix MCV y Nuevos convenios. */}
+      <div className="pd-tabbed">
+        <ViewTabs value={productoTab} onChange={setProductoTab} options={productoTabs} />
+        {productoTab === "Nuevos convenios" ? (
+          <SectionCard exportName={exportFileName("Itau-Castigo", "nuevos-convenios", filters.fecha_carga)} bodyClassName="">
+            {renderNuevosConvenios()}
+          </SectionCard>
+        ) : productoTab === "Detalle convenios" ? (
+          <SectionCard
+            title="Detalle de nuevos convenios"
+            actions={<EjecutivoDetalleFilter filas={convenios?.detalle} value={ejecutivoDetalle} onChange={setEjecutivoDetalle} />}
+            exportName={exportFileName("Itau-Castigo", "nuevos-convenios-detalle", filters.fecha_carga)}
+            bodyClassName=""
+          >
+            {renderDetalleConvenios()}
+          </SectionCard>
+        ) : (
+          <SectionCard exportName={exportFileName("Itau-Castigo", productoTab, filters.fecha_carga)} bodyClassName="" footer={<StatusLegend items={cumplimientoLegendItems} />}>
+            {loading ? <LoadingState /> : renderGeneralTable()}
+          </SectionCard>
+        )}
+      </div>
     </div>
   );
 }

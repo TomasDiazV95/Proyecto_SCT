@@ -408,7 +408,8 @@ def _atribucion_sql(
         p.recupero,
         p.deuda,
         g.usuario,
-        CASE WHEN g.pago_id IS NULL THEN NULL ELSE {_ejecutivo_expr("g.usuario", ejecutivas)} END AS ejecutivo,
+        -- Pago sin gestion del RUT en el mes: se lo lleva PHOENIX (igual que un usuario sin ejecutiva).
+        CASE WHEN g.pago_id IS NULL THEN 'PHOENIX' ELSE {_ejecutivo_expr("g.usuario", ejecutivas)} END AS ejecutivo,
         g.contacto,
         g.respuesta,
         g.fecha_gestion,
@@ -724,7 +725,7 @@ def get_negocios(filters: dict) -> dict:
 
     SELECT COUNT(*) AS q_negocios, COALESCE(SUM(b.recupero), 0) AS monto
     FROM #base b
-    WHERE b.ejecutivo IS NULL;
+    WHERE b.criterio = 'SIN GESTION';
     """
     rows, detalle, sin_gestion = run_query_sets(sql, tuple(base_params + params + params))[-3:]
     return {
@@ -828,7 +829,8 @@ def get_validacion(periodo: str) -> dict:
         SUM(CASE WHEN criterio = 'GESTION DESPUES DEL PAGO' THEN recupero ELSE 0 END) AS recupero_gestion_despues,
         SUM(CASE WHEN criterio = 'SIN GESTION' THEN 1 ELSE 0 END) AS pagos_sin_gestion,
         SUM(CASE WHEN criterio = 'SIN GESTION' THEN recupero ELSE 0 END) AS recupero_sin_gestion,
-        SUM(CASE WHEN criterio <> 'SIN GESTION' THEN recupero ELSE 0 END) AS recupero_incluido_resumen,
+        -- Los pagos sin gestion tambien entran al resumen (van a PHOENIX).
+        SUM(recupero) AS recupero_incluido_resumen,
         SUM(CASE WHEN fecha_pago IS NULL THEN 1 ELSE 0 END) AS pagos_sin_fecha_pago
     FROM #base
     """

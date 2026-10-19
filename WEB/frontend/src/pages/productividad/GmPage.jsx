@@ -2,6 +2,7 @@ import React, { Fragment, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters, fetchGmGeneral } from "../../api";
 import NegociosCard from "../../components/productividad/NegociosCard";
+import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
@@ -100,8 +101,8 @@ export default function GmPage() {
 
   useEffect(() => {
     async function loadData() {
-      // La pestaña Negocios carga sus propios datos (NegociosCard).
-      if (!filters.periodo || view === "negocios") {
+      // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
+      if (!filters.periodo || view === "negocios" || view === "negocios-detalle") {
         return;
       }
 
@@ -449,15 +450,18 @@ export default function GmPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "general", label: "Vista General" },
-            { value: "productividad", label: "Productividad" },
-            { value: "bucket", label: "Bucket" },
-            { value: "detalle", label: "Detalle" },
-            { value: "negocios", label: "Negocios" },
+            { value: "general", label: "Vista General", icon: "bi-grid" },
+            { value: "productividad", label: "Productividad", icon: "bi-bar-chart" },
+            { value: "bucket", label: "Bucket", icon: "bi-bucket" },
+            { value: "detalle", label: "Detalle", icon: "bi-table" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
           ]}
         />
         {view === "negocios" ? (
           <NegociosCard modulo="gm" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("GM", "negocios", formatPeriodo(filters.periodo))} />
+        ) : view === "negocios-detalle" ? (
+          <NegociosDetalleCard modulo="gm" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("GM", "negocios-detalle", formatPeriodo(filters.periodo))} />
         ) : (
         <SectionCard
           exportName={exportFileName("GM", view === "productividad" ? `bucket ${bucketTab}` : view, formatPeriodo(filters.periodo))}

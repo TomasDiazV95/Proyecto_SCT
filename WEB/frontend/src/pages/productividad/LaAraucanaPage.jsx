@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 
 import { downloadLaAraucanaExcel, fetchLaAraucanaDetalle, fetchLaAraucanaFilters, fetchLaAraucanaNegocios, fetchLaAraucanaResumen } from "../../api";
-import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
+import { EjecutivoDetalleFilter, EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
 function formatMoney(value) {
@@ -155,11 +155,13 @@ export default function LaAraucanaPage() {
   const [error, setError] = useState("");
   const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
   const rows = porEjecutivo(allRows, selected.ejecutivo);
+  const [ejecutivoDetalle, setEjecutivoDetalle] = useState("");
   const negocios = {
     ...allNegocios,
     rows: porEjecutivo(allNegocios.rows, selected.ejecutivo),
     detalle: porEjecutivo(allNegocios.detalle, selected.ejecutivo),
   };
+  const detalleVisible = negocios.detalle.filter((row) => !ejecutivoDetalle || row.ejecutivo === ejecutivoDetalle);
   const executiveRows = pivotRows(rows);
   const totalCarteras = totalByCartera(rows);
   const totalAporteFinal = executiveRows.reduce((acc, row) => acc + row.cumplimiento, 0);
@@ -221,9 +223,11 @@ export default function LaAraucanaPage() {
       return;
     }
     const periodo = selected.periodo;
-    const key = `${view}|${periodo}`;
+    // Detalle negocios usa los mismos datos que Negocios.
+    const vistaDatos = view === "negocios-detalle" ? "negocios" : view;
+    const key = `${vistaDatos}|${periodo}`;
     const mostrar = (data) => {
-      if (view === "negocios") {
+      if (vistaDatos === "negocios") {
         setAllNegocios({ rows: data.rows || [], detalle: data.detalle || [], sin_gestion: data.sin_gestion || null });
       } else {
         setAllRows(data.rows || []);
@@ -240,7 +244,7 @@ export default function LaAraucanaPage() {
     async function loadResumen() {
       setLoading(true);
       try {
-        const data = view === "negocios" ? await fetchLaAraucanaNegocios({ periodo }) : await fetchLaAraucanaResumen({ periodo, cartera_crm: 531 });
+        const data = vistaDatos === "negocios" ? await fetchLaAraucanaNegocios({ periodo }) : await fetchLaAraucanaResumen({ periodo, cartera_crm: 531 });
         cache.current.set(key, data);
         if (!cancelled) {
           mostrar(data);
@@ -463,9 +467,10 @@ export default function LaAraucanaPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "productividad", label: "Productividad" },
-            { value: "negocios", label: "Negocios" },
-            { value: "detalle", label: "Detalle" },
+            { value: "productividad", label: "Productividad", icon: "bi-grid" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
+            { value: "detalle", label: "Detalle", icon: "bi-table" },
           ]}
         />
       {view === "productividad" && (
@@ -624,14 +629,14 @@ export default function LaAraucanaPage() {
         )}
       </SectionCard>
       )}
-      </div>
-
-      {view === "negocios" && !loading && (
+      {view === "negocios-detalle" && (
         <SectionCard
           title="Detalle de negocios"
+          actions={<EjecutivoDetalleFilter filas={negocios.detalle} value={ejecutivoDetalle} onChange={setEjecutivoDetalle} />}
           exportName={exportFileName("La-Araucana", "Negocios-detalle", selected.periodo)}
           bodyClassName=""
         >
+          {loading ? <LoadingState /> : (
           <div className="pd-table-scroll">
             <table className="pd-table pd-table-compact pd-table-plain">
               <thead>
@@ -647,7 +652,7 @@ export default function LaAraucanaPage() {
                 </tr>
               </thead>
               <tbody>
-                {negocios.detalle.map((row, idx) => (
+                {detalleVisible.map((row, idx) => (
                   <tr key={`${row.contrato}-${idx}`}>
                     <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                     <td>{row.contrato}</td>
@@ -659,12 +664,15 @@ export default function LaAraucanaPage() {
                     <td>{TRAMO_LABEL[row.tramo_deuda] || ""}</td>
                   </tr>
                 ))}
-                {!negocios.detalle.length && <EmptyRow colSpan={8} />}
+                {!detalleVisible.length && <EmptyRow colSpan={8} />}
               </tbody>
             </table>
           </div>
+          )}
         </SectionCard>
       )}
+      </div>
+
     </div>
   );
 }

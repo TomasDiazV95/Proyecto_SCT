@@ -106,7 +106,10 @@ WITH carterizado AS (
         END AS Producto,
         CAST(b.FASE_PROY_MAX AS int) AS Fase,
         COALESCE(CAST(b.SALDO_INI AS float), 0) AS SALDO_INI,
-        COALESCE(CAST(b.SALDO_CONT AS float), 0) AS SALDO_CONT
+        COALESCE(CAST(b.SALDO_CONT AS float), 0) AS SALDO_CONT,
+        b.OPER,
+        b.NOMBRE,
+        COALESCE(CAST(b.RENE_MES AS int), 0) AS RENE_MES
     FROM dbo.contencion_itau_vencida b
     -- HASH: sin el hint SQL Server recalcula el carterizado por cada fila de la contencion (~20 s).
     LEFT HASH JOIN carterizado car
@@ -181,10 +184,12 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
         r["fecha_carga"]
         for r in run_query(
             """
-            SELECT DISTINCT CONVERT(char(10), fecha_carga, 126) AS fecha_carga
+            -- Solo la ultima carga de cada mes.
+            SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS fecha_carga
             FROM dbo.contencion_itau_vencida
             WHERE fecha_carga IS NOT NULL
               AND GESTOR = ?
+            GROUP BY YEAR(fecha_carga), MONTH(fecha_carga)
             ORDER BY fecha_carga DESC
             """,
             (GESTOR_PHOENIX,),
@@ -295,6 +300,80 @@ def _result(nombre: str, casos: int, acc: dict, metas: dict) -> dict:
     return out
 
 
+# Cobertura Terreno (informativa, no pondera): % de RUT de Terreno Prejudicial con visita en terreno previa al pago.
+META_COBERTURA_TERRENO = 0.8
+# Cartera Itau Vencida en el CRM de gestiones (dbo.tmp_GEST_CRM).
+CRM_CARTERA = 523
+# Canales de dbo.kpi_accion_canal que validan lo contenido (cualquier llamada, incluido el discador, o visita).
+CANALES_GESTION_CONTENCION = ("LLAMADA", "TERRENO")
+
+
+def _cobertura_terreno(periodo: str, fecha_carga: str, ejecutivo: str = "") -> dict[str, tuple[int, int]]:
+    """{ejecutivo: (ruts, ruts_cubiertos)} sobre todos los RUT Terreno Prejudicial de la contencion, cualquier fase.
+    Un RUT esta cubierto si tuvo una gestion TERRENO en el mes antes de pagar. La fecha de pago es la primera carga
+    de contencion del mes en que el RUT aparece con saldo contenido; si aun no paga, vale cualquier visita hasta la fecha."""
+    cte_sql = BASE_CTE.replace("/*MEDIBLES*/", f"AND UPPER(LTRIM(RTRIM(b.CANAL))) IN ({_in_list(CANALES_NEGOCIOS)})")
+    params: list = [periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga]
+    filter_sql = ""
+    if ejecutivo:
+        filter_sql = "WHERE UPPER(u.Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
+        params.append(ejecutivo)
+    sql = (
+        cte_sql
+        + f""", univ AS (
+        SELECT DISTINCT Ejecutivo, RUT FROM base
+    ), pago AS (
+        SELECT RUT, MIN(fecha_carga) AS fecha_pago
+        FROM (
+            SELECT RUT, fecha_carga
+            FROM dbo.contencion_itau_vencida
+            WHERE fecha_carga >= ?
+              AND fecha_carga <= ?
+              AND GESTOR = ?
+              AND UPPER(LTRIM(RTRIM(CANAL))) IN ({_in_list(CANALES_NEGOCIOS)})
+            GROUP BY RUT, fecha_carga
+            HAVING SUM(COALESCE(CAST(SALDO_CONT AS float), 0)) > 0
+        ) x
+        GROUP BY RUT
+    ), terreno AS (
+        -- Basta con la primera visita del mes: si es anterior al pago, el RUT esta cubierto.
+        SELECT TRY_CAST(g.rut AS bigint) AS RUT, MIN(CAST(g.GestionFecha AS date)) AS primera_visita
+        FROM dbo.tmp_GEST_CRM g
+        INNER JOIN dbo.kpi_accion_canal ac
+            ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
+           AND ac.canal = 'TERRENO'
+        WHERE g.cartera = {CRM_CARTERA}
+          AND g.GestionFecha >= ?
+          AND g.GestionFecha <= ?
+        GROUP BY TRY_CAST(g.rut AS bigint)
+    )
+    SELECT
+        u.Ejecutivo,
+        COUNT(*) AS Ruts,
+        SUM(CASE WHEN t.RUT IS NOT NULL AND (p.fecha_pago IS NULL OR t.primera_visita < p.fecha_pago) THEN 1 ELSE 0 END) AS Cubiertos
+    FROM univ u
+    LEFT JOIN pago p
+        ON p.RUT = u.RUT
+    LEFT JOIN terreno t
+        ON t.RUT = u.RUT
+    {filter_sql}
+    GROUP BY u.Ejecutivo
+    """
+    )
+    return {
+        (row.get("Ejecutivo") or DEFAULT_EXECUTIVE): (int(row.get("Ruts") or 0), int(row.get("Cubiertos") or 0))
+        for row in run_query(sql, tuple(params))
+    }
+
+
+def _cobertura_values(ruts: int, cubiertos: int) -> dict:
+    return {
+        "cobertura_ruts": ruts,
+        "cobertura_cubiertos": cubiertos,
+        "cobertura_pct": _safe_div(cubiertos, ruts) if ruts else None,
+    }
+
+
 @cached_view
 def get_general(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
@@ -303,25 +382,58 @@ def get_general(filters: dict) -> dict:
 
     filtros_medibles = _load_filtros_medibles(periodo)
     cte_sql, params = _base_cte(periodo, fecha_carga, filtros_medibles)
+    params += [periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga]
     filter_sql = ""
     if ejecutivo:
-        filter_sql = "WHERE UPPER(Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
+        filter_sql = "WHERE UPPER(b.Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
         params.append(ejecutivo)
 
+    # Lo contenido solo cuenta si el RUT tuvo una gestion telefonica o en terreno en el mes antes de pagar.
+    # Sin contenido valido el caso sigue en la meta (saldo inicial) con contenido 0. La fecha de pago es la
+    # primera carga de contencion del mes en que el RUT aparece con saldo contenido.
     sql = (
         cte_sql
-        + f"""
+        + f""", pago AS (
+        SELECT RUT, MIN(fecha_carga) AS fecha_pago
+        FROM (
+            SELECT RUT, fecha_carga
+            FROM dbo.contencion_itau_vencida
+            WHERE fecha_carga >= ?
+              AND fecha_carga <= ?
+              AND GESTOR = ?
+            GROUP BY RUT, fecha_carga
+            HAVING SUM(COALESCE(CAST(SALDO_CONT AS float), 0)) > 0
+        ) x
+        GROUP BY RUT
+    ), gestion AS (
+        SELECT TRY_CAST(g.rut AS bigint) AS RUT, MIN(CAST(g.GestionFecha AS date)) AS primera_gestion
+        FROM dbo.tmp_GEST_CRM g
+        INNER JOIN dbo.kpi_accion_canal ac
+            ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
+           AND ac.canal IN ({_in_list(CANALES_GESTION_CONTENCION)})
+        WHERE g.cartera = {CRM_CARTERA}
+          AND g.GestionFecha >= ?
+          AND g.GestionFecha <= ?
+        GROUP BY TRY_CAST(g.rut AS bigint)
+    )
     SELECT
-        Ejecutivo,
-        Producto,
-        Fase,
-        RUT,
+        b.Ejecutivo,
+        b.Producto,
+        b.Fase,
+        b.RUT,
         COUNT(*) AS Operaciones,
-        SUM(SALDO_INI) AS Saldo_Ini,
-        SUM(SALDO_CONT) AS Saldo_Cont
-    FROM base
+        SUM(b.SALDO_INI) AS Saldo_Ini,
+        SUM(CASE
+            WHEN ge.primera_gestion IS NOT NULL AND (p.fecha_pago IS NULL OR ge.primera_gestion < p.fecha_pago)
+            THEN b.SALDO_CONT ELSE 0
+        END) AS Saldo_Cont
+    FROM base b
+    LEFT JOIN pago p
+        ON p.RUT = b.RUT
+    LEFT JOIN gestion ge
+        ON ge.RUT = b.RUT
     {filter_sql}
-    GROUP BY Ejecutivo, Producto, Fase, RUT
+    GROUP BY b.Ejecutivo, b.Producto, b.Fase, b.RUT
     """
     )
 
@@ -336,7 +448,20 @@ def get_general(filters: dict) -> dict:
         _add(acc, row, metas)
         _add(total, row, metas)
 
-    rows = [_result(nombre, len(acc["casos"]), acc, metas) for nombre, acc in sorted(por_ejecutivo.items())]
+    # La cobertura se mide sobre todo Terreno Prejudicial: un ejecutivo puede tenerla aunque no tenga casos medibles.
+    cobertura = _cobertura_terreno(periodo, fecha_carga, ejecutivo)
+    for nombre in cobertura:
+        por_ejecutivo.setdefault(nombre, _empty_acc())
+
+    rows = []
+    for nombre, acc in sorted(por_ejecutivo.items()):
+        result = _result(nombre, len(acc["casos"]), acc, metas)
+        result.update(_cobertura_values(*cobertura.get(nombre, (0, 0))))
+        rows.append(result)
+    total_result = _result("Total general", len(total["casos"]), total, metas)
+    total_result.update(
+        _cobertura_values(sum(r for r, _ in cobertura.values()), sum(c for _, c in cobertura.values()))
+    )
     metas_vista = [
         {
             "producto": producto,
@@ -354,6 +479,85 @@ def get_general(filters: dict) -> dict:
         "periodo": periodo,
         "metas": metas_vista,
         "filtros_medibles": filtros_medibles,
+        "meta_cobertura_terreno": META_COBERTURA_TERRENO,
         "rows": rows,
-        "total": _result("Total general", len(total["casos"]), total, metas),
+        "total": total_result,
     }
+
+
+# Canal que define los negocios (renegociaciones) de Itau Vencida; el Call/Contact Center es de Itau Vigente.
+CANALES_NEGOCIOS = ("TERRENO PREJUDICIAL",)
+
+
+def _in_list(values: tuple) -> str:
+    return ", ".join("'{}'".format(str(value).replace("'", "''")) for value in values)
+
+
+def negocios_result(rows: list[dict]) -> dict:
+    """Negocios = operaciones renegociadas en el mes (RENE_MES = 1 en la contencion): resumen por ejecutivo y detalle."""
+
+    def _empty(nombre: str) -> dict:
+        return {"ejecutivo": nombre, "negocios": 0, "ruts": set(), "saldo_ini": 0.0, "saldo_cont": 0.0}
+
+    por_ejecutivo: dict[str, dict] = {}
+    total = _empty("Total general")
+    detalle = []
+    for row in rows:
+        nombre = row.get("Ejecutivo") or DEFAULT_EXECUTIVE
+        acc = por_ejecutivo.setdefault(nombre, _empty(nombre))
+        saldo_ini = float(row.get("SALDO_INI") or 0)
+        saldo_cont = float(row.get("SALDO_CONT") or 0)
+        for target in (acc, total):
+            target["negocios"] += 1
+            target["ruts"].add(row.get("RUT"))
+            target["saldo_ini"] += saldo_ini
+            target["saldo_cont"] += saldo_cont
+        detalle.append(
+            {
+                "ejecutivo": nombre,
+                "rut": str(int(row["RUT"])) if row.get("RUT") is not None else "",
+                "nombre": _clean_text(row.get("NOMBRE")),
+                "operacion": _clean_text(row.get("OPER")),
+                "producto": row.get("Producto"),
+                "fase": row.get("Fase"),
+                "saldo_ini": saldo_ini,
+                "saldo_cont": saldo_cont,
+            }
+        )
+
+    def _out(acc: dict) -> dict:
+        return {**acc, "ruts": len(acc["ruts"])}
+
+    # PHOENIX (lo que no cruza con carterizado o no tiene gestion) va al final de las listas.
+    return {
+        "rows": [_out(acc) for _, acc in sorted(por_ejecutivo.items(), key=lambda item: (item[0] == DEFAULT_EXECUTIVE, item[0]))],
+        "total": _out(total),
+        "detalle": sorted(detalle, key=lambda d: (d["ejecutivo"] == DEFAULT_EXECUTIVE, d["ejecutivo"], d["rut"], d["operacion"])),
+    }
+
+
+@cached_view
+def get_negocios(filters: dict) -> dict:
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    ejecutivo = _clean_text(filters.get("ejecutivo"))
+
+    # Negocios de Vencida = todo el canal Terreno Prejudicial (sin filtro de casos medibles ni de fase).
+    # El ejecutivo sale del carterizado; lo que no cruza queda en PHOENIX.
+    cte_sql = BASE_CTE.replace("/*MEDIBLES*/", f"AND UPPER(LTRIM(RTRIM(b.CANAL))) IN ({_in_list(CANALES_NEGOCIOS)})")
+    params: list = [periodo, fecha_carga, GESTOR_PHOENIX]
+    filter_sql = ""
+    if ejecutivo:
+        filter_sql = "AND UPPER(Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
+        params.append(ejecutivo)
+    rows = run_query(
+        cte_sql
+        + f"""
+    SELECT Ejecutivo, RUT, NOMBRE, OPER, Producto, Fase, SALDO_INI, SALDO_CONT
+    FROM base
+    WHERE RENE_MES = 1
+    {filter_sql}
+    """,
+        tuple(params),
+    )
+    return {"fecha_carga": fecha_carga, "periodo": periodo, **negocios_result(rows)}

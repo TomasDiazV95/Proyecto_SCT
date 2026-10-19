@@ -301,6 +301,14 @@ export async function fetchBitCastigoFilters(periodo = "") {
   return res.json();
 }
 
+export async function fetchBitCastigoNuevosConvenios(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/nuevos-convenios`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el detalle de nuevos convenios de BIT Castigo");
+  }
+  return res.json();
+}
+
 export async function fetchBitCastigoGeneral(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/general`, filters));
   if (!res.ok) {
@@ -342,6 +350,14 @@ export async function fetchItauCastigoProducto(filters) {
   return res.json();
 }
 
+export async function fetchItauCastigoNuevosConvenios(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/nuevos-convenios`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los nuevos convenios de Itaú Castigo");
+  }
+  return res.json();
+}
+
 export async function fetchItauVencidaFilters(fecha_carga = "") {
   const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/filtros`, { fecha_carga }));
   if (!res.ok) {
@@ -370,6 +386,22 @@ export async function fetchItauVigenteGeneral(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vigente/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general de Itaú Vigente");
+  }
+  return res.json();
+}
+
+export async function fetchItauVencidaNegocios(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/negocios`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los negocios de Itaú Vencida");
+  }
+  return res.json();
+}
+
+export async function fetchItauVigenteNegocios(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vigente/negocios`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los negocios de Itaú Vigente");
   }
   return res.json();
 }

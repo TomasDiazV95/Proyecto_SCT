@@ -12,10 +12,13 @@ from services.itau_vencida_service import (
     _clean_text,
     _empty_acc,
     _fases_detalle,
+    _load_filtros_medibles,
+    _medibles_sql,
     _parse_fecha_carga,
     _periodo_from_fecha,
     _producto_values,
     _safe_div,
+    negocios_result,
 )
 
 
@@ -128,12 +131,14 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
     fechas_carga = [
         r["fecha_carga"]
         for r in run_query(
+            # Solo la ultima carga de cada mes: es la foto de cierre (o la mas reciente del mes en curso).
             """
-            SELECT DISTINCT CONVERT(char(10), fecha_carga, 126) AS fecha_carga
+            SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS fecha_carga
             FROM dbo.contencion_itau_vencida
             WHERE fecha_carga IS NOT NULL
               AND GESTOR = ?
-            ORDER BY fecha_carga DESC
+            GROUP BY YEAR(fecha_carga), MONTH(fecha_carga)
+            ORDER BY MAX(fecha_carga) DESC
             """,
             (GESTOR_PHOENIX,),
         )
@@ -179,21 +184,18 @@ def _result(nombre: str, casos: int, acc: dict, metas: dict, castigo: dict | Non
     return out
 
 
-@cached_view
-def get_general(filters: dict) -> dict:
-    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
-    periodo = _periodo_from_fecha(fecha_carga)
-    ejecutivo = _clean_text(filters.get("ejecutivo"))
+def _universo_canal(con_fases: bool = True) -> str:
+    """Universo Itau Vigente dentro de la contencion: Call/Contact Center y, para el cumplimiento, fases 1 a 3."""
+    fases = f"AND b.FASE_PROY_MAX IN ({', '.join(str(fase) for fase in FASES)})" if con_fases else ""
+    return f"{fases} AND UPPER(LTRIM(RTRIM(b.CANAL))) IN ({_in_list(CANALES)})"
 
-    params: list = [periodo, fecha_carga, fecha_carga, GESTOR_PHOENIX]
-    filter_sql = ""
-    if ejecutivo:
-        filter_sql = "WHERE UPPER(Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
-        params.append(ejecutivo)
 
-    # Cada RUT (su saldo inicial y lo contenido) va al ejecutivo con la mejor gestion del mes: primero el peso
-    # de la respuesta y, a igual peso, la mas reciente. Solo cuentan las gestiones de los ejecutivos de Itau Vigente.
-    sql = f"""
+def _base_cte(universo_sql: str | None = None) -> str:
+    """CTE `base` del universo Itau Vigente (o el universo que se indique en universo_sql, cuyos parametros van
+    despues de estos). Parametros: periodo, fecha_carga (gestiones), fecha_carga, GESTOR.
+    Cada RUT (su saldo inicial y lo contenido) va al ejecutivo con la mejor gestion del mes: primero el peso
+    de la respuesta y, a igual peso, la mas reciente. Solo cuentan las gestiones de los ejecutivos de Itau Vigente."""
+    return f"""
     WITH gest AS (
         SELECT
             TRY_CAST(g.rut AS bigint) AS RUT,
@@ -234,16 +236,117 @@ def get_general(filters: dict) -> dict:
             END AS Producto,
             CAST(b.FASE_PROY_MAX AS int) AS Fase,
             COALESCE(CAST(b.SALDO_INI AS float), 0) AS SALDO_INI,
-            COALESCE(CAST(b.SALDO_CONT AS float), 0) AS SALDO_CONT
+            COALESCE(CAST(b.SALDO_CONT AS float), 0) AS SALDO_CONT,
+            b.OPER,
+            b.NOMBRE,
+            COALESCE(CAST(b.RENE_MES AS int), 0) AS RENE_MES
         FROM dbo.contencion_itau_vencida b
         LEFT JOIN mejor_gestion mg
             ON mg.RUT = b.RUT
            AND mg.rn = 1
         WHERE b.fecha_carga = ?
           AND b.GESTOR = ?
-          AND b.FASE_PROY_MAX IN ({", ".join(str(fase) for fase in FASES)})
-          AND UPPER(LTRIM(RTRIM(b.CANAL))) IN ({_in_list(CANALES)})
+          {_universo_canal() if universo_sql is None else universo_sql}
     )
+    """
+
+
+def _recupero_no_medible(periodo: str, fecha_carga: str, ejecutivo: str = "") -> tuple[dict, dict[str, tuple[int, float]]]:
+    """Efectivo recuperado de los casos no medibles de Itau Vencida, por ejecutivo de la mejor gestion (sin gestion:
+    PHOENIX). La columna EFECT_RECUPERADO del banco viene mal; se usan las cuotas pagadas con la misma logica del
+    export de Panel Administrativo > Itau Vencida (administrativas_itau_service.get_cuotas_pagadas_export_rows):
+    cada archivo de cuotas del mes se compara con el siguiente y la cuota que desaparece se pago. Solo operaciones
+    contenidas en el mes (SALDO_CONT informado). Efectivo = suma del ValorCuota de esas cuotas, hasta la fecha consultada."""
+    # No medible = todo lo de la contencion Phoenix que no cumple los filtros de casos medibles de Vencida.
+    medibles_sql, medibles_params = _medibles_sql(_load_filtros_medibles(periodo))
+    universo_sql = f"AND NOT (1 = 1 {medibles_sql})"
+    params: list = [
+        periodo, fecha_carga, fecha_carga, GESTOR_PHOENIX, *medibles_params,
+        periodo, fecha_carga, periodo, fecha_carga, periodo, fecha_carga, GESTOR_PHOENIX,
+    ]
+    filter_sql = ""
+    if ejecutivo:
+        filter_sql = "WHERE UPPER(o.Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
+        params.append(ejecutivo)
+    sql = (
+        _base_cte(universo_sql)
+        + f""", ops AS (
+        SELECT DISTINCT Ejecutivo, OPER FROM base WHERE OPER IS NOT NULL
+    ), fechas AS (
+        SELECT FechaDeProceso, LEAD(FechaDeProceso) OVER (ORDER BY FechaDeProceso) AS FechaDeProcesoSiguiente
+        FROM (
+            SELECT DISTINCT CAST(FechaDeProceso AS date) AS FechaDeProceso
+            FROM dbo.cuotas_itau_vencida
+            WHERE FechaDeProceso >= ?
+              AND CAST(FechaDeProceso AS date) <= ?
+        ) f
+    ), cuotas AS (
+        SELECT DISTINCT CAST(FechaDeProceso AS date) AS FechaDeProceso, NumeroOperacion, NumeroCuota, ValorCuota
+        FROM dbo.cuotas_itau_vencida
+        WHERE FechaDeProceso >= ?
+          AND CAST(FechaDeProceso AS date) <= ?
+    ), pagadas AS (
+        SELECT c.NumeroOperacion, COALESCE(CAST(c.ValorCuota AS float), 0) AS ValorCuota
+        FROM fechas f
+        INNER JOIN cuotas c
+            ON c.FechaDeProceso = f.FechaDeProceso
+        LEFT JOIN cuotas sig
+            ON sig.FechaDeProceso = f.FechaDeProcesoSiguiente
+           AND sig.NumeroOperacion = c.NumeroOperacion
+           AND sig.NumeroCuota = c.NumeroCuota
+        WHERE f.FechaDeProcesoSiguiente IS NOT NULL
+          AND sig.NumeroOperacion IS NULL
+    ), contenidas AS (
+        SELECT DISTINCT OPER
+        FROM dbo.contencion_itau_vencida
+        WHERE fecha_carga >= ?
+          AND fecha_carga <= ?
+          AND GESTOR = ?
+          AND SALDO_CONT IS NOT NULL
+    )
+    SELECT o.Ejecutivo, COUNT(*) AS Cuotas, SUM(p.ValorCuota) AS Efectivo
+    FROM ops o
+    INNER JOIN contenidas k
+        ON k.OPER = o.OPER
+    INNER JOIN pagadas p
+        ON p.NumeroOperacion = o.OPER
+    {filter_sql}
+    GROUP BY o.Ejecutivo
+    OPTION (HASH JOIN)
+    """
+    )
+    archivos = run_query(
+        """
+        SELECT CONVERT(char(10), MIN(CAST(FechaDeProceso AS date)), 126) AS desde,
+               CONVERT(char(10), MAX(CAST(FechaDeProceso AS date)), 126) AS hasta
+        FROM dbo.cuotas_itau_vencida
+        WHERE FechaDeProceso >= ?
+          AND CAST(FechaDeProceso AS date) <= ?
+        """,
+        (periodo, fecha_carga),
+    )
+    fotos = {"foto_base": archivos[0].get("desde"), "foto_actual": archivos[0].get("hasta")} if archivos else {}
+    return fotos, {
+        (row.get("Ejecutivo") or DEFAULT_EXECUTIVE): (int(row.get("Cuotas") or 0), float(row.get("Efectivo") or 0))
+        for row in run_query(sql, tuple(params))
+    }
+
+
+@cached_view
+def get_general(filters: dict) -> dict:
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    ejecutivo = _clean_text(filters.get("ejecutivo"))
+
+    params: list = [periodo, fecha_carga, fecha_carga, GESTOR_PHOENIX]
+    filter_sql = ""
+    if ejecutivo:
+        filter_sql = "WHERE UPPER(Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
+        params.append(ejecutivo)
+
+    sql = (
+        _base_cte()
+        + f"""
     SELECT
         Ejecutivo,
         Producto,
@@ -257,6 +360,7 @@ def get_general(filters: dict) -> dict:
     GROUP BY Ejecutivo, Producto, Fase, RUT
     OPTION (HASH JOIN)
     """
+    )
 
     metas, meta_castigo = _load_metas(periodo)
     ejecutivos = _load_ejecutivos()
@@ -286,16 +390,24 @@ def get_general(filters: dict) -> dict:
             "fecha_recupero": fecha_recupero,
         }
 
+    # Efectivo recuperado de los casos no medibles de Vencida: informativo, no entra al cumplimiento.
+    fotos_cuotas, recupero_nm = _recupero_no_medible(periodo, fecha_carga, ejecutivo)
+    for nombre in recupero_nm:
+        por_ejecutivo.setdefault(nombre, _empty_acc())
+
     rows = []
     for nombre, acc in sorted(por_ejecutivo.items(), key=lambda item: (item[0] == DEFAULT_EXECUTIVE, item[0])):
         result = _result(nombre, len(acc["casos"]), acc, metas, castigo)
         if nombre != DEFAULT_EXECUTIVE:
             result["castigo_recupero"] = recupero_ejecutivo.get(nombre, 0.0)
+        result["recupero_nm_cuotas"], result["recupero_nm_efectivo"] = recupero_nm.get(nombre, (0, 0.0))
         rows.append(result)
 
     total_result = _result("Total general", len(total["casos"]), total, metas, castigo)
     if castigo:
         total_result["castigo_recupero"] = castigo["recupero"]
+    total_result["recupero_nm_cuotas"] = sum(cuotas for cuotas, _ in recupero_nm.values())
+    total_result["recupero_nm_efectivo"] = sum(efectivo for _, efectivo in recupero_nm.values())
 
     metas_vista = [
         {
@@ -314,6 +426,34 @@ def get_general(filters: dict) -> dict:
         "periodo": periodo,
         "metas": metas_vista,
         "castigo": castigo,
+        "recupero_no_medible": fotos_cuotas,
         "rows": rows,
         "total": total_result,
     }
+
+
+@cached_view
+def get_negocios(filters: dict) -> dict:
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    ejecutivo = _clean_text(filters.get("ejecutivo"))
+
+    # Negocios de Vigente = todo el Call/Contact Center (cualquier fase). El ejecutivo es el de la mejor
+    # gestion del mes, igual que el resumen; lo que no tiene gestion queda en PHOENIX.
+    params: list = [periodo, fecha_carga, fecha_carga, GESTOR_PHOENIX]
+    filter_sql = ""
+    if ejecutivo:
+        filter_sql = "AND UPPER(Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
+        params.append(ejecutivo)
+    rows = run_query(
+        _base_cte(_universo_canal(con_fases=False))
+        + f"""
+    SELECT Ejecutivo, RUT, NOMBRE, OPER, Producto, Fase, SALDO_INI, SALDO_CONT
+    FROM base
+    WHERE RENE_MES = 1
+    {filter_sql}
+    OPTION (HASH JOIN)
+    """,
+        tuple(params),
+    )
+    return {"fecha_carga": fecha_carga, "periodo": periodo, **negocios_result(rows)}

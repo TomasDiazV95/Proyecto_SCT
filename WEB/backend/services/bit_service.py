@@ -477,6 +477,40 @@ def get_negocios(filters: dict) -> dict:
     }
 
 
+NEGOCIO_NOMBRES = {"PC20": "Refinanciamiento", "PC07": "Renegociación"}
+
+
+@cached_view
+def get_negocios_detalle(filters: dict) -> dict:
+    """Detalle de negocios: una fila por operacion con tipo_cont PC20/PC07, en el formato de NegociosDetalleCard."""
+    periodo = str(filters.get("periodo") or "").strip()
+    where_sql, params = _base_where(filters)
+    codigos = ", ".join(f"'{codigo}'" for codigo in NEGOCIO_TIPOS)
+    rows = run_query(
+        f"""
+    {BIT_DATA_CTE}
+    SELECT ejecutivo, con_no, UPPER(LTRIM(RTRIM(tipo_cont))) AS tipo_cont
+    FROM bit_data
+    WHERE {where_sql}
+      AND UPPER(LTRIM(RTRIM(COALESCE(tipo_cont, '')))) IN ({codigos})
+    """,
+        tuple(params),
+    )
+    filas = sorted(
+        (
+            {
+                "operacion": str(r.get("con_no") or "").strip(),
+                "ejecutivo": r.get("ejecutivo") or "Phoenix",
+                "producto": r["tipo_cont"],
+                "producto_nombre": NEGOCIO_NOMBRES.get(r["tipo_cont"], r["tipo_cont"]),
+            }
+            for r in rows
+        ),
+        key=lambda f: (f["ejecutivo"] == "Phoenix", f["ejecutivo"], f["producto"], f["operacion"]),
+    )
+    return {"periodo": periodo, "filas": filas, "total": len(filas)}
+
+
 def get_detalle(filters: dict) -> dict:
     where_sql, params = _base_where(filters)
     sql = f"""
