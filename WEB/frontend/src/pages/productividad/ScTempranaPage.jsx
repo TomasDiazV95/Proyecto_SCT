@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters } from "../../api";
 import NegociosCard from "../../components/productividad/NegociosCard";
+import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
@@ -81,7 +82,7 @@ function formatPeriodLabel(value) {
 
 export default function ScTempranaPage() {
   const dataVersion = useDataVersion();
-  const [view, setView] = useState("ejecutivos");
+  const [view, setView] = useState("general");
   const [executiveSubview, setExecutiveSubview] = useState("c1c2");
   const [filters, setFilters] = useState(initialFilters);
   const [detailFilters, setDetailFilters] = useState(initialDetailFilters);
@@ -158,8 +159,8 @@ export default function ScTempranaPage() {
 
   useEffect(() => {
     async function loadData() {
-      // La pestaña Negocios carga sus propios datos (NegociosCard).
-      if (!filters.periodo || view === "negocios") {
+      // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
+      if (!filters.periodo || view === "negocios" || view === "negocios-detalle") {
         return;
       }
       setLoading(true);
@@ -334,19 +335,23 @@ export default function ScTempranaPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "ejecutivos", label: "Ejecutivos" },
-            { value: "detalle", label: "Detalle" },
-            { value: "negocios", label: "Negocios" },
+            { value: "general", label: "General", icon: "bi-grid" },
+            { value: "ejecutivos", label: "Ejecutivos", icon: "bi-people" },
+            { value: "detalle", label: "Detalle", icon: "bi-table" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
           ]}
         />
         {view === "negocios" ? (
           <NegociosCard modulo="sc-temprana" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Temprana", "negocios", filters.periodo)} />
+        ) : view === "negocios-detalle" ? (
+          <NegociosDetalleCard modulo="sc-temprana" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Temprana", "negocios-detalle", filters.periodo)} />
         ) : (
         <SectionCard
           exportName={exportFileName("SC-Temprana", view === "ejecutivos" ? executiveSubview : view, filters.periodo)}
           bodyClassName=""
           footer={
-            loading ? null : view === "ejecutivos" ? (
+            loading ? null : view === "ejecutivos" || view === "general" ? (
               <StatusLegend title="Aporte" items={aporteLegendItems} />
             ) : view === "detalle" ? (
               <Pagination
@@ -361,6 +366,54 @@ export default function ScTempranaPage() {
         >
           {loading ? (
             <LoadingState />
+          ) : view === "general" ? (
+            // Vista general: % aporte al contenido del tramo de cada ejecutiva en C1, C2 y C3.
+            <div className="pd-table-scroll">
+              <table className="pd-table">
+                <thead>
+                  <tr>
+                    <th>Ejecutiva</th>
+                    <th className="pd-num pd-th-group-1 pd-group-start">% Aporte C1</th>
+                    <th className="pd-num pd-th-group-2 pd-group-start">% Aporte C2</th>
+                    <th className="pd-num pd-th-group-1 pd-group-start">% Aporte C3</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {phoenixGrupalAlFinal(cycleDataRows).map((row) => (
+                    <tr key={`${row.ejecutivo}-general`}>
+                      <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+                      <td className="pd-num pd-group-start">
+                        <span className={dotClassByThresholds(row.c1_porc_aporte, c1Thresholds)}>{formatPct(row.c1_porc_aporte)}</span>
+                      </td>
+                      <td className="pd-num pd-group-start">
+                        <span className={dotClassByThresholds(row.c2_porc_aporte, c2Thresholds)}>{formatPct(row.c2_porc_aporte)}</span>
+                      </td>
+                      <td className="pd-num pd-group-start">
+                        {Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0 ? (
+                          <span className={dotClassByThresholds(row.c3_porc_aporte, c3Thresholds)}>{formatPct(row.c3_porc_aporte)}</span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {cycleTotalRow && (
+                    <tr className="pd-row-total">
+                      <td>{cycleTotalRow.ejecutivo}</td>
+                      <td className="pd-num pd-group-start">
+                        <span className="pd-status pd-status-none">{formatPct(cycleTotalRow.c1_porc_aporte)}</span>
+                      </td>
+                      <td className="pd-num pd-group-start">
+                        <span className="pd-status pd-status-none">{formatPct(cycleTotalRow.c2_porc_aporte)}</span>
+                      </td>
+                      <td className="pd-num pd-group-start">
+                        <span className="pd-status pd-status-none">{formatPct(cycleTotalRow.c3_porc_aporte)}</span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           ) : view === "ejecutivos" ? (
             <>
               {hasC3 && (

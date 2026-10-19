@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { fetchItauVencidaFilters, fetchItauVencidaGeneral } from "../../api";
+import { fetchItauVencidaFilters, fetchItauVencidaGeneral, fetchItauVencidaNegocios } from "../../api";
+import ItauNegociosCard from "../../components/productividad/ItauNegociosCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
@@ -52,6 +53,7 @@ export default function ItauVencidaPage() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(null);
   const [metas, setMetas] = useState([]);
+  const [metaCobertura, setMetaCobertura] = useState(0.8);
   const [filtrosMedibles, setFiltrosMedibles] = useState([]);
   const [metasOpen, setMetasOpen] = useState(false);
   const [view, setView] = useState("resumen");
@@ -100,6 +102,7 @@ export default function ItauVencidaPage() {
         setRows(data.rows || []);
         setTotal(data.total || null);
         setMetas(data.metas || []);
+        setMetaCobertura(data.meta_cobertura_terreno ?? 0.8);
         setFiltrosMedibles(data.filtros_medibles || []);
         setMetadata({ fecha_carga: data.fecha_carga || filters.fecha_carga, periodo: data.periodo || "" });
       } catch (err) {
@@ -240,6 +243,16 @@ export default function ItauVencidaPage() {
     );
   }
 
+  // Cobertura Terreno: RUT de Terreno Prejudicial con visita antes de pagar. Informativa; el semaforo es contra la meta.
+  function renderCoberturaCells(row) {
+    const pct = row.cobertura_pct;
+    return (
+      <td className="pd-num pd-group-start">
+        <span className={cumplimientoFraccionClass(pct == null || !metaCobertura ? null : pct / metaCobertura)}>{formatCumpl(pct)}</span>
+      </td>
+    );
+  }
+
   function renderRow(row, key, isTotal = false) {
     return (
       <tr key={key} className={isTotal ? "pd-row-total" : undefined}>
@@ -249,6 +262,7 @@ export default function ItauVencidaPage() {
         <td className="pd-num pd-group-start">
           <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatCumpl(row.cumplimiento)}</span>
         </td>
+        {renderCoberturaCells(row)}
       </tr>
     );
   }
@@ -291,6 +305,8 @@ export default function ItauVencidaPage() {
           {renderFaseCells(fase, "consumo")}
           {renderFaseCells(fase, "hipotecario")}
           <td className="pd-num pd-group-start pd-cell-muted">—</td>
+          {/* La cobertura terreno es por RUT: no se abre por fase. */}
+          <td className="pd-num pd-group-start pd-cell-muted">—</td>
         </tr>
       )),
       <tr key={`${keyPrefix}-subtotal`} className={isTotal ? "pd-row-total" : "pd-row-subtotal"}>
@@ -301,6 +317,7 @@ export default function ItauVencidaPage() {
         <td className="pd-num pd-group-start">
           <span className={cumplimientoFraccionClass(row.cumplimiento)}>{formatCumpl(row.cumplimiento)}</span>
         </td>
+        {renderCoberturaCells(row)}
       </tr>,
     ];
   }
@@ -309,7 +326,7 @@ export default function ItauVencidaPage() {
     const detalle = view === "detalle";
     const subHeaders = ["Saldo Inicial", "Contenido", "Meta $", "Cumplimiento"];
     return (
-      <table className={`pd-table${detalle ? " pd-table-static" : ""}`}>
+      <table className={`pd-table pd-table-wide${detalle ? " pd-table-static" : ""}`}>
         <thead>
           <tr>
             <th rowSpan={2}>Ejecutivo</th>
@@ -321,6 +338,7 @@ export default function ItauVencidaPage() {
               Hipotecario <span className="pd-th-note">pondera 40%</span>
             </th>
             <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+            <th rowSpan={2} className="pd-num pd-group-start">% Cobertura Terreno</th>
           </tr>
           <tr>
             {subHeaders.map((label, idx) => (
@@ -400,10 +418,25 @@ export default function ItauVencidaPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "resumen", label: "Resumen" },
-            { value: "detalle", label: "Detalle por fase" },
+            { value: "resumen", label: "Resumen", icon: "bi-grid" },
+            { value: "detalle", label: "Detalle por fase", icon: "bi-layers" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
           ]}
         />
+        {view === "negocios" || view === "negocios-detalle" ? (
+          // Negocios = renegociaciones del mes (columna RENE_MES de la contención); carga sus propios datos.
+          // Resumen y detalle van en pestañas separadas, como en SC Tardía.
+          <ItauNegociosCard
+            fetcher={fetchItauVencidaNegocios}
+            fechaCarga={filters.fecha_carga}
+            ejecutivo={filters.ejecutivo}
+            universo="Terreno Prejudicial"
+            compacto
+            vistaFija={view === "negocios" ? "resumen" : "detalle"}
+            exportName={exportFileName("Itau-Vencida", view, filters.fecha_carga)}
+          />
+        ) : (
         <SectionCard
           exportName={exportFileName("Itau-Vencida", view, filters.fecha_carga)}
           bodyClassName=""
@@ -422,6 +455,7 @@ export default function ItauVencidaPage() {
             <div className="pd-table-scroll">{renderTable()}</div>
           )}
         </SectionCard>
+        )}
       </div>
     </div>
   );

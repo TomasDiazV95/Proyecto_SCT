@@ -80,11 +80,16 @@ export function Segmented({ value, onChange, options }) {
 
 // Captura la tarjeta completa como PNG (tabla entera aunque tenga scroll, con su leyenda).
 // Los elementos con la clase pd-no-export (los propios botones) quedan fuera de la imagen.
-async function captureCard(node) {
+// Para el correo: el correo pega la imagen a su tamano en pixeles, asi que se copia a 1x y,
+// si la tarjeta es mas ancha que COPY_MAX_WIDTH, se achica hasta ese ancho.
+const COPY_MAX_WIDTH = 1000;
+
+async function captureCard(node, { paraCorreo = false } = {}) {
   node.classList.add("pd-exporting");
   try {
+    const ancho = node.scrollWidth || node.offsetWidth || COPY_MAX_WIDTH;
     return await toBlob(node, {
-      pixelRatio: 2,
+      pixelRatio: paraCorreo ? Math.min(1, COPY_MAX_WIDTH / ancho) : 2,
       cacheBust: true,
       backgroundColor: window.getComputedStyle(node).backgroundColor || "#ffffff",
       filter: (element) => !element.classList?.contains("pd-no-export"),
@@ -109,7 +114,8 @@ function ExportButtons({ targetRef, fileName }) {
     }
     setBusy(true);
     try {
-      const blob = await captureCard(targetRef.current);
+      // Copiar va al correo (tamano reducido); Descargar PNG mantiene la alta resolucion.
+      const blob = await captureCard(targetRef.current, { paraCorreo: action === copy });
       if (!blob) {
         throw new Error("sin imagen");
       }
@@ -219,6 +225,27 @@ export function StatusLegend({ title = "Cumplimiento", items }) {
 export function isPhoenixOGrupal(nombre) {
   const valor = String(nombre || "").trim().toUpperCase();
   return valor === "PHOENIX" || valor === "GRUPAL";
+}
+
+// Opciones del filtro por ejecutivo de las pestañas Detalle negocios: los ejecutivos de las filas en orden
+// alfabetico y PHOENIX siempre presente, al final (con la escritura que traigan las filas, si la traen).
+export function opcionesEjecutivoDetalle(filas, getNombre = (fila) => fila.ejecutivo) {
+  const nombres = Array.from(new Set((filas || []).map(getNombre).filter(Boolean)));
+  const phoenix = nombres.filter((nombre) => isPhoenixOGrupal(nombre));
+  const resto = nombres.filter((nombre) => !isPhoenixOGrupal(nombre)).sort((a, b) => String(a).localeCompare(String(b)));
+  return [...resto, ...(phoenix.length ? phoenix : ["PHOENIX"])];
+}
+
+export function EjecutivoDetalleFilter({ filas, value, onChange, getNombre }) {
+  const opciones = opcionesEjecutivoDetalle(filas, getNombre);
+  return (
+    <div className="pd-negocios-filtros pd-no-export">
+      <select className="form-select form-select-sm" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Ejecutivo">
+        <option value="">Todos los ejecutivos</option>
+        {opciones.map((nombre) => <option key={nombre} value={nombre}>{nombre}</option>)}
+      </select>
+    </div>
+  );
 }
 
 // Deja PHOENIX y GRUPAL al final sin alterar el orden del resto de las filas.

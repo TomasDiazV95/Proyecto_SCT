@@ -281,9 +281,11 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
 @cached_view
 def get_filter_values(periodo: str | None = None) -> dict:
     sql_periodos = """
-    SELECT DISTINCT CONVERT(char(10), fld_fecha, 126) AS periodo
+    -- Solo la ultima fecha de cada mes (fld_fecha es texto YYYYMMDD).
+    SELECT CONVERT(char(10), MAX(fld_fecha), 126) AS periodo
     FROM dbo.tmp_bench_temp_STC
     WHERE fld_fecha IS NOT NULL
+    GROUP BY LEFT(LTRIM(fld_fecha), 6)
     ORDER BY periodo DESC
     """
     con_precierre: set[str] = set()

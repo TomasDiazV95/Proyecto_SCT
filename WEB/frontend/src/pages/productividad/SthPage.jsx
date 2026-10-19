@@ -324,9 +324,9 @@ export default function SthPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "general", label: "Vista General" },
-            { value: "desglosada", label: "Vista Desglosada" },
-            { value: "detalle", label: "Detalle" },
+            { value: "general", label: "Vista General", icon: "bi-grid" },
+            { value: "desglosada", label: "Vista Desglosada", icon: "bi-layers" },
+            { value: "detalle", label: "Detalle", icon: "bi-table" },
           ]}
         />
         <SectionCard

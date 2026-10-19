@@ -487,14 +487,15 @@ def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None)
     filas = [
         {
             "operacion": row["operacion"] or "",
-            "ejecutivo": row["ejecutivo"],
+            # Sin ejecutivo en el archivo: se muestra como PHOENIX, igual que el resto de las productividades.
+            "ejecutivo": "PHOENIX" if row["ejecutivo"] == SIN_EJECUTIVO else row["ejecutivo"],
             "producto": row["producto"],
             "producto_nombre": PRODUCTO_NOMBRE.get(row["producto"], row["producto"].capitalize()),
         }
         for row in rows
         if not filtro or _norm(row["ejecutivo"]) == filtro
     ]
-    filas.sort(key=lambda f: (f["ejecutivo"], _orden_producto(f["producto"]), f["operacion"]))
+    filas.sort(key=lambda f: (f["ejecutivo"] == "PHOENIX", f["ejecutivo"], _orden_producto(f["producto"]), f["operacion"]))
     return {"periodo": mes, "filas": filas, "total": len(filas)}
 
 

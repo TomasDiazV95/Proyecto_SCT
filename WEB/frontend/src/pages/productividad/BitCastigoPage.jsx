@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchBitCastigoFilters, fetchBitCastigoGeneral } from "../../api";
-import { Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
+import { fetchBitCastigoFilters, fetchBitCastigoGeneral, fetchBitCastigoNuevosConvenios } from "../../api";
+import { EjecutivoDetalleFilter, EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
@@ -57,6 +57,9 @@ export default function BitCastigoPage() {
   const [meta, setMeta] = useState(null);
   const [metasOpen, setMetasOpen] = useState(false);
   const [view, setView] = useState("general");
+  const [convenios, setConvenios] = useState(null);
+  const [conveniosLoading, setConveniosLoading] = useState(false);
+  const [ejecutivoDetalle, setEjecutivoDetalle] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -178,6 +181,53 @@ export default function BitCastigoPage() {
     );
   }
 
+  // Detalle negocios: un RUT por fila (nuevos convenios del mes), como el detalle de convenios de Itaú Castigo.
+  useEffect(() => {
+    if (!filters.periodo || view !== "negocios-detalle") {
+      return undefined;
+    }
+    let vigente = true;
+    setConveniosLoading(true);
+    fetchBitCastigoNuevosConvenios(filters)
+      .then((data) => vigente && setConvenios(data.rows || []))
+      .catch((err) => vigente && setError(err.message))
+      .finally(() => vigente && setConveniosLoading(false));
+    return () => {
+      vigente = false;
+    };
+  }, [filters, view, dataVersion]);
+
+  function renderDetalleNegocios() {
+    const filas = (convenios || []).filter((row) => !ejecutivoDetalle || row.ejecutivo === ejecutivoDetalle).sort(
+      (a, b) => (a.ejecutivo === "Phoenix") - (b.ejecutivo === "Phoenix") || String(a.ejecutivo).localeCompare(String(b.ejecutivo)) || b.abono_inicial - a.abono_inicial
+    );
+    return (
+      <table className="pd-table pd-table-compact pd-table-plain">
+        <thead>
+          <tr>
+            <th>Ejecutivo</th>
+            <th>RUT</th>
+            <th>Operaciones</th>
+            <th className="pd-num">Deuda castigada</th>
+            <th className="pd-num">Abono inicial</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((row) => (
+            <tr key={`bit-castigo-conv-${row.rut}`}>
+              <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+              <td>{row.rut}</td>
+              <td>{(row.operaciones || []).join(", ")}</td>
+              <td className="pd-num">${formatMoney(row.deuda)}</td>
+              <td className="pd-num pd-cell-strong">${formatMoney(row.abono_inicial)}</td>
+            </tr>
+          ))}
+          {!filas.length && <EmptyRow colSpan={5} text="No hay nuevos convenios en este periodo." />}
+        </tbody>
+      </table>
+    );
+  }
+
   // Negocios: convenios nuevos del periodo y su abono inicial (recupero de esos convenios).
   function renderNegociosTable() {
     return (
@@ -268,10 +318,21 @@ export default function BitCastigoPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "general", label: "Vista General" },
-            { value: "negocios", label: "Negocios" },
+            { value: "general", label: "Vista General", icon: "bi-grid" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
           ]}
         />
+        {view === "negocios-detalle" ? (
+          <SectionCard
+            title="Detalle de negocios"
+            actions={<EjecutivoDetalleFilter filas={convenios} value={ejecutivoDetalle} onChange={setEjecutivoDetalle} />}
+            exportName={exportFileName("BIT-Castigo", "negocios-detalle", filters.periodo)}
+            bodyClassName=""
+          >
+            {conveniosLoading || !convenios ? <LoadingState /> : <div className="pd-table-scroll">{renderDetalleNegocios()}</div>}
+          </SectionCard>
+        ) : (
         <SectionCard
           exportName={exportFileName("BIT-Castigo", view, filters.periodo)}
           bodyClassName=""
@@ -284,6 +345,7 @@ export default function BitCastigoPage() {
         >
           {loading ? <LoadingState /> : <div className="pd-table-scroll">{view === "general" ? renderGeneralTable() : renderNegociosTable()}</div>}
         </SectionCard>
+        )}
       </div>
     </div>
   );

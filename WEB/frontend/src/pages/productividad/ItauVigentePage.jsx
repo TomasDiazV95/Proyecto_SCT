@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { fetchItauVigenteFilters, fetchItauVigenteGeneral } from "../../api";
+import { fetchItauVigenteFilters, fetchItauVigenteGeneral, fetchItauVigenteNegocios } from "../../api";
+import ItauNegociosCard from "../../components/productividad/ItauNegociosCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../../components/productividad/ui";
 
 
@@ -62,6 +63,7 @@ export default function ItauVigentePage() {
   const [total, setTotal] = useState(null);
   const [metas, setMetas] = useState([]);
   const [castigo, setCastigo] = useState(null);
+  const [fotosCuotas, setFotosCuotas] = useState(null);
   const [metasOpen, setMetasOpen] = useState(false);
   const [view, setView] = useState("resumen");
   const [metadata, setMetadata] = useState({ fecha_carga: "", periodo: "" });
@@ -96,6 +98,7 @@ export default function ItauVigentePage() {
         setTotal(data.total || null);
         setMetas(data.metas || []);
         setCastigo(data.castigo || null);
+        setFotosCuotas(data.recupero_no_medible || null);
         setMetadata({ fecha_carga: data.fecha_carga || filters.fecha_carga, periodo: data.periodo || "" });
       } catch (err) {
         setError(err.message);
@@ -253,6 +256,37 @@ export default function ItauVigentePage() {
     );
   }
 
+  // Pestaña Efectivo recuperado: casos no medibles de Vencida, calculado con las cuotas pagadas. Informativo,
+  // no entra al cumplimiento. Solo ejecutivos: lo que no tiene gestion (PHOENIX) no se muestra.
+  function renderEfectivoRecuperado() {
+    const filas = rows.filter((row) => row.ejecutivo !== "PHOENIX");
+    const totalEfectivo = filas.reduce((acc, row) => acc + Number(row.recupero_nm_efectivo || 0), 0);
+    return (
+      <table className="pd-table">
+        <thead>
+          <tr>
+            <th>Ejecutivo</th>
+            <th className="pd-num pd-th-key">Efectivo recuperado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((row) => (
+            <tr key={`ivg-efectivo-${row.ejecutivo}`}>
+              <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
+              <td className="pd-num pd-cell-strong">{formatPesos(row.recupero_nm_efectivo || 0)}</td>
+            </tr>
+          ))}
+          {filas.length > 0 && (
+            <tr className="pd-row-total">
+              <td>Total general</td>
+              <td className="pd-num">{formatPesos(totalEfectivo)}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    );
+  }
+
   function renderRow(row, key, isTotal = false) {
     return (
       <tr key={key} className={isTotal ? "pd-row-total" : undefined}>
@@ -321,7 +355,7 @@ export default function ItauVigentePage() {
     const detalle = view === "detalle";
     const subHeaders = ["Saldo Inicial", "Contenido", "Meta $", "Cumplimiento"];
     return (
-      <table className={`pd-table${detalle ? " pd-table-static" : ""}`}>
+      <table className={`pd-table pd-table-wide${detalle ? " pd-table-static" : ""}`}>
         <thead>
           <tr>
             <th rowSpan={2}>Ejecutivo</th>
@@ -420,10 +454,34 @@ export default function ItauVigentePage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "resumen", label: "Resumen" },
-            { value: "detalle", label: "Detalle por fase" },
+            { value: "resumen", label: "Resumen", icon: "bi-grid" },
+            { value: "detalle", label: "Detalle por fase", icon: "bi-layers" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
+            { value: "efectivo", label: "Efectivo recuperado", icon: "bi-cash-coin" },
           ]}
         />
+        {view === "negocios" || view === "negocios-detalle" ? (
+          // Negocios = renegociaciones del mes (columna RENE_MES de la contención); carga sus propios datos.
+          // Resumen y detalle van en pestañas separadas, como en SC Tardía.
+          <ItauNegociosCard
+            fetcher={fetchItauVigenteNegocios}
+            fechaCarga={filters.fecha_carga}
+            ejecutivo={filters.ejecutivo}
+            universo="Call y Contact Center"
+            compacto
+            vistaFija={view === "negocios" ? "resumen" : "detalle"}
+            exportName={exportFileName("Itau-Vigente", view, filters.fecha_carga)}
+          />
+        ) : view === "efectivo" ? (
+          <SectionCard
+            title="Efectivo recuperado · casos no medibles"
+            exportName={exportFileName("Itau-Vigente", "efectivo-recuperado", filters.fecha_carga)}
+            bodyClassName=""
+          >
+            {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderEfectivoRecuperado()}</div>}
+          </SectionCard>
+        ) : (
         <SectionCard
           exportName={exportFileName("Itau-Vigente", view, filters.fecha_carga)}
           bodyClassName=""
@@ -433,6 +491,7 @@ export default function ItauVigentePage() {
         >
           {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderTable()}</div>}
         </SectionCard>
+        )}
       </div>
     </div>
   );

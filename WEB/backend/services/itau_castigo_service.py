@@ -133,9 +133,11 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
         r["fecha_carga"]
         for r in run_query(
             """
-            SELECT DISTINCT CONVERT(char(10), fecha_carga, 126) AS fecha_carga
+            -- Solo la ultima carga de cada mes.
+            SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS fecha_carga
             FROM dbo.recup_itau_castigo
             WHERE fecha_carga IS NOT NULL
+            GROUP BY YEAR(fecha_carga), MONTH(fecha_carga)
             ORDER BY fecha_carga DESC
             """
         )
@@ -561,3 +563,121 @@ def get_producto(filters: dict) -> dict:
             "pct_recupero_phoenix_mcv": _safe_div(totals["recupero_phoenix_mcv"], totals["deuda_phoenix_mcv"]),
         },
     }
+
+
+@cached_view
+def get_nuevos_convenios(filters: dict) -> dict:
+    """Nuevos convenios del mes M: RUT que en la asignacion de M son Phoenix y en la de M+1 pasan a Phoenix MCV.
+    El ejecutivo es el del carterizado de M (sin carterizar: PHOENIX) y el abono inicial es el recupero del RUT
+    en el ultimo archivo de recupero de M."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    inicio = date.fromisoformat(periodo)
+    periodo_siguiente = (inicio.replace(day=28) + timedelta(days=4)).replace(day=1).isoformat()
+    ejecutivo = _clean_text(filters.get("ejecutivo"))
+    out = {
+        "fecha_carga": fecha_carga,
+        "periodo": periodo,
+        "periodo_siguiente": periodo_siguiente,
+        "fecha_recupero": None,
+        "asignacion_siguiente_cargada": False,
+        "rows": [],
+        "total": {"ejecutivo": "Total general", "nuevos_convenios": 0, "abono_inicial": 0.0},
+        "detalle": [],
+    }
+
+    asig_mes, asig_sig = periodo[:7].replace("-", ""), periodo_siguiente[:7].replace("-", "")
+    if not run_query("SELECT TOP 1 1 AS x FROM dbo.tmp_itau_castigo_asignacion WHERE PERIODO = ?", (asig_sig,)):
+        return out
+    out["asignacion_siguiente_cargada"] = True
+
+    rows = run_query(
+        """
+        SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS fecha_carga
+        FROM dbo.recup_itau_castigo
+        WHERE fecha_carga >= ?
+          AND fecha_carga < ?
+        """,
+        (periodo, periodo_siguiente),
+    )
+    fecha_recupero = _clean_text(rows[0].get("fecha_carga")) or None if rows else None
+    out["fecha_recupero"] = fecha_recupero
+
+    params: list = [asig_mes, asig_sig, periodo, fecha_recupero, _recup_source_file(fecha_recupero) if fecha_recupero else ""]
+    filter_sql = ""
+    if ejecutivo:
+        filter_sql = f"WHERE UPPER(ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), '{DEFAULT_EXECUTIVE}')) = UPPER(LTRIM(RTRIM(?)))"
+        params.append(ejecutivo)
+    por_ejecutivo = run_query(
+        f"""
+        WITH mes_m AS (
+            SELECT DISTINCT RUT
+            FROM dbo.tmp_itau_castigo_asignacion
+            WHERE PERIODO = ?
+              AND UPPER(LTRIM(RTRIM(COBRADOR_VISTA))) = 'PHOENIX'
+        ), mes_sig AS (
+            -- Datos del convenio segun la asignacion del mes siguiente (ya como Phoenix MCV).
+            SELECT
+                RUT,
+                MAX(DV) AS DV,
+                MAX(LTRIM(RTRIM(CONCAT(NOMBRES, ' ', APELLIDO_PAT, ' ', APELLIDO_MAT)))) AS Nombre,
+                MAX(LTRIM(RTRIM(COBRADOR_VISTA))) AS Cobrador_Vista,
+                SUM(COALESCE(TRY_CAST(SDO_CAST_ACTUAL AS float), 0)) AS Saldo_Castigado
+            FROM dbo.tmp_itau_castigo_asignacion
+            WHERE PERIODO = ?
+              AND UPPER(LTRIM(RTRIM(COBRADOR_VISTA))) = 'PHOENIX MCV'
+            GROUP BY RUT
+        ), nuevos AS (
+            SELECT s.* FROM mes_m m INNER JOIN mes_sig s ON s.RUT = m.RUT
+        ), cart AS (
+            SELECT rut, ejecutivo,
+                   ROW_NUMBER() OVER (PARTITION BY rut ORDER BY fecha_carga DESC, id DESC) AS rn
+            FROM dbo.tmp_carterizado_ITAU_CASTIGO
+            WHERE mes_carterizado = ?
+        ), rec AS (
+            SELECT RUT, SUM(COALESCE(CAST(RECUPERO AS float), 0)) AS Recupero
+            FROM dbo.recup_itau_castigo
+            WHERE fecha_carga = ?
+              AND source_file = ?
+            GROUP BY RUT
+        )
+        SELECT
+            ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), '{DEFAULT_EXECUTIVE}') AS Ejecutivo,
+            n.RUT,
+            n.DV,
+            n.Nombre,
+            n.Cobrador_Vista,
+            n.Saldo_Castigado,
+            COALESCE(r.Recupero, 0) AS Abono
+        FROM nuevos n
+        LEFT JOIN cart c
+            ON c.rut = n.RUT
+           AND c.rn = 1
+        LEFT JOIN rec r
+            ON r.RUT = n.RUT
+        {filter_sql}
+        """,
+        tuple(params),
+    )
+    orden = lambda nombre: (nombre == DEFAULT_EXECUTIVE, nombre)
+    resumen: dict[str, dict] = {}
+    for row in por_ejecutivo:
+        nombre = row["Ejecutivo"]
+        acc = resumen.setdefault(nombre, {"ejecutivo": nombre, "nuevos_convenios": 0, "abono_inicial": 0.0})
+        acc["nuevos_convenios"] += 1
+        acc["abono_inicial"] += float(row.get("Abono") or 0)
+        out["detalle"].append(
+            {
+                "ejecutivo": nombre,
+                "rut": f"{int(row['RUT'])}-{_clean_text(row.get('DV'))}" if row.get("RUT") is not None else "",
+                "nombre": _clean_text(row.get("Nombre")),
+                "cobrador_vista": _clean_text(row.get("Cobrador_Vista")),
+                "saldo_castigado": float(row.get("Saldo_Castigado") or 0),
+                "abono_inicial": float(row.get("Abono") or 0),
+            }
+        )
+    out["rows"] = [resumen[nombre] for nombre in sorted(resumen, key=orden)]
+    out["detalle"].sort(key=lambda d: (*orden(d["ejecutivo"]), -d["abono_inicial"]))
+    out["total"]["nuevos_convenios"] = sum(r["nuevos_convenios"] for r in out["rows"])
+    out["total"]["abono_inicial"] = sum(r["abono_inicial"] for r in out["rows"])
+    return out

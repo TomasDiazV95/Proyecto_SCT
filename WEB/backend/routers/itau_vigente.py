@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth.dependencies import require_module
-from services.itau_vigente_service import get_filter_values, get_general
+from services.itau_vigente_service import get_filter_values, get_general, get_negocios
 
 
 router = APIRouter(dependencies=[Depends(require_module("itau-vigente"))])
@@ -27,5 +27,16 @@ def general(
 ) -> dict:
     try:
         return get_general({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/negocios")
+def negocios(
+    fecha_carga: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return get_negocios({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

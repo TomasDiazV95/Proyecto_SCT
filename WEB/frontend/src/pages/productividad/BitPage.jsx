@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 
 import { fetchBitFilters, fetchBitGeneral, fetchBitNegocios, fetchBitTramos } from "../../api";
+import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
@@ -81,7 +82,8 @@ export default function BitPage() {
   }, [filters.periodo, dataVersion]);
 
   useEffect(() => {
-    if (!filters.periodo) {
+    // Detalle negocios carga sus propios datos (NegociosDetalleCard).
+    if (!filters.periodo || view === "negocios-detalle") {
       return;
     }
     async function loadData() {
@@ -372,11 +374,16 @@ export default function BitPage() {
           value={view}
           onChange={setView}
           options={[
-            { value: "general", label: "Vista General" },
-            { value: "tramo", label: "Vista Tramo" },
-            { value: "negocios", label: "Negocios" },
+            { value: "general", label: "Vista General", icon: "bi-grid" },
+            { value: "tramo", label: "Vista Tramo", icon: "bi-layers" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
           ]}
         />
+        {view === "negocios-detalle" ? (
+          // Carga sus propios datos (GET /api/bit/negocios/detalle), igual que el detalle de SC Tardía.
+          <NegociosDetalleCard modulo="bit" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("BIT-Vigente", "negocios-detalle", filters.periodo)} />
+        ) : (
         <SectionCard
           exportName={exportFileName("BIT-Vigente", view, filters.periodo)}
           bodyClassName=""
@@ -389,6 +396,7 @@ export default function BitPage() {
         >
           {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderActiveTable()}</div>}
         </SectionCard>
+        )}
       </div>
     </div>
   );

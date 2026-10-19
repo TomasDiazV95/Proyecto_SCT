@@ -829,6 +829,27 @@
   overflow-wrap: anywhere;
 }
 
+/* Tablas con muchas columnas (Itau Vencida / Vigente): caben en el ancho de la pantalla sin scroll horizontal.
+   Celdas mas compactas, Ejecutivo mas angosto y encabezados que saltan de linea entre palabras
+   (o con guion, nunca cortando letras sueltas). */
+.pd-table.pd-table-wide th,
+.pd-table.pd-table-wide td {
+  padding: var(--pd-space-2) var(--pd-space-1);
+  font-size: var(--pd-fs-small);
+}
+
+.pd-table.pd-table-wide th {
+  font-size: var(--pd-fs-label);
+  line-height: 1.25;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: auto;
+}
+
+.pd-table.pd-table-wide > thead > tr:first-child > th:first-child {
+  width: 12%;
+}
+
 .pd-negocios-filtros {
   display: flex;
   flex-wrap: wrap;
