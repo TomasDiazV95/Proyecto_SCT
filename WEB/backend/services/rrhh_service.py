@@ -15,6 +15,7 @@ from services import (
     itau_vencida_service,
     itau_vigente_service,
     la_araucana_service,
+    negocios_service,
     sc_tardia_service,
     sc_temprana_service,
     sth_service,
@@ -52,6 +53,32 @@ NEGOCIOS_HEADERS = [
     "ABONO INICIAL",
     "TRAMO",
     "FECHA",
+]
+# Hoja EFECTIVO RECUPERADO: efectivo recuperado por ejecutivo, como lo muestran los paneles.
+EFECTIVO_HEADERS = [
+    "MES",
+    "CLIENTE",
+    "CAMPAÑA",
+    "EJECUTIVO",
+    "CONCEPTO",
+    "Q CUOTAS PAGADAS",
+    "EFECTIVO RECUPERADO",
+]
+# Hoja EFECTIVO POR OPERACION: el detalle que suma el efectivo de cada ejecutivo. Itau Castigo es por RUT:
+# el archivo de recupero del banco no trae numero de operacion.
+EFECTIVO_DETALLE_HEADERS = [
+    "MES",
+    "CLIENTE",
+    "CAMPAÑA",
+    "EJECUTIVO",
+    "CONCEPTO",
+    "N° OPERACIÓN",
+    "RUT CLIENTE",
+    "NOMBRE CLIENTE",
+    "MONTO DEUDA",
+    "Q CUOTAS PAGADAS",
+    "EFECTIVO RECUPERADO",
+    "FECHA RECUPERO",
 ]
 RESUMEN_HEADERS = ["CLIENTE", "CAMPAÑA", "CORTE", "N° COLABORADORES", "CUMPLIMIENTO PROMEDIO", "ESTADO"]
 
@@ -143,6 +170,8 @@ class _Planilla:
         self.corte = corte
         self.rows: list[dict] = []
         self.negocios: list[dict] = []
+        self.efectivo: list[dict] = []
+        self.efectivo_detalle: list[dict] = []
 
     def zona(self, zona: str) -> "_Planilla":
         otra = _Planilla(self.mes, self.cliente, "", self.corte)
@@ -154,6 +183,8 @@ class _Planilla:
         otra = _Planilla(self.mes, self.cliente, campana, self.corte)
         otra.rows = self.rows
         otra.negocios = self.negocios
+        otra.efectivo = self.efectivo
+        otra.efectivo_detalle = self.efectivo_detalle
         return otra
 
     def add_negocio(self, tipo: str, operacion, ejecutivo: str, *, rut=None, deuda=None, abono=None, tramo=None, fecha=None) -> None:
@@ -170,6 +201,39 @@ class _Planilla:
                 "ABONO INICIAL": NA if abono is None else abono,
                 "TRAMO": tramo or NA,
                 "FECHA": fecha or "",
+            }
+        )
+
+    def add_efectivo(self, concepto: str, ejecutivo: str, monto, *, cuotas=None) -> None:
+        self.efectivo.append(
+            {
+                "MES": self.mes,
+                "CLIENTE": self.cliente,
+                "CAMPAÑA": self.campana,
+                "EJECUTIVO": str(ejecutivo).strip(),
+                "CONCEPTO": concepto,
+                "Q CUOTAS PAGADAS": NA if cuotas is None else cuotas,
+                "EFECTIVO RECUPERADO": float(monto or 0),
+            }
+        )
+
+    def add_efectivo_detalle(
+        self, concepto: str, ejecutivo: str, monto, *, operacion=None, rut=None, nombre=None, deuda=None, cuotas=None, fecha=None
+    ) -> None:
+        self.efectivo_detalle.append(
+            {
+                "MES": self.mes,
+                "CLIENTE": self.cliente,
+                "CAMPAÑA": self.campana,
+                "EJECUTIVO": str(ejecutivo).strip(),
+                "CONCEPTO": concepto,
+                "N° OPERACIÓN": str(operacion or "").strip() or NA,
+                "RUT CLIENTE": str(rut or "").strip(),
+                "NOMBRE CLIENTE": str(nombre or "").strip(),
+                "MONTO DEUDA": NA if deuda is None else deuda,
+                "Q CUOTAS PAGADAS": NA if cuotas is None else cuotas,
+                "EFECTIVO RECUPERADO": float(monto or 0),
+                "FECHA RECUPERO": fecha or "",
             }
         )
 
@@ -208,6 +272,24 @@ SC_TARDIA_BLOQUES = [
 ]
 
 
+# Tipo de negocio de la plantilla cargada (Panel Administrativo > Negocios), en singular.
+NEGOCIO_PRODUCTO = {
+    "RECONDUCCION": "Reconducción",
+    "REFINANCIAMIENTO": "Refinanciamiento",
+    "NOVACION": "Novación",
+    "DACION": "Dación",
+    "EXTENSION": "Extensión",
+}
+
+
+def _negocios_cargados(p: _Planilla, negocio: str) -> None:
+    """Detalle de los negocios que se cargan por archivo (SC Terreno, SC Telefonía y GM)."""
+    for row in negocios_service.get_detalle(negocio, f"{p.mes:%Y-%m}")["filas"]:
+        if _es_colaborador(row["ejecutivo"]):
+            tipo = NEGOCIO_PRODUCTO.get(row["producto"], row["producto_nombre"])
+            p.add_negocio(tipo, row["operacion"], row["ejecutivo"])
+
+
 def _sc_tardia(p: _Planilla) -> None:
     # Una campaña por zona, igual que la planilla de RRHH (RM, Zona Norte, Zona Sur).
     for zona in sc_tardia_service.get_filter_values()["zonas"]:
@@ -233,6 +315,8 @@ def _sc_tardia(p: _Planilla) -> None:
             for bloque, variable in SC_TARDIA_BLOQUES:
                 if bloque in row["bloques"]:
                     campana.add(variable, nombre, individual=_pct(row["bloques"][bloque]))
+    # Los negocios no traen zona: van en la campaña del negocio.
+    _negocios_cargados(p, "sc-terreno")
 
 
 def _sc_temprana(p: _Planilla) -> None:
@@ -241,6 +325,7 @@ def _sc_temprana(p: _Planilla) -> None:
             continue
         for tramo in ("c1", "c2", "c3"):
             p.add(f"Aporte Individual {tramo.upper()}", row["ejecutivo"], aporte=_pct(row[f"{tramo}_porc_aporte"]))
+    _negocios_cargados(p, "sc-telefonia")
 
 
 # Bucket del panel -> variable de la planilla (el ultimo tramo se informa como 91-120).
@@ -256,6 +341,7 @@ def _gm(p: _Planilla) -> None:
         # La contencion por bucket es de toda la campaña: el mismo valor para cada colaborador.
         for bucket in buckets:
             p.add(GM_BUCKETS.get(bucket["bucket"], f"Contención {bucket['bucket']}"), row["ejecutivo"], grupal=_pct(bucket["porcentaje_contencion"]))
+    _negocios_cargados(p, "gm")
 
 
 def _ejecutivos_itau_vigente() -> set[str]:
@@ -270,6 +356,18 @@ def _ejecutivos_itau_vigente() -> set[str]:
         """
     )
     return {str(row["nombre_carterizado"] or "").strip().upper() for row in rows}
+
+
+ITAU_CASTIGO_EFECTIVO = "Efectivo recuperado stock (RUT Phoenix)"
+ITAU_VIGENTE_EFECTIVO = "Casos no medibles Vencida (cuotas pagadas)"
+ITAU_VIGENTE_CASTIGO = "Recupero castigo Itau (RUT carterizados en castigo)"
+
+
+def _fecha_texto(valor) -> str:
+    """'20261008' -> '08-10-2026'; otros formatos quedan tal cual."""
+    text = str(valor or "").strip()
+    match = re.fullmatch(r"(\d{4})(\d{2})(\d{2})", text)
+    return f"{match[3]}-{match[2]}-{match[1]}" if match else text
 
 
 def _itau_castigo(p: _Planilla) -> None:
@@ -291,6 +389,33 @@ def _itau_castigo(p: _Planilla) -> None:
             campana.add("Cobertura Gestión al 4to día hábil", row["ejecutivo"], individual=row["pct_cobertura"])
         else:
             campana.add("Cobertura Gestión", row["ejecutivo"], individual=row["pct_cobertura"])
+            # Efectivo recuperado stock del panel: recupero de los RUT Phoenix (sin Phoenix MCV).
+            campana.add_efectivo(ITAU_CASTIGO_EFECTIVO, row["ejecutivo"], row["recupero_total"])
+    # Detalle por RUT del mismo efectivo (misma asignacion de ejecutivo y cobrador que el resumen).
+    for row in itau_castigo_service.get_recupero_detalle({"fecha_carga": p.corte}):
+        nombre = row["ejecutivo"]
+        if row["cobrador_vista"] in campanas or not _es_colaborador(nombre) or str(nombre).strip().upper() in vigente:
+            continue
+        p.add_efectivo_detalle(
+            ITAU_CASTIGO_EFECTIVO,
+            nombre,
+            row["recupero"],
+            rut=row["rut"],
+            nombre=row["nombre"],
+            deuda=row["deuda"],
+            fecha=_fecha_texto(row["fecha_recupero"]),
+        )
+    # Nuevos convenios del mes (RUT Phoenix que pasan a Phoenix MCV) con su abono inicial. Sin numero de operacion.
+    for row in itau_castigo_service.get_nuevos_convenios({"fecha_carga": p.corte})["detalle"]:
+        if _es_colaborador(row["ejecutivo"]) and str(row["ejecutivo"]).strip().upper() not in vigente:
+            p.add_negocio(
+                "Nuevo Convenio",
+                "",
+                row["ejecutivo"],
+                rut=row["rut"],
+                deuda=row["saldo_castigado"],
+                abono=row["abono_inicial"],
+            )
 
 
 def _itau_contencion(p: _Planilla, data: dict) -> None:
@@ -299,6 +424,21 @@ def _itau_contencion(p: _Planilla, data: dict) -> None:
         if not _es_colaborador(row["ejecutivo"]):
             continue
         p.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=row.get("cumplimiento"))
+
+
+def _itau_negocios(p: _Planilla, data: dict) -> None:
+    """Renegociaciones del mes (RENE_MES = 1 en la contencion) de Itau Vencida e Itau Vigente."""
+    for row in data["detalle"]:
+        if _es_colaborador(row["ejecutivo"]):
+            fase = row.get("fase")
+            p.add_negocio(
+                "Renegociación",
+                row["operacion"],
+                row["ejecutivo"],
+                rut=row["rut"],
+                deuda=row["saldo_ini"],
+                tramo=f"Fase {fase}" if fase not in (None, "") else None,
+            )
 
 
 def _itau_vencida(p: _Planilla) -> None:
@@ -314,22 +454,59 @@ def _itau_vencida(p: _Planilla) -> None:
         variable = "Cumplimientos Consumo Medibles " + ", ".join(texto.split(" ")[0] for texto in fases)
         for nombre in dict.fromkeys(row["COLABORADOR"] for row in p.rows if row["CAMPAÑA"] == p.campana):
             p.add(variable, nombre, q=" / ".join(fases))
+    _itau_negocios(p, itau_vencida_service.get_negocios({"fecha_carga": p.corte}))
 
 
 def _itau_vigente(p: _Planilla) -> None:
     data = itau_vigente_service.get_general({"fecha_carga": p.corte})
     _itau_contencion(p, data)
     castigo = data.get("castigo")
-    if not castigo:
-        return
     for row in data["rows"]:
-        if _es_colaborador(row["ejecutivo"]):
+        if not _es_colaborador(row["ejecutivo"]):
+            continue
+        if castigo:
             p.add(
                 "Recupero Efectivo Castigo Itau Telefonia",
                 row["ejecutivo"],
                 grupal=castigo["cumplimiento"],
                 q=row.get("castigo_recupero"),
             )
+        # Pestaña Efectivo recuperado del panel: casos no medibles de Vencida, por cuotas pagadas.
+        p.add_efectivo(
+            ITAU_VIGENTE_EFECTIVO,
+            row["ejecutivo"],
+            row.get("recupero_nm_efectivo"),
+            cuotas=int(row.get("recupero_nm_cuotas") or 0),
+        )
+        p.add_efectivo(ITAU_VIGENTE_CASTIGO, row["ejecutivo"], row.get("castigo_recupero"))
+    # Detalle del recupero castigo: por RUT, el archivo de recupero de Itau Castigo no trae numero de operacion.
+    ejecutivos = {row["ejecutivo"] for row in data["rows"] if _es_colaborador(row["ejecutivo"])}
+    for row in itau_vigente_service.get_recupero_castigo_detalle({"fecha_carga": p.corte})["filas"]:
+        if row["ejecutivo"] in ejecutivos:
+            p.add_efectivo_detalle(
+                ITAU_VIGENTE_CASTIGO,
+                row["ejecutivo"],
+                row["recupero"],
+                rut=row["rut"],
+                nombre=row["nombre"],
+                deuda=row["deuda"],
+                fecha=_fecha_texto(row["fecha_recupero"]),
+            )
+    for row in itau_vigente_service.get_efectivo_detalle({"fecha_carga": p.corte}):
+        if _es_colaborador(row["ejecutivo"]):
+            p.add_efectivo_detalle(
+                ITAU_VIGENTE_EFECTIVO,
+                row["ejecutivo"],
+                row["efectivo"],
+                operacion=row["operacion"],
+                rut=row["rut"],
+                nombre=row["nombre"],
+                cuotas=row["cuotas"],
+            )
+    # Detalle agrupado por ejecutivo: primero el efectivo de no medibles y luego el recupero castigo.
+    orden = {ITAU_VIGENTE_EFECTIVO: 0, ITAU_VIGENTE_CASTIGO: 1}
+    p.efectivo_detalle.sort(key=lambda d: (d["EJECUTIVO"], orden.get(d["CONCEPTO"], 2), -d["EFECTIVO RECUPERADO"]))
+    _itau_negocios(p, itau_vigente_service.get_negocios({"fecha_carga": p.corte}))
 
 
 BIT_TIPOS_NEGOCIO = {"PC20": "Refinanciamiento", "PC07": "Renegociación"}
@@ -558,6 +735,8 @@ def get_planilla(periodo: str | None, codigo: str) -> dict:
         "corte": corte,
         "rows": planilla.rows,
         "negocios": planilla.negocios,
+        "efectivo": planilla.efectivo,
+        "efectivo_detalle": planilla.efectivo_detalle,
     }
 
 
@@ -587,13 +766,13 @@ def get_consolidado(periodo: str | None, codigos: set[str] | None = None) -> dic
     """Todas las campañas del mes. Un negocio sin datos o con error no bota el consolidado: queda en el resumen."""
     mes = _parse_periodo(periodo)
 
-    def cargar(codigo: str) -> tuple[list[dict], list[dict], list[dict]]:
+    def cargar(codigo: str) -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
         negocio = NEGOCIOS[codigo]
         try:
             data = get_planilla(periodo, codigo)
             estado = None if data["rows"] else "SIN DATOS"
         except Exception as exc:
-            data = {"rows": [], "negocios": [], "campana": negocio["campana"], "corte": None}
+            data = {"rows": [], "negocios": [], "efectivo": [], "efectivo_detalle": [], "campana": negocio["campana"], "corte": None}
             estado = f"ERROR: {exc}"
         if estado:
             sin_datos = {
@@ -604,15 +783,26 @@ def get_consolidado(periodo: str | None, codigos: set[str] | None = None) -> dic
                 "CUMPLIMIENTO PROMEDIO": NA,
                 "ESTADO": estado,
             }
-            return [], [sin_datos], []
-        return data["rows"], _resumen(data["rows"], data["corte"]), data["negocios"]
+            return [], [sin_datos], [], [], []
+        return data["rows"], _resumen(data["rows"], data["corte"]), data["negocios"], data["efectivo"], data["efectivo_detalle"]
 
     rows: list[dict] = []
     resumen: list[dict] = []
     negocios: list[dict] = []
+    efectivo: list[dict] = []
+    efectivo_detalle: list[dict] = []
     with ThreadPoolExecutor(max_workers=CONSOLIDADO_WORKERS) as pool:
-        for filas, lineas, detalle in pool.map(cargar, _permitidos(codigos)):
+        for filas, lineas, detalle, recuperado, recuperado_detalle in pool.map(cargar, _permitidos(codigos)):
             rows += filas
             resumen += lineas
             negocios += detalle
-    return {"periodo": f"{mes:%Y-%m}", "rows": rows, "resumen": resumen, "negocios": negocios}
+            efectivo += recuperado
+            efectivo_detalle += recuperado_detalle
+    return {
+        "periodo": f"{mes:%Y-%m}",
+        "rows": rows,
+        "resumen": resumen,
+        "negocios": negocios,
+        "efectivo": efectivo,
+        "efectivo_detalle": efectivo_detalle,
+    }

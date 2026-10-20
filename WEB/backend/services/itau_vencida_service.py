@@ -377,16 +377,30 @@ def _cobertura_values(ruts: int, cubiertos: int) -> dict:
 @cached_view
 def get_general(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
-    periodo = _periodo_from_fecha(fecha_carga)
     ejecutivo = _clean_text(filters.get("ejecutivo"))
+    if not ejecutivo:
+        return _general(fecha_carga)
+
+    # Filtrar por ejecutivo dentro del SQL hace que SQL Server elija un plan mucho peor (de 3 s a 2 min para
+    # algunos ejecutivos). Se calcula la vista completa (queda en cache) y se deja solo al ejecutivo: el total
+    # filtrado es la fila de ese ejecutivo, igual que antes.
+    data = get_general({"fecha_carga": fecha_carga})
+    clave = ejecutivo.upper()
+    rows = [row for row in data["rows"] if str(row["ejecutivo"]).strip().upper() == clave]
+    if rows:
+        total = {**rows[0], "ejecutivo": "Total general"}
+    else:
+        total = _result("Total general", 0, _empty_acc(), _load_metas(data["periodo"]))
+        total.update(_cobertura_values(0, 0))
+    return {**data, "rows": rows, "total": total}
+
+
+def _general(fecha_carga: str) -> dict:
+    periodo = _periodo_from_fecha(fecha_carga)
 
     filtros_medibles = _load_filtros_medibles(periodo)
     cte_sql, params = _base_cte(periodo, fecha_carga, filtros_medibles)
     params += [periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga]
-    filter_sql = ""
-    if ejecutivo:
-        filter_sql = "WHERE UPPER(b.Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
-        params.append(ejecutivo)
 
     # Lo contenido solo cuenta si el RUT tuvo una gestion telefonica o en terreno en el mes antes de pagar.
     # Sin contenido valido el caso sigue en la meta (saldo inicial) con contenido 0. La fecha de pago es la
@@ -432,7 +446,6 @@ def get_general(filters: dict) -> dict:
         ON p.RUT = b.RUT
     LEFT JOIN gestion ge
         ON ge.RUT = b.RUT
-    {filter_sql}
     GROUP BY b.Ejecutivo, b.Producto, b.Fase, b.RUT
     """
     )
@@ -449,7 +462,7 @@ def get_general(filters: dict) -> dict:
         _add(total, row, metas)
 
     # La cobertura se mide sobre todo Terreno Prejudicial: un ejecutivo puede tenerla aunque no tenga casos medibles.
-    cobertura = _cobertura_terreno(periodo, fecha_carga, ejecutivo)
+    cobertura = _cobertura_terreno(periodo, fecha_carga)
     for nombre in cobertura:
         por_ejecutivo.setdefault(nombre, _empty_acc())
 
