@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth.dependencies import require_module
-from services.itau_castigo_service import get_filter_values, get_general, get_nuevos_convenios, get_producto
+from services.itau_castigo_service import get_filter_values, get_general, get_nuevos_convenios, get_producto, get_recupero_cobrador
 
 
 router = APIRouter(dependencies=[Depends(require_module("itau-castigo"))])
@@ -38,6 +38,17 @@ def producto(
 ) -> dict:
     try:
         return get_producto({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/recupero-cobrador")
+def recupero_cobrador(
+    fecha_carga: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return get_recupero_cobrador({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

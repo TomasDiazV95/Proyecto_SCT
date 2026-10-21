@@ -33,6 +33,55 @@ const NEGOCIO_COLUMNS = [
   { key: "FECHA", label: "Fecha" },
 ];
 
+// Efectivo recuperado por ejecutivo (hoja EFECTIVO RECUPERADO del Excel).
+const EFECTIVO_COLUMNS = [
+  { key: "CAMPAÑA", label: "Campaña" },
+  { key: "EJECUTIVO", label: "Ejecutivo" },
+  { key: "CONCEPTO", label: "Concepto" },
+  { key: "Q CUOTAS PAGADAS", label: "Q cuotas pagadas", type: "num" },
+  { key: "EFECTIVO RECUPERADO", label: "Efectivo recuperado", type: "num" },
+];
+
+// Detalle por operacion (hoja EFECTIVO POR OPERACION). Itau Castigo viene por RUT: sin N° de operacion.
+const EFECTIVO_DETALLE_COLUMNS = [
+  { key: "EJECUTIVO", label: "Ejecutivo" },
+  { key: "CONCEPTO", label: "Concepto" },
+  { key: "N° OPERACIÓN", label: "N° operación" },
+  { key: "RUT CLIENTE", label: "RUT cliente" },
+  { key: "NOMBRE CLIENTE", label: "Nombre cliente" },
+  { key: "MONTO DEUDA", label: "Monto deuda", type: "num" },
+  { key: "Q CUOTAS PAGADAS", label: "Q cuotas pagadas", type: "num" },
+  { key: "EFECTIVO RECUPERADO", label: "Efectivo recuperado", type: "num" },
+  { key: "FECHA RECUPERO", label: "Fecha recupero" },
+];
+
+function DetalleTable({ columns, rows, rowKey }) {
+  return (
+    <div className="pd-table-scroll">
+      <table className="pd-table pd-table-compact">
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.key} className={column.type ? "pd-num" : undefined}>{column.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, idx) => (
+            <tr key={`${rowKey(row)}-${idx}`}>
+              {columns.map((column) => (
+                <td key={column.key} className={column.type ? "pd-num" : column.key === "EJECUTIVO" ? "pd-cell-ejecutivo" : undefined}>
+                  {formatValue(row[column.key], column.type)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function formatPeriodo(periodo) {
   if (!periodo) {
     return "";
@@ -125,7 +174,11 @@ export default function RrhhPage() {
   }
 
   const tieneNegocios = Boolean(preview?.negocios?.length);
+  const tieneEfectivo = Boolean(preview?.efectivo?.length);
+  const tieneDetalle = tieneNegocios || tieneEfectivo;
   const vistaNegocios = tieneNegocios && view === "negocios";
+  const vistaEfectivo = tieneEfectivo && view === "efectivo";
+  const vistaEfectivoDetalle = tieneEfectivo && view === "efectivo-detalle";
   const hayDisponibles = negocios.some((negocio) => negocio.disponible);
 
   return (
@@ -148,7 +201,7 @@ export default function RrhhPage() {
             {downloading === "consolidado" ? "Generando consolidado..." : "Exportar consolidado"}
           </button>
         }
-        note="Cada negocio usa su último corte disponible del mes. Solo se incluyen las variables que calcula la plataforma; el RUT queda en blanco. El Excel trae además la hoja NEGOCIOS con el detalle de cada operación."
+        note="Cada negocio usa su último corte disponible del mes. Solo se incluyen las variables que calcula la plataforma; el RUT queda en blanco. El Excel trae además la hoja NEGOCIOS con el detalle de cada operación y el efectivo recuperado en dos hojas: por ejecutivo y por operación."
       >
         <Field label="Mes">
           <select className="form-select" value={periodo} onChange={(event) => setPeriodo(event.target.value)} disabled={Boolean(downloading)}>
@@ -202,14 +255,20 @@ export default function RrhhPage() {
       </SectionCard>
 
       {preview && (
-        <div ref={previewRef} className={tieneNegocios ? "pd-tabbed" : undefined}>
-        {tieneNegocios && (
+        <div ref={previewRef} className={tieneDetalle ? "pd-tabbed" : undefined}>
+        {tieneDetalle && (
           <ViewTabs
             value={view}
             onChange={setView}
             options={[
               { value: "cumplimientos", label: "Cumplimientos" },
-              { value: "negocios", label: `Detalle de negocios (${preview.negocios.length})` },
+              ...(tieneNegocios ? [{ value: "negocios", label: `Detalle de negocios (${preview.negocios.length})` }] : []),
+              ...(tieneEfectivo
+                ? [
+                    { value: "efectivo", label: "Efectivo por ejecutivo" },
+                    { value: "efectivo-detalle", label: `Efectivo por operación (${preview.efectivo_detalle?.length || 0})` },
+                  ]
+                : []),
             ]}
           />
         )}
@@ -219,28 +278,27 @@ export default function RrhhPage() {
             description={`Corte ${preview.corte || "N/D"} · ${preview.negocios.length} negocios cursados en el mes, con su operación y ejecutivo.`}
             bodyClassName=""
           >
-            <div className="pd-table-scroll">
-              <table className="pd-table pd-table-compact">
-                <thead>
-                  <tr>
-                    {NEGOCIO_COLUMNS.map((column) => (
-                      <th key={column.key} className={column.type ? "pd-num" : undefined}>{column.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.negocios.map((row, idx) => (
-                    <tr key={`${row["N° OPERACIÓN"]}-${row["RUT CLIENTE"]}-${idx}`}>
-                      {NEGOCIO_COLUMNS.map((column) => (
-                        <td key={column.key} className={column.type ? "pd-num" : column.key === "EJECUTIVO" ? "pd-cell-ejecutivo" : undefined}>
-                          {formatValue(row[column.key], column.type)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DetalleTable columns={NEGOCIO_COLUMNS} rows={preview.negocios} rowKey={(row) => `${row["N° OPERACIÓN"]}-${row["RUT CLIENTE"]}`} />
+          </SectionCard>
+        ) : vistaEfectivo ? (
+          <SectionCard
+            title={`${preview.campana} · Efectivo recuperado`}
+            description={`Corte ${preview.corte || "N/D"} · efectivo recuperado por ejecutivo, como lo muestra el panel.`}
+            bodyClassName=""
+          >
+            <DetalleTable columns={EFECTIVO_COLUMNS} rows={preview.efectivo} rowKey={(row) => `${row["CAMPAÑA"]}-${row.EJECUTIVO}-${row.CONCEPTO}`} />
+          </SectionCard>
+        ) : vistaEfectivoDetalle ? (
+          <SectionCard
+            title={`${preview.campana} · Efectivo por operación`}
+            description={`Corte ${preview.corte || "N/D"} · detalle que suma el efectivo de cada ejecutivo. Itaú Castigo viene por RUT: el archivo del banco no trae N° de operación.`}
+            bodyClassName=""
+          >
+            <DetalleTable
+              columns={EFECTIVO_DETALLE_COLUMNS}
+              rows={preview.efectivo_detalle || []}
+              rowKey={(row) => `${row.EJECUTIVO}-${row["N° OPERACIÓN"]}-${row["RUT CLIENTE"]}`}
+            />
           </SectionCard>
         ) : (
         <SectionCard title={preview.campana} description={`Corte ${preview.corte || "N/D"} · ${preview.rows.length} filas`} bodyClassName="">
