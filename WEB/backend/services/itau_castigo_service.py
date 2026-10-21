@@ -133,12 +133,17 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
         r["fecha_carga"]
         for r in run_query(
             """
-            -- Solo la ultima carga de cada mes.
-            SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS fecha_carga
-            FROM dbo.recup_itau_castigo
-            WHERE fecha_carga IS NOT NULL
-            GROUP BY YEAR(fecha_carga), MONTH(fecha_carga)
-            ORDER BY fecha_carga DESC
+            -- Meses anteriores: solo su ultima carga; mes actual: todas las cargas.
+            WITH f AS (
+                SELECT DISTINCT CAST(fecha_carga AS date) AS fecha
+                FROM dbo.recup_itau_castigo
+                WHERE fecha_carga IS NOT NULL
+            )
+            SELECT CONVERT(char(10), fecha, 126) AS fecha_carga
+            FROM (SELECT fecha, MAX(fecha) OVER (PARTITION BY YEAR(fecha), MONTH(fecha)) AS ultima FROM f) x
+            WHERE fecha = ultima
+               OR fecha >= DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+            ORDER BY fecha DESC
             """
         )
         if r.get("fecha_carga")

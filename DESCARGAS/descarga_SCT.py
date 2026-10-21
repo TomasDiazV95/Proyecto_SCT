@@ -595,7 +595,14 @@ def limpiar_carpeta_extraida() -> None:
 
         if elemento.is_file():
 
-            elemento.unlink()
+            try:
+                elemento.unlink()
+            except PermissionError as exc:
+                # No se salta: si queda un archivo viejo, el ETL podria cargarlo.
+                raise PermissionError(
+                    f"No se pudo borrar '{elemento.name}' porque otro programa lo tiene abierto "
+                    "(normalmente Excel). Cierralo y vuelve a ejecutar la descarga."
+                ) from exc
 
         elif elemento.is_dir():
 

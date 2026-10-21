@@ -322,9 +322,19 @@ export default function ItauVencidaPage() {
     ];
   }
 
+  function ponderaLabel(producto) {
+    const meta = metas.find((item) => item.producto === producto);
+    if (!meta || meta.ponderacion === null || meta.ponderacion === undefined) {
+      return null;
+    }
+    return `pondera ${Math.round(Number(meta.ponderacion) * 100)}%`;
+  }
+
   function renderTable() {
     const detalle = view === "detalle";
     const subHeaders = ["Saldo Inicial", "Contenido", "Meta $", "Cumplimiento"];
+    const ponderaConsumo = ponderaLabel("CONSUMO");
+    const ponderaHipotecario = ponderaLabel("HIPOTECARIO");
     return (
       <table className={`pd-table pd-table-wide${detalle ? " pd-table-static" : ""}`}>
         <thead>
@@ -332,10 +342,10 @@ export default function ItauVencidaPage() {
             <th rowSpan={2}>Ejecutivo</th>
             {detalle && <th rowSpan={2} className="pd-center pd-th-key">Fase</th>}
             <th colSpan={4} className="pd-th-group-1 pd-group-start">
-              Consumo <span className="pd-th-note">pondera 60%</span>
+              Consumo {ponderaConsumo && <span className="pd-th-note">{ponderaConsumo}</span>}
             </th>
             <th colSpan={4} className="pd-th-group-2 pd-group-start">
-              Hipotecario <span className="pd-th-note">pondera 40%</span>
+              Hipotecario {ponderaHipotecario && <span className="pd-th-note">{ponderaHipotecario}</span>}
             </th>
             <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
             <th rowSpan={2} className="pd-num pd-group-start">% Cobertura Terreno</th>

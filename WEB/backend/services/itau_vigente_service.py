@@ -163,14 +163,19 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
     fechas_carga = [
         r["fecha_carga"]
         for r in run_query(
-            # Solo la ultima carga de cada mes: es la foto de cierre (o la mas reciente del mes en curso).
+            # Meses anteriores: solo su ultima carga (la foto de cierre); mes actual: todas las cargas.
             """
-            SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS fecha_carga
-            FROM dbo.contencion_itau_vencida
-            WHERE fecha_carga IS NOT NULL
-              AND GESTOR = ?
-            GROUP BY YEAR(fecha_carga), MONTH(fecha_carga)
-            ORDER BY MAX(fecha_carga) DESC
+            WITH f AS (
+                SELECT DISTINCT CAST(fecha_carga AS date) AS fecha
+                FROM dbo.contencion_itau_vencida
+                WHERE fecha_carga IS NOT NULL
+                  AND GESTOR = ?
+            )
+            SELECT CONVERT(char(10), fecha, 126) AS fecha_carga
+            FROM (SELECT fecha, MAX(fecha) OVER (PARTITION BY YEAR(fecha), MONTH(fecha)) AS ultima FROM f) x
+            WHERE fecha = ultima
+               OR fecha >= DATEFROMPARTS(YEAR(GETDATE()), MONTH(GETDATE()), 1)
+            ORDER BY fecha DESC
             """,
             (GESTOR_PHOENIX,),
         )
