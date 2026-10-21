@@ -82,6 +82,26 @@ def _load_ejecutivos() -> list[str]:
 def _recupero_castigo(periodo: str, fecha_carga: str) -> tuple[str | None, dict[str, float]]:
     """Recupero Itau Castigo de cada ejecutivo: RUT que tiene carterizados en castigo, en el ultimo recupero
     del mes cargado hasta la fecha consultada."""
+    fecha_recupero, filas = _recupero_castigo_ruts(periodo, fecha_carga)
+    recupero: dict[str, float] = {}
+    for fila in filas:
+        recupero[fila["ejecutivo"]] = recupero.get(fila["ejecutivo"], 0.0) + fila["recupero"]
+    return fecha_recupero, recupero
+
+
+@cached_view
+def get_recupero_castigo_detalle(filters: dict) -> dict:
+    """Recupero castigo por ejecutivo y RUT (la suma por ejecutivo es castigo_recupero del resumen). El archivo
+    de recupero de Itau Castigo no trae numero de operacion. Solo RUT con recupero."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    fecha_recupero, filas = _recupero_castigo_ruts(_periodo_from_fecha(fecha_carga), fecha_carga)
+    filas = [fila for fila in filas if fila["recupero"]]
+    filas.sort(key=lambda f: (f["ejecutivo"], -f["recupero"], f["rut"]))
+    return {"fecha_recupero": fecha_recupero, "filas": filas}
+
+
+def _recupero_castigo_ruts(periodo: str, fecha_carga: str) -> tuple[str | None, list[dict]]:
+    """(fecha del recupero usado, una fila por ejecutivo y RUT carterizado en castigo con su recupero)."""
     rows = run_query(
         """
         SELECT CONVERT(char(10), MAX(fecha_carga), 126) AS fecha_carga
@@ -93,10 +113,17 @@ def _recupero_castigo(periodo: str, fecha_carga: str) -> tuple[str | None, dict[
     )
     fecha_recupero = _clean_text(rows[0].get("fecha_carga")) or None if rows else None
     if not fecha_recupero:
-        return None, {}
+        return None, []
 
-    recupero = {
-        _clean_text(row.get("Ejecutivo")): float(row.get("Recupero") or 0)
+    filas = [
+        {
+            "ejecutivo": _clean_text(row.get("Ejecutivo")),
+            "rut": f"{int(row['RUT'])}-{_clean_text(row.get('DV'))}" if row.get("RUT") is not None else "",
+            "nombre": _clean_text(row.get("Nombre")),
+            "deuda": float(row.get("Deuda") or 0),
+            "recupero": float(row.get("Recupero") or 0),
+            "fecha_recupero": _clean_text(row.get("Fecha_Recupero")),
+        }
         for row in run_query(
             """
             WITH cart AS (
@@ -112,18 +139,23 @@ def _recupero_castigo(periodo: str, fecha_carga: str) -> tuple[str | None, dict[
             )
             SELECT
                 cart.ejecutivo AS Ejecutivo,
-                SUM(COALESCE(CAST(r.RECUPERO AS float), 0)) AS Recupero
+                r.RUT,
+                MAX(r.DV) AS DV,
+                MAX(LTRIM(RTRIM(CONCAT(r.NOMBRES, ' ', r.APELLIDO_PAT)))) AS Nombre,
+                SUM(COALESCE(CAST(r.MONTO_CASTIGADO AS float), 0)) AS Deuda,
+                SUM(COALESCE(CAST(r.RECUPERO AS float), 0)) AS Recupero,
+                MAX(r.FECHA_RECUPERO) AS Fecha_Recupero
             FROM dbo.recup_itau_castigo r
             INNER JOIN cart
                 ON cart.rut = r.RUT
             WHERE r.fecha_carga = ?
               AND r.source_file = ?
-            GROUP BY cart.ejecutivo
+            GROUP BY cart.ejecutivo, r.RUT
             """,
             (periodo, fecha_recupero, _recup_source_file(fecha_recupero)),
         )
-    }
-    return fecha_recupero, recupero
+    ]
+    return fecha_recupero, filas
 
 
 @cached_view
@@ -257,6 +289,60 @@ def _recupero_no_medible(periodo: str, fecha_carga: str, ejecutivo: str = "") ->
     export de Panel Administrativo > Itau Vencida (administrativas_itau_service.get_cuotas_pagadas_export_rows):
     cada archivo de cuotas del mes se compara con el siguiente y la cuota que desaparece se pago. Solo operaciones
     contenidas en el mes (SALDO_CONT informado). Efectivo = suma del ValorCuota de esas cuotas, hasta la fecha consultada."""
+    sql, params = _recupero_no_medible_sql(
+        periodo,
+        fecha_carga,
+        ejecutivo,
+        "SELECT o.Ejecutivo, COUNT(*) AS Cuotas, SUM(p.ValorCuota) AS Efectivo",
+        "GROUP BY o.Ejecutivo",
+    )
+    archivos = run_query(
+        """
+        SELECT CONVERT(char(10), MIN(CAST(FechaDeProceso AS date)), 126) AS desde,
+               CONVERT(char(10), MAX(CAST(FechaDeProceso AS date)), 126) AS hasta
+        FROM dbo.cuotas_itau_vencida
+        WHERE FechaDeProceso >= ?
+          AND CAST(FechaDeProceso AS date) <= ?
+        """,
+        (periodo, fecha_carga),
+    )
+    fotos = {"foto_base": archivos[0].get("desde"), "foto_actual": archivos[0].get("hasta")} if archivos else {}
+    return fotos, {
+        (row.get("Ejecutivo") or DEFAULT_EXECUTIVE): (int(row.get("Cuotas") or 0), float(row.get("Efectivo") or 0))
+        for row in run_query(sql, tuple(params))
+    }
+
+
+@cached_view
+def get_efectivo_detalle(filters: dict) -> list[dict]:
+    """Efectivo recuperado de los casos no medibles, una fila por operacion (misma regla que la pestaña
+    Efectivo recuperado: la suma por ejecutivo da recupero_nm_efectivo)."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    sql, params = _recupero_no_medible_sql(
+        periodo,
+        fecha_carga,
+        _clean_text(filters.get("ejecutivo")),
+        "SELECT o.Ejecutivo, o.OPER, o.RUT, o.NOMBRE, COUNT(*) AS Cuotas, SUM(p.ValorCuota) AS Efectivo",
+        "GROUP BY o.Ejecutivo, o.OPER, o.RUT, o.NOMBRE",
+    )
+    filas = [
+        {
+            "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
+            "operacion": _clean_text(row.get("OPER")),
+            "rut": str(int(row["RUT"])) if row.get("RUT") is not None else "",
+            "nombre": _clean_text(row.get("NOMBRE")),
+            "cuotas": int(row.get("Cuotas") or 0),
+            "efectivo": float(row.get("Efectivo") or 0),
+        }
+        for row in run_query(sql, tuple(params))
+    ]
+    filas.sort(key=lambda f: (f["ejecutivo"] == DEFAULT_EXECUTIVE, f["ejecutivo"], -f["efectivo"], f["operacion"]))
+    return filas
+
+
+def _recupero_no_medible_sql(periodo: str, fecha_carga: str, ejecutivo: str, select_sql: str, group_sql: str) -> tuple[str, list]:
+    """Consulta de cuotas pagadas de los casos no medibles; select_sql/group_sql definen el nivel (ejecutivo u operacion)."""
     # No medible = todo lo de la contencion Phoenix que no cumple los filtros de casos medibles de Vencida.
     medibles_sql, medibles_params = _medibles_sql(_load_filtros_medibles(periodo))
     universo_sql = f"AND NOT (1 = 1 {medibles_sql})"
@@ -271,7 +357,10 @@ def _recupero_no_medible(periodo: str, fecha_carga: str, ejecutivo: str = "") ->
     sql = (
         _base_cte(universo_sql)
         + f""", ops AS (
-        SELECT DISTINCT Ejecutivo, OPER FROM base WHERE OPER IS NOT NULL
+        SELECT Ejecutivo, OPER, MAX(RUT) AS RUT, MAX(NOMBRE) AS NOMBRE
+        FROM base
+        WHERE OPER IS NOT NULL
+        GROUP BY Ejecutivo, OPER
     ), fechas AS (
         SELECT FechaDeProceso, LEAD(FechaDeProceso) OVER (ORDER BY FechaDeProceso) AS FechaDeProcesoSiguiente
         FROM (
@@ -304,32 +393,18 @@ def _recupero_no_medible(periodo: str, fecha_carga: str, ejecutivo: str = "") ->
           AND GESTOR = ?
           AND SALDO_CONT IS NOT NULL
     )
-    SELECT o.Ejecutivo, COUNT(*) AS Cuotas, SUM(p.ValorCuota) AS Efectivo
+    {select_sql}
     FROM ops o
     INNER JOIN contenidas k
         ON k.OPER = o.OPER
     INNER JOIN pagadas p
         ON p.NumeroOperacion = o.OPER
     {filter_sql}
-    GROUP BY o.Ejecutivo
+    {group_sql}
     OPTION (HASH JOIN)
     """
     )
-    archivos = run_query(
-        """
-        SELECT CONVERT(char(10), MIN(CAST(FechaDeProceso AS date)), 126) AS desde,
-               CONVERT(char(10), MAX(CAST(FechaDeProceso AS date)), 126) AS hasta
-        FROM dbo.cuotas_itau_vencida
-        WHERE FechaDeProceso >= ?
-          AND CAST(FechaDeProceso AS date) <= ?
-        """,
-        (periodo, fecha_carga),
-    )
-    fotos = {"foto_base": archivos[0].get("desde"), "foto_actual": archivos[0].get("hasta")} if archivos else {}
-    return fotos, {
-        (row.get("Ejecutivo") or DEFAULT_EXECUTIVE): (int(row.get("Cuotas") or 0), float(row.get("Efectivo") or 0))
-        for row in run_query(sql, tuple(params))
-    }
+    return sql, params
 
 
 @cached_view

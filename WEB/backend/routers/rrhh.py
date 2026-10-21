@@ -7,6 +7,8 @@ from fastapi.responses import StreamingResponse
 from auth.dependencies import current_user
 from excel_export import workbook_response
 from services.rrhh_service import (
+    EFECTIVO_DETALLE_HEADERS,
+    EFECTIVO_HEADERS,
     HEADERS,
     NEGOCIOS,
     NEGOCIOS_HEADERS,
@@ -42,6 +44,10 @@ RESULTADOS_FORMATS = {
 }
 NEGOCIOS_WIDTHS = [14, 22, 40, 30, 28, 14, 30, 16, 16, 16, 12]
 NEGOCIOS_FORMATS = {"MES": "mmm-yy", "MONTO DEUDA": "#,##0", "ABONO INICIAL": "#,##0", "FECHA": "dd-mm-yyyy"}
+EFECTIVO_WIDTHS = [14, 22, 40, 30, 42, 18, 22]
+EFECTIVO_FORMATS = {"MES": "mmm-yy", "Q CUOTAS PAGADAS": "#,##0", "EFECTIVO RECUPERADO": "#,##0"}
+EFECTIVO_DETALLE_WIDTHS = [14, 22, 40, 30, 42, 18, 14, 36, 16, 18, 22, 16]
+EFECTIVO_DETALLE_FORMATS = {**EFECTIVO_FORMATS, "MONTO DEUDA": "#,##0"}
 RESUMEN_WIDTHS = [22, 52, 22, 18, 24, 40]
 RESUMEN_FORMATS = {"CUMPLIMIENTO PROMEDIO": "0%"}
 # Columnas que el panel muestra o calcula pero que no van en el Excel de descarga.
@@ -70,6 +76,20 @@ def _resultados_sheet(rows: list[dict]) -> dict:
 
 def _negocios_sheet(rows: list[dict]) -> dict:
     return _sheet("NEGOCIOS", NEGOCIOS_HEADERS, rows, NEGOCIOS_WIDTHS, NEGOCIOS_FORMATS)
+
+
+def _efectivo_sheets(data: dict) -> list[dict]:
+    """Efectivo recuperado: resumen por ejecutivo y el detalle por operacion que lo compone."""
+    return [
+        _sheet("EFECTIVO POR EJECUTIVO", EFECTIVO_HEADERS, data["efectivo"], EFECTIVO_WIDTHS, EFECTIVO_FORMATS),
+        _sheet(
+            "EFECTIVO POR OPERACION",
+            EFECTIVO_DETALLE_HEADERS,
+            data["efectivo_detalle"],
+            EFECTIVO_DETALLE_WIDTHS,
+            EFECTIVO_DETALLE_FORMATS,
+        ),
+    ]
 
 
 def _file_part(text: str) -> str:
@@ -132,12 +152,15 @@ def export(
             # Solo los negocios que cursan operaciones (reprogramaciones, convenios, etc.) llevan el detalle.
             if data["negocios"]:
                 sheets.append(_negocios_sheet(data["negocios"]))
+            if data["efectivo"]:
+                sheets += _efectivo_sheets(data)
             return workbook_response(sheets, filename)
 
         data = get_consolidado(periodo, permitidos)
         sheets = [
             _resultados_sheet(data["rows"]),
             _negocios_sheet(data["negocios"]),
+            *_efectivo_sheets(data),
             _sheet("RESUMEN", RESUMEN_HEADERS, data["resumen"], RESUMEN_WIDTHS, RESUMEN_FORMATS),
         ]
         return workbook_response(sheets, f"Cumplimientos_Campanas_{data['periodo']}.xlsx")

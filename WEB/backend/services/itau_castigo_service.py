@@ -169,19 +169,10 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
     }
 
 
-@cached_view
-def get_general(filters: dict) -> dict:
-    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
-    periodo = _periodo_from_fecha(fecha_carga)
-    filter_sql, filter_params = _base_filters(filters, "k")
-
-    # Phoenix y Phoenix MCV se separan por el cobrador de cada RUT segun la asignacion (COBRADOR_VISTA).
-    # Cada ejecutivo pertenece a un solo cobrador: aquel donde tiene mas RUT. Los RUT que tiene carterizados
-    # en el otro cobrador, y los no carterizados, se suman a la fila grupal PHOENIX de su cobrador, asi el
-    # total de cada pestaña calza con la asignacion.
-    # El cumplimiento de meta es distinto: cuenta todo lo que recupero el ejecutivo, sea Phoenix o Phoenix MCV.
-    sql = f"""
-    WITH asig AS (
+# Ejecutivo y cobrador de cada RUT (rut_ej), con la regla del resumen general. Parametros, en orden:
+# periodo de la asignacion (YYYYMM), fecha_carga y source_file del recupero, y mes del carterizado.
+RUT_EJECUTIVO_CTE = f"""
+    asig AS (
         -- Efectividad sobre lo asignado: base = asignacion del mes, cruzada por RUT con el recupero y el carterizado.
         SELECT
             RUT,
@@ -231,7 +222,65 @@ def get_general(filters: dict) -> dict:
             ON h.Ejecutivo_Cart = rc.Ejecutivo_Cart
            AND h.Cobrador = rc.Cobrador
            AND h.rn = 1
-    ), agg AS (
+    )"""
+
+
+@cached_view
+def get_recupero_detalle(filters: dict) -> list[dict]:
+    """Recupero por RUT del ultimo archivo de recupero, con el ejecutivo y cobrador del resumen general (la suma
+    por ejecutivo y cobrador da el Recupero_Total del panel). El archivo del banco no trae numero de operacion."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    source_file = _recup_source_file(fecha_carga)
+    rows = run_query(
+        f"""
+        WITH {RUT_EJECUTIVO_CTE}
+        SELECT
+            f.Ejecutivo,
+            f.Cobrador,
+            base.RUT,
+            MAX(base.DV) AS DV,
+            MAX(LTRIM(RTRIM(CONCAT(base.NOMBRES, ' ', base.APELLIDO_PAT)))) AS Nombre,
+            SUM(COALESCE(CAST(base.MONTO_CASTIGADO AS float), 0)) AS Deuda,
+            SUM(COALESCE(CAST(base.RECUPERO AS float), 0)) AS Recupero,
+            MAX(base.FECHA_RECUPERO) AS Fecha_Recupero
+        FROM dbo.recup_itau_castigo base
+        INNER JOIN rut_ej f
+            ON f.RUT = base.RUT
+        WHERE base.fecha_carga = ?
+          AND base.source_file = ?
+        GROUP BY f.Ejecutivo, f.Cobrador, base.RUT
+        HAVING SUM(COALESCE(CAST(base.RECUPERO AS float), 0)) <> 0
+        """,
+        (periodo[:4] + periodo[5:7], fecha_carga, source_file, periodo, fecha_carga, source_file),
+    )
+    return [
+        {
+            "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
+            "cobrador_vista": row.get("Cobrador") or "",
+            "rut": f"{int(row['RUT'])}-{_clean_text(row.get('DV'))}" if row.get("RUT") is not None else "",
+            "nombre": _clean_text(row.get("Nombre")),
+            "deuda": float(row.get("Deuda") or 0),
+            "recupero": float(row.get("Recupero") or 0),
+            "fecha_recupero": _clean_text(row.get("Fecha_Recupero")),
+        }
+        for row in rows
+    ]
+
+
+@cached_view
+def get_general(filters: dict) -> dict:
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    filter_sql, filter_params = _base_filters(filters, "k")
+
+    # Phoenix y Phoenix MCV se separan por el cobrador de cada RUT segun la asignacion (COBRADOR_VISTA).
+    # Cada ejecutivo pertenece a un solo cobrador: aquel donde tiene mas RUT. Los RUT que tiene carterizados
+    # en el otro cobrador, y los no carterizados, se suman a la fila grupal PHOENIX de su cobrador, asi el
+    # total de cada pestaña calza con la asignacion.
+    # El cumplimiento de meta es distinto: cuenta todo lo que recupero el ejecutivo, sea Phoenix o Phoenix MCV.
+    sql = f"""
+    WITH {RUT_EJECUTIVO_CTE}, agg AS (
         SELECT
             f.Ejecutivo,
             f.Cobrador,
