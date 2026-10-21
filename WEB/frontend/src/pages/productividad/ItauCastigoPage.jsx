@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { fetchItauCastigoFilters, fetchItauCastigoGeneral, fetchItauCastigoNuevosConvenios } from "../../api";
+import { fetchItauCastigoFilters, fetchItauCastigoGeneral, fetchItauCastigoNuevosConvenios, fetchItauCastigoRecuperoCobrador } from "../../api";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, EjecutivoDetalleFilter, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
@@ -89,6 +89,8 @@ export default function ItauCastigoPage() {
   const [metasOpen, setMetasOpen] = useState(false);
   const [convenios, setConvenios] = useState(null);
   const [conveniosLoading, setConveniosLoading] = useState(false);
+  const [recuperoCob, setRecuperoCob] = useState(null);
+  const [recuperoCobLoading, setRecuperoCobLoading] = useState(false);
   const [ejecutivoDetalle, setEjecutivoDetalle] = useState("");
   const { user, logout } = useAuth();
   
@@ -162,6 +164,22 @@ export default function ItauCastigoPage() {
     };
   }, [filters, productoTab, dataVersion]);
 
+  // Pestaña Recupero: carga sus datos solo cuando esta abierta.
+  useEffect(() => {
+    if (!filters.fecha_carga || productoTab !== "Recupero") {
+      return undefined;
+    }
+    let vigente = true;
+    setRecuperoCobLoading(true);
+    fetchItauCastigoRecuperoCobrador(filters)
+      .then((data) => vigente && setRecuperoCob(data))
+      .catch((err) => vigente && setError(err.message))
+      .finally(() => vigente && setRecuperoCobLoading(false));
+    return () => {
+      vigente = false;
+    };
+  }, [filters, productoTab, dataVersion]);
+
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
   }
@@ -171,6 +189,7 @@ export default function ItauCastigoPage() {
   const productoTabs = [
     { value: "Phoenix", label: "Phoenix", icon: "bi-grid" },
     { value: "Phoenix MCV", label: "Phoenix MCV", icon: "bi-layers" },
+    { value: "Recupero", label: "Total", icon: "bi-cash-coin" },
     { value: "Nuevos convenios", label: "Nuevos convenios", icon: "bi-briefcase" },
     { value: "Detalle convenios", label: "Detalle convenios", icon: "bi-list-ul" },
   ];
@@ -187,7 +206,9 @@ export default function ItauCastigoPage() {
       return null;
     }
     const deuda = tabRows.reduce((acc, row) => acc + Number(row.deuda_total || 0), 0);
+    // recupero_total = efectivo recuperado stock (solo RUT del cobrador); recupero_meta = todo lo recuperado por el ejecutivo.
     const recupero = tabRows.reduce((acc, row) => acc + Number(row.recupero_total || 0), 0);
+    const recuperoMeta = tabRows.reduce((acc, row) => acc + Number(row.recupero_meta || 0), 0);
     const metaCobrador = Number(tabRows.find((row) => Number(row.meta_cobrador || 0) > 0)?.meta_cobrador || 0);
     const meta = metaCobrador || tabRows.reduce((acc, row) => acc + Number(row.meta_recupero || 0), 0);
     const asignado = tabRows.reduce((acc, row) => acc + Number(row.monto_asignado || 0), 0);
@@ -200,7 +221,7 @@ export default function ItauCastigoPage() {
       ejecutivo: "Total general",
       deuda_total: deuda,
       recupero_total: recupero,
-      recupero_meta: recupero,
+      recupero_meta: recuperoMeta,
       monto_asignado: asignado,
       recupero_asignado: recuperoAsignado,
       pct_efectividad: asignado ? recuperoAsignado / asignado : 0,
@@ -211,7 +232,7 @@ export default function ItauCastigoPage() {
       cruce_saldo_cont: cruceCont,
       pct_contencion_cruce: cruceIni ? cruceCont / cruceIni : 0,
       meta_recupero: meta,
-      cumplimiento: meta ? Math.min(recupero / meta, 1.3) : 0,
+      cumplimiento: meta ? Math.min(recuperoMeta / meta, 1.3) : 0,
     };
   }, [tabRows]);
 
@@ -374,6 +395,47 @@ export default function ItauCastigoPage() {
     );
   }
 
+  // Recupero por cartera: Phoenix y Phoenix MCV segun el COBRADOR_VISTA del RUT en la asignacion del mes.
+  function renderRecuperoCobrador() {
+    if (recuperoCobLoading || !recuperoCob) {
+      return <LoadingState />;
+    }
+    const total = recuperoCob.total || {};
+    const cruce = recuperoCob.contencion_cruce || {};
+    const filas = [
+      { cartera: "Phoenix", recupero: total.recupero_phoenix },
+      { cartera: "Phoenix MCV", recupero: total.recupero_mcv },
+    ];
+    // La contencion es saldo contenido, no efectivo: va aparte y no suma al total de recupero.
+    const cruceTitle = `Saldo inicial $${formatMoney(cruce.saldo_ini)} · contención del ${formatDate(cruce.fecha) || "N/D"}`;
+    return (
+      <div className="pd-table-scroll">
+        <table className="pd-table">
+          <thead>
+            <tr>
+              <th>Cartera</th>
+              <th className="pd-num pd-th-key">Recupero</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((row) => (
+              <tr key={`rc-${row.cartera}`}>
+                <td className="pd-cell-ejecutivo">{row.cartera}</td>
+                <td className="pd-num pd-cell-strong">${formatMoney(row.recupero)}</td>
+              </tr>
+            ))}
+            <tr>
+              <td className="pd-cell-ejecutivo">Contención cruce vigente</td>
+              <td className="pd-num pd-cell-strong" title={cruceTitle}>
+                ${formatMoney(cruce.saldo_cont)} ({((cruce.pct || 0) * 100).toFixed(1).replace(".", ",")}%)
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
   function renderNuevosConvenios() {
     const mes = formatDate(convenios?.periodo).slice(3);
     const mesSiguiente = formatDate(convenios?.periodo_siguiente).slice(3);
@@ -469,7 +531,11 @@ export default function ItauCastigoPage() {
       {/* Pestañas como en SC Tardia: Phoenix, Phoenix MCV y Nuevos convenios. */}
       <div className="pd-tabbed">
         <ViewTabs value={productoTab} onChange={setProductoTab} options={productoTabs} />
-        {productoTab === "Nuevos convenios" ? (
+        {productoTab === "Recupero" ? (
+          <SectionCard exportName={exportFileName("Itau-Castigo", "recupero", filters.fecha_carga)} bodyClassName="">
+            {renderRecuperoCobrador()}
+          </SectionCard>
+        ) : productoTab === "Nuevos convenios" ? (
           <SectionCard exportName={exportFileName("Itau-Castigo", "nuevos-convenios", filters.fecha_carga)} bodyClassName="">
             {renderNuevosConvenios()}
           </SectionCard>

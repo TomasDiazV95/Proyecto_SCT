@@ -237,7 +237,11 @@ export default function ItauVigentePage() {
     );
   }
 
+  // Los meses sin meta de castigo (desde octubre) no llevan las columnas de castigo.
   function renderCastigoCells(row) {
+    if (!castigo) {
+      return null;
+    }
     return (
       <>
         <td className="pd-num pd-group-start">{formatPesos(row.castigo_recupero)}</td>
@@ -336,7 +340,7 @@ export default function ItauVigentePage() {
           {renderFaseCells(fase, "consumo")}
           {renderFaseCells(fase, "hipotecario")}
           {/* El castigo y el cumplimiento final no se abren por fase. */}
-          <td colSpan={2} className="pd-num pd-group-start pd-cell-muted">—</td>
+          {castigo && <td colSpan={2} className="pd-num pd-group-start pd-cell-muted">—</td>}
           <td className="pd-num pd-group-start pd-cell-muted">—</td>
         </tr>
       )),
@@ -366,12 +370,14 @@ export default function ItauVigentePage() {
             <th colSpan={4} className="pd-th-group-2 pd-group-start">
               Hipotecario <span className="pd-th-note">{ponderacion("HIPOTECARIO")}</span>
             </th>
-            <th colSpan={2} className="pd-th-group pd-group-start">
-              Castigo{" "}
-              <span className="pd-th-note">
-                {castigo ? `meta ${formatPesos(castigo.meta)} · pondera ${(Number(castigo.ponderacion || 0) * 100).toFixed(0)}%` : ""}
-              </span>
-            </th>
+            {castigo && (
+              <th colSpan={2} className="pd-th-group pd-group-start">
+                Castigo{" "}
+                <span className="pd-th-note">
+                  meta {formatPesos(castigo.meta)} · pondera {(Number(castigo.ponderacion || 0) * 100).toFixed(0)}%
+                </span>
+              </th>
+            )}
             <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
           </tr>
           <tr>
@@ -381,8 +387,8 @@ export default function ItauVigentePage() {
             {subHeaders.map((label, idx) => (
               <th key={`h-${label}`} className={`pd-num pd-th-sub-2${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
             ))}
-            <th className="pd-num pd-group-start">Recupero</th>
-            <th className="pd-num">Cumplimiento grupal</th>
+            {castigo && <th className="pd-num pd-group-start">Recupero</th>}
+            {castigo && <th className="pd-num">Cumplimiento grupal</th>}
           </tr>
         </thead>
         {detalle ? (
@@ -422,7 +428,7 @@ export default function ItauVigentePage() {
             <i className="bi bi-info-circle" aria-hidden="true" /> Metas
           </button>
         }
-        note={`Base: contención Phoenix ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"}, fases 1 a 3 Call y Contact Center · Recupero castigo: ${formatDate(castigo?.fecha_recupero) || "N/D"}`}
+        note={`Base: contención Phoenix ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"}, fases 1 a 3 Call y Contact Center${castigo ? ` · Recupero castigo: ${formatDate(castigo.fecha_recupero) || "N/D"}` : ""}`}
       >
         <Field label="Fecha de carga">
           <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>

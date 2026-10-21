@@ -307,24 +307,35 @@ def get_general(filters: dict) -> dict:
           AND UPPER(CANAL) LIKE '%CRUCE VIGENTE%'
         GROUP BY RUT, OPER
     ), cruce_ej AS (
-        -- Solo RUT de la asignacion de castigo; lo que no esta asignado no entra.
+        -- Todo el cruce vigente, este o no el RUT en la asignacion de castigo. Los RUT de la asignacion o del
+        -- recupero usan su ejecutivo y cobrador; el resto va al ejecutivo del carterizado en su cobrador hogar,
+        -- y sin carterizar a la fila grupal PHOENIX de Phoenix MCV.
         SELECT
-            f.Ejecutivo,
-            f.Cobrador,
+            COALESCE(f.Ejecutivo, h.Ejecutivo_Cart, '{DEFAULT_EXECUTIVE}') AS Ejecutivo,
+            COALESCE(f.Cobrador, h.Cobrador, 'Phoenix MCV') AS Cobrador,
             SUM(x.Saldo_Ini) AS Cruce_Saldo_Ini,
             SUM(x.Saldo_Cont) AS Cruce_Saldo_Cont
         FROM cruce_op x
-        INNER JOIN asig a
-            ON a.RUT = x.RUT
-        INNER JOIN rut_ej f
+        LEFT JOIN rut_ej f
             ON f.RUT = x.RUT
-        GROUP BY f.Ejecutivo, f.Cobrador
+        LEFT JOIN dbo.tmp_carterizado_ITAU_CASTIGO c
+            ON f.RUT IS NULL
+           AND c.rut = x.RUT
+           AND c.mes_carterizado = ?
+        LEFT JOIN hogar h
+            ON h.Ejecutivo_Cart = c.ejecutivo
+           AND h.rn = 1
+        GROUP BY
+            COALESCE(f.Ejecutivo, h.Ejecutivo_Cart, '{DEFAULT_EXECUTIVE}'),
+            COALESCE(f.Cobrador, h.Cobrador, 'Phoenix MCV')
     ), llaves AS (
         SELECT Ejecutivo, Cobrador FROM agg
         UNION
         SELECT Ejecutivo, Cobrador FROM asig_ej
         UNION
         SELECT Ejecutivo, Cobrador FROM rec_meta
+        UNION
+        SELECT Ejecutivo, Cobrador FROM cruce_ej
     )
     SELECT
         k.Ejecutivo,
@@ -394,6 +405,7 @@ def get_general(filters: dict) -> dict:
     rows = []
     total_deuda = 0.0
     total_recupero = 0.0
+    total_recupero_meta = 0.0
     total_meta = 0.0
     # La meta es del cobrador: en el total se cuenta una sola vez por cobrador, no por fila.
     metas_cobrador: dict[str, float] = {}
@@ -415,6 +427,7 @@ def get_general(filters: dict) -> dict:
         fecha_carga, source_file,
         periodo, corte_cobertura,
         contencion_cruce_fecha,
+        periodo,
         periodo, periodo,
     ] + filter_params
     for row in run_query(sql, tuple(query_params)):
@@ -458,6 +471,7 @@ def get_general(filters: dict) -> dict:
         total_cruce_cont += cruce_cont
         total_deuda += deuda
         total_recupero += recupero
+        total_recupero_meta += float(row.get("Recupero_Meta") or 0)
         total_meta += meta
         if meta_cobrador:
             metas_cobrador[cobrador_vista] = meta_cobrador
@@ -476,6 +490,7 @@ def get_general(filters: dict) -> dict:
             "cobrador_vista": "",
             "deuda_total": total_deuda,
             "recupero_total": total_recupero,
+            "recupero_meta": total_recupero_meta,
             "monto_asignado": total_asignado,
             "recupero_asignado": total_recupero_asignado,
             "pct_efectividad": _safe_div(total_recupero_asignado, total_asignado),
@@ -486,7 +501,7 @@ def get_general(filters: dict) -> dict:
             "cruce_saldo_cont": total_cruce_cont,
             "pct_contencion_cruce": _safe_div(total_cruce_cont, total_cruce_ini),
             "meta_recupero": total_meta,
-            "cumplimiento": _cap(_safe_div(total_recupero, total_meta)),
+            "cumplimiento": _cap(_safe_div(total_recupero_meta, total_meta)),
         },
     }
 
@@ -681,3 +696,127 @@ def get_nuevos_convenios(filters: dict) -> dict:
     out["total"]["nuevos_convenios"] = sum(r["nuevos_convenios"] for r in out["rows"])
     out["total"]["abono_inicial"] = sum(r["abono_inicial"] for r in out["rows"])
     return out
+
+
+@cached_view
+def get_recupero_cobrador(filters: dict) -> dict:
+    """Recupero del ultimo archivo de la fecha separado por el cobrador del RUT en la asignacion del mes
+    (COBRADOR_VISTA: Phoenix o Phoenix MCV; si el RUT no esta asignado, el COBRADOR_DES del recupero).
+    El ejecutivo es el del carterizado del mes; sin carterizar: PHOENIX."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    ejecutivo = _clean_text(filters.get("ejecutivo"))
+    params: list = [periodo[:4] + periodo[5:7], fecha_carga, _recup_source_file(fecha_carga), periodo]
+    filter_sql = ""
+    if ejecutivo:
+        filter_sql = "WHERE UPPER(x.Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
+        params.append(ejecutivo)
+    rows = run_query(
+        f"""
+        WITH asig AS (
+            SELECT RUT, MAX(UPPER(LTRIM(RTRIM(COBRADOR_VISTA)))) AS Cobrador
+            FROM dbo.tmp_itau_castigo_asignacion
+            WHERE PERIODO = ?
+              AND UPPER(LTRIM(RTRIM(COBRADOR_VISTA))) IN ('PHOENIX', 'PHOENIX MCV')
+            GROUP BY RUT
+        ), rec AS (
+            SELECT
+                RUT,
+                MAX(UPPER(LTRIM(RTRIM(COBRADOR_DES)))) AS Cobrador_Des,
+                SUM(COALESCE(CAST(RECUPERO AS float), 0)) AS Recupero
+            FROM dbo.recup_itau_castigo
+            WHERE fecha_carga = ?
+              AND source_file = ?
+            GROUP BY RUT
+        ), cart AS (
+            SELECT rut, ejecutivo,
+                   ROW_NUMBER() OVER (PARTITION BY rut ORDER BY fecha_carga DESC, id DESC) AS rn
+            FROM dbo.tmp_carterizado_ITAU_CASTIGO
+            WHERE mes_carterizado = ?
+        ), x AS (
+            SELECT
+                ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), '{DEFAULT_EXECUTIVE}') AS Ejecutivo,
+                COALESCE(a.Cobrador, r.Cobrador_Des) AS Cobrador,
+                r.Recupero
+            FROM rec r
+            LEFT JOIN asig a ON a.RUT = r.RUT
+            LEFT JOIN cart c ON c.rut = r.RUT AND c.rn = 1
+        )
+        SELECT
+            x.Ejecutivo,
+            SUM(CASE WHEN x.Cobrador = 'PHOENIX' THEN x.Recupero ELSE 0 END) AS Recupero_Phoenix,
+            SUM(CASE WHEN x.Cobrador = 'PHOENIX MCV' THEN x.Recupero ELSE 0 END) AS Recupero_Mcv
+        FROM x
+        {filter_sql}
+        GROUP BY x.Ejecutivo
+        """,
+        tuple(params),
+    )
+    out_rows = []
+    for row in rows:
+        phoenix = float(row.get("Recupero_Phoenix") or 0)
+        mcv = float(row.get("Recupero_Mcv") or 0)
+        if not phoenix and not mcv:
+            continue
+        out_rows.append(
+            {"ejecutivo": row["Ejecutivo"], "recupero_phoenix": phoenix, "recupero_mcv": mcv, "recupero_total": phoenix + mcv}
+        )
+    out_rows.sort(key=lambda r: (r["ejecutivo"] == DEFAULT_EXECUTIVE, r["ejecutivo"]))
+    total_phoenix = sum(r["recupero_phoenix"] for r in out_rows)
+    total_mcv = sum(r["recupero_mcv"] for r in out_rows)
+
+    # Contencion cruce vigente general: ultima contencion de Itau Vencida del mes (gestor Phoenix, canal
+    # cruce vigente), todas las operaciones, esten o no en la asignacion de castigo.
+    contencion_fecha = _contencion_cruce_fecha(periodo, fecha_carga)
+    cruce = {"saldo_ini": 0.0, "saldo_cont": 0.0}
+    if contencion_fecha:
+        cruce_params: list = [contencion_fecha, periodo]
+        cruce_filter = ""
+        if ejecutivo:
+            cruce_filter = (
+                f"WHERE UPPER(ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), '{DEFAULT_EXECUTIVE}')) = UPPER(LTRIM(RTRIM(?)))"
+            )
+            cruce_params.append(ejecutivo)
+        res = run_query(
+            f"""
+            WITH cruce_op AS (
+                SELECT
+                    RUT,
+                    OPER,
+                    MAX(COALESCE(CAST(SALDO_INI AS float), 0)) AS Saldo_Ini,
+                    MAX(COALESCE(CAST(SALDO_CONT AS float), 0)) AS Saldo_Cont
+                FROM dbo.contencion_itau_vencida
+                WHERE fecha_carga = ?
+                  AND GESTOR = '{GESTOR_PHOENIX}'
+                  AND UPPER(CANAL) LIKE '%CRUCE VIGENTE%'
+                GROUP BY RUT, OPER
+            ), cart AS (
+                SELECT rut, ejecutivo,
+                       ROW_NUMBER() OVER (PARTITION BY rut ORDER BY fecha_carga DESC, id DESC) AS rn
+                FROM dbo.tmp_carterizado_ITAU_CASTIGO
+                WHERE mes_carterizado = ?
+            )
+            SELECT SUM(x.Saldo_Ini) AS Saldo_Ini, SUM(x.Saldo_Cont) AS Saldo_Cont
+            FROM cruce_op x
+            LEFT JOIN cart c ON c.rut = x.RUT AND c.rn = 1
+            {cruce_filter}
+            """,
+            tuple(cruce_params),
+        )
+        if res:
+            cruce = {"saldo_ini": float(res[0].get("Saldo_Ini") or 0), "saldo_cont": float(res[0].get("Saldo_Cont") or 0)}
+    cruce["pct"] = _safe_div(cruce["saldo_cont"], cruce["saldo_ini"])
+    cruce["fecha"] = contencion_fecha
+
+    return {
+        "fecha_carga": fecha_carga,
+        "periodo": periodo,
+        "contencion_cruce": cruce,
+        "rows": out_rows,
+        "total": {
+            "ejecutivo": "Total general",
+            "recupero_phoenix": total_phoenix,
+            "recupero_mcv": total_mcv,
+            "recupero_total": total_phoenix + total_mcv,
+        },
+    }

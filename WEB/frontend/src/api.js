@@ -350,6 +350,14 @@ export async function fetchItauCastigoProducto(filters) {
   return res.json();
 }
 
+export async function fetchItauCastigoRecuperoCobrador(filters) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/recupero-cobrador`, filters));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el recupero por cobrador de Itaú Castigo");
+  }
+  return res.json();
+}
+
 export async function fetchItauCastigoNuevosConvenios(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/nuevos-convenios`, filters));
   if (!res.ok) {
