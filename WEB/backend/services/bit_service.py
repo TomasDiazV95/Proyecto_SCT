@@ -2,7 +2,14 @@ from cache import cached_view
 from database import run_query
 
 
-BIT_DATA_CTE = """
+# Contencion guarda una foto por archivo: de cada periodo se usa solo la ultima cargada (mayor fecha_archivo).
+CONTENCION_ULTIMA = """(
+    SELECT t.*
+    FROM dbo.tmp_BIT_contencion t
+    WHERE t.fecha_archivo = (SELECT MAX(u.fecha_archivo) FROM dbo.tmp_BIT_contencion u WHERE u.periodo = t.periodo)
+)"""
+
+BIT_DATA_CTE = f"""
 WITH carterizado_unico AS (
     SELECT
         periodo,
@@ -62,7 +69,7 @@ WITH carterizado_unico AS (
         ISNULL(c.mto_contiene, 0) AS mto_contenido,
         ISNULL(c.contiene, 0) AS contiene,
         c.tipo_cont
-    FROM dbo.vw_BIT_contencion_ultima c
+    FROM {CONTENCION_ULTIMA} c
     LEFT JOIN carterizado_unico cu
         ON cu.periodo = c.periodo
        AND cu.operation_key = CASE
@@ -83,7 +90,7 @@ WITH carterizado_unico AS (
 )
 """
 
-BIT_DATA_CTE_TRAMOS = """
+BIT_DATA_CTE_TRAMOS = f"""
 WITH carterizado_unico AS (
     SELECT
         periodo,
@@ -143,7 +150,7 @@ WITH carterizado_unico AS (
         ISNULL(c.mto_contiene, 0) AS mto_contenido,
         ISNULL(c.contiene, 0) AS contiene,
         c.tipo_cont
-    FROM dbo.vw_BIT_contencion_ultima c
+    FROM {CONTENCION_ULTIMA} c
     LEFT JOIN carterizado_unico cu
         ON cu.periodo = c.periodo
        AND cu.operation_key = CASE
@@ -219,9 +226,9 @@ def _load_metas_tramo(periodo: str) -> list[dict]:
 
 def _get_contencion_source_file(periodo: str) -> str:
     rows = run_query(
-        """
+        f"""
         SELECT TOP 1 source_file
-        FROM dbo.vw_BIT_contencion_ultima
+        FROM {CONTENCION_ULTIMA} c
         WHERE periodo = ? AND source_file IS NOT NULL AND LTRIM(RTRIM(source_file)) <> ''
           AND UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) <> 'UNIVERSITARIOS'
         GROUP BY source_file
@@ -284,7 +291,7 @@ def get_filter_values(periodo: str | None = None) -> dict:
     tramos = [
         r["v"]
         for r in run_query(
-            """
+            f"""
             SELECT v
             FROM (
                 SELECT
@@ -298,7 +305,7 @@ def get_filter_values(periodo: str | None = None) -> dict:
                         WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN 2
                         ELSE 99
                     END) AS ord
-                FROM dbo.vw_BIT_contencion_ultima
+                FROM {CONTENCION_ULTIMA} c
                 WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) <> 'UNIVERSITARIOS'
                 GROUP BY CASE
                     WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
