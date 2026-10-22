@@ -4,7 +4,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,7 +20,12 @@ CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
 CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
 ASIGNACION_TABLE = "dbo.tmp_BIT_asignacion"
 ASIGNACION_MENSUAL_TABLE = "dbo.tmp_BIT_asignacion_mensual"
+# Contencion y castigo guardan una foto por archivo (fecha_archivo); las vistas dejan solo la ultima de cada periodo.
+CONTENCION_VIEW = "dbo.vw_BIT_contencion_ultima"
+CASTIGO_VIEW = "dbo.vw_BIT_castigo_ultima"
 ASIGNACION_REMOTE_DIR = "/Entrada/Carga_Cobranza"
+SEGUIMIENTOS_REMOTE_DIR = "/Entrada/Seguimientos"
+MESES_HISTORICO = 4  # mes actual + 3 anteriores, los que compara el KPI Operacional
 DEFAULT_BIT_FOLDER = Path(r"C:\Users\Analista de Datos\Desktop\AUTOMATIZACION\BIT")
 CASTIGO_PATTERN = re.compile(r"^Detalle_Recuperos_Castigo_(\d{6}|\d{8})(?:_(PRECIERRE|CIERRE))?\.xlsx$", re.IGNORECASE)
 CONTENCION_PATTERN = re.compile(r"^Seguimiento_Metas_PHOENIX_(\d{8})\.xlsx$", re.IGNORECASE)
@@ -49,7 +54,7 @@ ASIGNACION_NUMERIC_COLUMNS = {
     "PORC_ABONO_EXIGIDO_RENE",
     "MONTO_MORA_TOTAL",
 }
-RESERVED_METADATA_COLUMNS = {"ID", "PERIODO", "SOURCE_FILE", "FECHA_CARGA"}
+RESERVED_METADATA_COLUMNS = {"ID", "PERIODO", "SOURCE_FILE", "FECHA_CARGA", "FECHA_ARCHIVO"}
 UF_FALLBACK_BY_PERIOD = {
     "2026-06": Decimal("40820.31"),
 }
@@ -64,6 +69,7 @@ class BitSources:
     castigo: pd.DataFrame | None = None
     castigo_source_file: str | None = None
     castigo_period: str | None = None
+    castigo_mtime: datetime | None = None
     asignacion: pd.DataFrame | None = None
     asignacion_source_file: str | None = None
     asignacion_period: str | None = None
@@ -446,6 +452,22 @@ def extract_contencion_period(file_name: str) -> str:
     return f"{raw_date[:4]}-{raw_date[4:6]}"
 
 
+def fecha_de_archivo(file_name: str, mtime: datetime | None = None) -> date:
+    """Fecha de la foto: la del nombre (YYYYMMDD). Castigo YYYYMM_PRECIERRE / YYYYMM_CIERRE = ultimo dia del mes
+    (misma foto: el cierre pisa al precierre). Castigo YYYYMM sin variante = fecha del archivo en el SFTP o hoy,
+    sin pasar del ultimo dia del mes (para no quedar despues del cierre)."""
+    name = Path(file_name).name
+    match = re.search(r"_(\d{8})(?=[_.])", name)
+    if match:
+        return datetime.strptime(match.group(1), "%Y%m%d").date()
+    match = re.search(r"_(\d{4})(\d{2})(?:_(PRECIERRE|CIERRE))?\.", name, re.IGNORECASE)
+    if not match:
+        return (mtime or datetime.now()).date()
+    year, month = int(match.group(1)), int(match.group(2))
+    fin_mes = date(year, month, calendar.monthrange(year, month)[1])
+    return fin_mes if match.group(3) else min((mtime or datetime.now()).date(), fin_mes)
+
+
 def extract_asignacion_period(file_name: str) -> str:
     match = ASIGNACION_PATTERN.match(Path(file_name).name)
     if not match:
@@ -572,6 +594,80 @@ def ensure_dynamic_table(
     return excel_columns, missing
 
 
+def ensure_fecha_archivo(cur: pyodbc.Cursor, table_name: str) -> None:
+    """Columna fecha_archivo (fecha de la foto) con su indice. Las filas cargadas antes la toman del nombre del
+    archivo con la regla de fecha_de_archivo y, si el nombre no la trae, de la fecha de carga."""
+    if "FECHA_ARCHIVO" in get_table_columns(cur, table_name):
+        return
+    _schema, table = split_table_name(table_name)
+    cur.execute(f"ALTER TABLE {table_name} ADD fecha_archivo DATE NULL")
+    cur.execute(
+        f"""
+        UPDATE {table_name}
+        SET fecha_archivo = COALESCE(
+            TRY_CAST(SUBSTRING(source_file, NULLIF(PATINDEX('%[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]%', source_file), 0), 8) AS date),
+            CASE WHEN UPPER(source_file) LIKE '%[_][0-9][0-9][0-9][0-9][0-9][0-9][_]%CIERRE.XLSX' THEN
+                EOMONTH(TRY_CAST(SUBSTRING(source_file, PATINDEX('%[_][0-9][0-9][0-9][0-9][0-9][0-9][_]%', source_file) + 1, 6) + '01' AS date))
+            END,
+            -- Castigo YYYYMM sin variante: la fecha de carga, sin pasar del ultimo dia del mes.
+            CASE WHEN UPPER(source_file) LIKE '%[_][0-9][0-9][0-9][0-9][0-9][0-9].XLSX'
+                  AND fecha_carga > EOMONTH(TRY_CAST(SUBSTRING(source_file, PATINDEX('%[_][0-9][0-9][0-9][0-9][0-9][0-9].%', source_file) + 1, 6) + '01' AS date))
+                THEN EOMONTH(TRY_CAST(SUBSTRING(source_file, PATINDEX('%[_][0-9][0-9][0-9][0-9][0-9][0-9].%', source_file) + 1, 6) + '01' AS date))
+            END,
+            fecha_carga
+        )
+        """
+    )
+    # Lo cargado antes era la foto vigente del periodo (cierre incluido, con cargas manuales): en un mes cerrado
+    # queda como una sola foto al ultimo dia del mes, no con la fecha en que se cargo despues.
+    cur.execute(
+        f"""
+        UPDATE {table_name}
+        SET fecha_archivo = EOMONTH(TRY_CAST(periodo + '-01' AS date))
+        WHERE fecha_archivo > EOMONTH(TRY_CAST(periodo + '-01' AS date))
+        """
+    )
+    cur.execute(f"CREATE INDEX IX_{table}_periodo_fecha_archivo ON {table_name}(periodo, fecha_archivo)")
+
+
+def ensure_vistas(cur: pyodbc.Cursor) -> None:
+    """Vistas con la ultima foto de cada periodo, que es lo que leen productividad y factura. Se recrean en cada
+    carga para que tomen las columnas nuevas de los archivos."""
+    for view_name, table_name in ((CONTENCION_VIEW, CONTENCION_TABLE), (CASTIGO_VIEW, CASTIGO_TABLE)):
+        if "FECHA_ARCHIVO" not in get_table_columns(cur, table_name):
+            continue
+        cur.execute(f"IF OBJECT_ID('{view_name}', 'V') IS NOT NULL DROP VIEW {view_name}")
+        cur.execute(
+            f"""
+            CREATE VIEW {view_name} AS
+            SELECT t.*
+            FROM {table_name} t
+            WHERE t.fecha_archivo = (SELECT MAX(u.fecha_archivo) FROM {table_name} u WHERE u.periodo = t.periodo)
+            """
+        )
+
+
+def fotos_cargadas(cur: pyodbc.Cursor, table_name: str) -> dict[tuple[str, str], set[str]]:
+    """(periodo, fecha_archivo ISO) -> archivos (en mayusculas) con que se cargo esa foto."""
+    if "FECHA_ARCHIVO" not in get_table_columns(cur, table_name):
+        return {}
+    cur.execute(f"SELECT DISTINCT periodo, fecha_archivo, source_file FROM {table_name} WHERE fecha_archivo IS NOT NULL")
+    out: dict[tuple[str, str], set[str]] = {}
+    for row in cur.fetchall():
+        # El driver "SQL Server" devuelve las fechas como texto.
+        out.setdefault((str(row[0]).strip(), str(row[1])[:10]), set()).add(str(row[2] or "").strip().upper())
+    return out
+
+
+CASTIGO_VARIANTES = {"": 0, "PRECIERRE": 1, "CIERRE": 2}
+
+
+def variante_castigo(file_name: str) -> int:
+    """Prioridad del castigo dentro de una misma foto: CIERRE > PRECIERRE > sin variante."""
+    match = CASTIGO_PATTERN.match(Path(str(file_name)).name)
+    return CASTIGO_VARIANTES.get((match.group(2) or "").upper(), 0) if match else 0
+
+
 def ensure_castigo_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> tuple[list[str], list[str]]:
     requested_columns = [str(col) for col in excel_columns]
     if "GC_CASTIGO" not in {col.upper() for col in requested_columns}:
@@ -579,11 +675,16 @@ def ensure_castigo_table(cur: pyodbc.Cursor, excel_columns: list[str]) -> tuple[
     return ensure_dynamic_table(cur, CASTIGO_TABLE, requested_columns, CASTIGO_NUMERIC_COLUMNS)
 
 
-def prepare_contencion_dataframe(df: pd.DataFrame, periodo: str | None = None) -> tuple[pd.DataFrame, dict[str, object]]:
+def prepare_contencion_dataframe(
+    df: pd.DataFrame,
+    periodo: str | None = None,
+    uf: tuple[Decimal, str, str | None] | None = None,
+) -> tuple[pd.DataFrame, dict[str, object]]:
+    """uf: resultado de resolve_monto_uf(periodo) ya resuelto (la carga historica lo reutiliza entre archivos)."""
     if not periodo:
         raise RuntimeError("No se puede preparar contencion sin periodo para resolver MONTO_UF")
 
-    resolved_monto_uf, uf_source, uf_error = resolve_monto_uf(periodo)
+    resolved_monto_uf, uf_source, uf_error = uf or resolve_monto_uf(periodo)
     prepared = df.copy()
     stats = {
         "invalid_mto_cuota": 0,
@@ -640,7 +741,7 @@ def prepare_contencion_dataframe(df: pd.DataFrame, periodo: str | None = None) -
     return prepared, stats
 
 
-def resolve_castigo_source(folder: Path) -> tuple[Path, str, str]:
+def resolve_castigo_source(folder: Path) -> tuple[Path, str, str, datetime | None]:
     metadata_path = folder / "CASTIGO.meta.json"
     metadata = read_metadata(metadata_path)
     castigo_path = find_unique_file(folder, "Detalle_Recuperos_Castigo_*.xlsx", "castigo", required=True)
@@ -659,7 +760,13 @@ def resolve_castigo_source(folder: Path) -> tuple[Path, str, str]:
             f"Metadata de castigo inconsistente. original_filename={metadata_name}, archivo={source_file}"
         )
 
-    return castigo_path, source_file, castigo_period
+    # Fecha del archivo en el SFTP: es la fecha de la foto cuando el nombre solo trae el mes.
+    try:
+        castigo_mtime = datetime.fromisoformat(str(metadata.get("sftp_mtime") or "").strip())
+    except ValueError:
+        castigo_mtime = None
+
+    return castigo_path, source_file, castigo_period, castigo_mtime
 
 
 def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
@@ -686,7 +793,7 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
                 )
 
         cont = load_sheet(cont_path, 0)
-        castigo_path, castigo_source_file, castigo_period = resolve_castigo_source(folder)
+        castigo_path, castigo_source_file, castigo_period, castigo_mtime = resolve_castigo_source(folder)
         castigo_df = load_sheet(castigo_path, 0)
         if not len(castigo_df.columns):
             raise RuntimeError(f"El archivo de castigo {castigo_source_file} no tiene columnas.")
@@ -706,6 +813,7 @@ def _read_sources(file_path: str | None, folder_path: str | None) -> BitSources:
             castigo=castigo_df,
             castigo_source_file=castigo_source_file,
             castigo_period=castigo_period,
+            castigo_mtime=castigo_mtime,
             asignacion=asignacion_df,
             asignacion_source_file=asignacion_source_file,
             asignacion_period=asignacion_period,
@@ -745,18 +853,31 @@ def resolve_contencion_period(requested_periodo: str | None, sources: BitSources
     )
 
 
-def insert_castigo(cur: pyodbc.Cursor, periodo: str, castigo_df: pd.DataFrame, source_file: str) -> int:
+def insert_castigo(cur: pyodbc.Cursor, periodo: str, castigo_df: pd.DataFrame, source_file: str, fecha_archivo: date) -> int:
+    """Reemplaza solo la foto de fecha_archivo del periodo; las de otros dias se conservan. Un archivo no pisa a
+    otro de mayor variante en la misma foto (el CIERRE pisa al PRECIERRE, nunca al reves)."""
     excel_columns, added_columns = ensure_castigo_table(cur, [str(col) for col in castigo_df.columns])
-    cur.execute(f"DELETE FROM {CASTIGO_TABLE} WHERE periodo = ?", (periodo,))
+    ensure_fecha_archivo(cur, CASTIGO_TABLE)
+    # Fechas como texto ISO: el driver ODBC "SQL Server" no enlaza parametros date.
+    fecha_iso = fecha_archivo.isoformat()
+    cur.execute(
+        f"SELECT DISTINCT source_file FROM {CASTIGO_TABLE} WHERE periodo = ? AND fecha_archivo = ?",
+        (periodo, fecha_iso),
+    )
+    mayor = [row[0] for row in cur.fetchall() if variante_castigo(row[0]) > variante_castigo(source_file)]
+    if mayor:
+        print(f"{source_file} no se carga: la foto {fecha_iso} de {periodo} ya tiene {mayor[0]}.")
+        return 0
+    cur.execute(f"DELETE FROM {CASTIGO_TABLE} WHERE periodo = ? AND fecha_archivo = ?", (periodo, fecha_iso))
 
-    insert_columns = ["periodo", "source_file"] + excel_columns
+    insert_columns = ["periodo", "fecha_archivo", "source_file"] + excel_columns
     values_sql = ", ".join("?" for _ in insert_columns)
     cols_sql = ", ".join(quote_ident(col) for col in insert_columns)
     insert_sql = f"INSERT INTO {CASTIGO_TABLE} ({cols_sql}) VALUES ({values_sql})"
 
     castigo_rows = []
     for _, row in castigo_df.iterrows():
-        out = [periodo, source_file]
+        out = [periodo, fecha_iso, source_file]
         for col in excel_columns:
             if col.upper() == "GC_CASTIGO":
                 out.append(Decimal("0.25"))
@@ -788,7 +909,10 @@ def insert_dynamic_sheet(
     skip_null_column: str | None = None,
     include_source_file: bool = True,
     replace_period: bool = True,
+    fecha_archivo: date | None = None,
 ) -> tuple[int, int]:
+    """Con fecha_archivo se reemplaza solo la foto de ese dia del periodo; sin ella, el periodo completo
+    (si replace_period)."""
     excel_columns, added_columns = ensure_dynamic_table(
         cur,
         table_name,
@@ -796,10 +920,20 @@ def insert_dynamic_sheet(
         numeric_columns,
         include_source_file=include_source_file,
     )
-    if replace_period:
+    # Fechas como texto ISO: el driver ODBC "SQL Server" no enlaza parametros date.
+    fecha_iso = fecha_archivo.isoformat() if fecha_archivo else None
+    if fecha_iso:
+        ensure_fecha_archivo(cur, table_name)
+        cur.execute(f"DELETE FROM {table_name} WHERE periodo = ? AND fecha_archivo = ?", (periodo, fecha_iso))
+    elif replace_period:
         cur.execute(f"DELETE FROM {table_name} WHERE periodo = ?", (periodo,))
 
-    insert_columns = ["periodo"] + (["source_file"] if include_source_file else []) + excel_columns
+    insert_columns = (
+        ["periodo"]
+        + (["fecha_archivo"] if fecha_iso else [])
+        + (["source_file"] if include_source_file else [])
+        + excel_columns
+    )
     values_sql = ", ".join("?" for _ in insert_columns)
     cols_sql = ", ".join(quote_ident(col) for col in insert_columns)
     insert_sql = f"INSERT INTO {table_name} ({cols_sql}) VALUES ({values_sql})"
@@ -814,6 +948,8 @@ def insert_dynamic_sheet(
             continue
 
         out = [periodo]
+        if fecha_iso:
+            out.append(fecha_iso)
         if include_source_file:
             out.append(source_file)
         for col in excel_columns:
@@ -954,6 +1090,94 @@ def sync_asignacion_cierre(periodos: list[str] | None = None) -> None:
             transport.close()
 
 
+def _periodos_recientes(meses: int) -> set[str]:
+    year, month = date.today().year, date.today().month
+    out = set()
+    for _ in range(meses):
+        out.add(f"{year:04d}-{month:02d}")
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+    return out
+
+
+def cargar_historico(meses: int = MESES_HISTORICO) -> None:
+    """Carga desde el SFTP las fotos de contencion y castigo de los ultimos `meses` meses que falten.
+
+    Una foto por (periodo, fecha_archivo); un archivo ya cargado en su foto no se vuelve a descargar. Con varios castigos de una
+    misma fecha queda el de mayor variante (CIERRE > PRECIERRE > base) y luego el mas reciente. Un castigo sin dia
+    en el nombre que se sobrescribe en el SFTP solo trae su ultima version.
+    """
+    periodos = _periodos_recientes(meses)
+
+    transport, sftp = _connect_bit_sftp()
+    try:
+        contencion: dict[tuple[str, date], str] = {}
+        castigo: dict[tuple[str, date], tuple[tuple, str]] = {}
+        for entry in sftp.listdir_attr(SEGUIMIENTOS_REMOTE_DIR):
+            name = entry.filename
+            mtime = datetime.fromtimestamp(entry.st_mtime)
+            if CONTENCION_PATTERN.match(name):
+                periodo = extract_contencion_period(name)
+                if periodo in periodos:
+                    contencion[(periodo, fecha_de_archivo(name))] = name
+                continue
+            match = CASTIGO_PATTERN.match(name)
+            if match:
+                periodo = extract_castigo_period(name)
+                if periodo in periodos:
+                    key = (periodo, fecha_de_archivo(name, mtime))
+                    rank = (variante_castigo(name), mtime)
+                    if key not in castigo or rank > castigo[key][0]:
+                        castigo[key] = (rank, name)
+
+        with connect() as cn:
+            cn.autocommit = False
+            cur = cn.cursor()
+            for table_name in (CONTENCION_TABLE, CASTIGO_TABLE):
+                if get_table_columns(cur, table_name):
+                    ensure_fecha_archivo(cur, table_name)
+            cn.commit()
+            cargadas = {t: fotos_cargadas(cur, t) for t in (CONTENCION_TABLE, CASTIGO_TABLE)}
+            uf_por_periodo: dict[str, tuple[Decimal, str, str | None]] = {}
+
+            with TemporaryDirectory() as tmp_dir:
+                for (periodo, fecha), name in sorted(contencion.items()):
+                    if name.upper() in cargadas[CONTENCION_TABLE].get((periodo, fecha.isoformat()), set()):
+                        continue
+                    local_path = Path(tmp_dir) / name
+                    sftp.get(f"{SEGUIMIENTOS_REMOTE_DIR}/{name}", str(local_path))
+                    if periodo not in uf_por_periodo:
+                        uf_por_periodo[periodo] = resolve_monto_uf(periodo)
+                    prepared, _ = prepare_contencion_dataframe(load_sheet(local_path, 0), periodo, uf_por_periodo[periodo])
+                    rows, _ = insert_dynamic_sheet(
+                        cur,
+                        CONTENCION_TABLE,
+                        periodo,
+                        prepared,
+                        name,
+                        numeric_columns=CONTENCION_NUMERIC_COLUMNS,
+                        fecha_archivo=fecha,
+                    )
+                    cn.commit()
+                    local_path.unlink(missing_ok=True)
+                    print(f"Contencion {periodo} foto {fecha.isoformat()} cargada desde {name}: {rows} filas.")
+
+                for (periodo, fecha), (_rank, name) in sorted(castigo.items()):
+                    if name.upper() in cargadas[CASTIGO_TABLE].get((periodo, fecha.isoformat()), set()):
+                        continue
+                    local_path = Path(tmp_dir) / name
+                    sftp.get(f"{SEGUIMIENTOS_REMOTE_DIR}/{name}", str(local_path))
+                    rows = insert_castigo(cur, periodo, load_sheet(local_path, 0), name, fecha)
+                    cn.commit()
+                    local_path.unlink(missing_ok=True)
+                    print(f"Castigo {periodo} foto {fecha.isoformat()} cargada desde {name}: {rows} filas.")
+
+            ensure_vistas(cur)
+            cn.commit()
+    finally:
+        sftp.close()
+        transport.close()
+
+
 def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> None:
     sources = _read_sources(file_path, folder_path)
     cont_period = resolve_contencion_period(periodo, sources)
@@ -971,9 +1195,17 @@ def run(periodo: str | None, file_path: str | None, folder_path: str | None) -> 
             prepared_cont,
             sources.cont_source_file,
             numeric_columns=CONTENCION_NUMERIC_COLUMNS,
+            fecha_archivo=fecha_de_archivo(sources.cont_source_file),
         )
 
-        castigo_rows = insert_castigo(cur, castigo_period, sources.castigo, sources.castigo_source_file)
+        castigo_rows = insert_castigo(
+            cur,
+            castigo_period,
+            sources.castigo,
+            sources.castigo_source_file,
+            fecha_de_archivo(sources.castigo_source_file, sources.castigo_mtime),
+        )
+        ensure_vistas(cur)
 
         # Igual que contencion: se reemplaza el periodo completo, asi queda solo el ultimo archivo del mes.
         asignacion_rows = 0
@@ -1024,8 +1256,21 @@ if __name__ == "__main__":
         action="store_true",
         help="Solo sincroniza desde el SFTP la asignacion de cierre y el consolidado mensual.",
     )
+    parser.add_argument(
+        "--historico",
+        action="store_true",
+        help="Solo carga desde el SFTP las fotos diarias de contencion y castigo que falten.",
+    )
+    parser.add_argument(
+        "--meses",
+        type=int,
+        default=MESES_HISTORICO,
+        help=f"Meses hacia atras para --historico, contando el actual (por defecto {MESES_HISTORICO}).",
+    )
     args = parser.parse_args()
-    if args.asignacion_cierre:
+    if args.historico:
+        cargar_historico(args.meses)
+    elif args.asignacion_cierre:
         sync_asignacion_cierre()
     else:
         run(args.periodo, args.file, str(DEFAULT_BIT_FOLDER))

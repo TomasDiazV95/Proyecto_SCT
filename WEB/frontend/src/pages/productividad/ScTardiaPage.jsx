@@ -253,6 +253,10 @@ export default function ScTardiaPage() {
 
   const selectedBlockRows = rowsWithMetrics.filter((row) => row.bloque === selectedBlock);
   const showNormalizationColumns = normalizationBlocks.includes(selectedBlock);
+  // En las fases de castigo lo que se mide es recupero, no contencion.
+  const contLabels = castigoBlocks.includes(selectedBlock)
+    ? { meta: "Meta recupero", monto: "Recupero", pct: "% Recupero" }
+    : { meta: "Meta cont.", monto: "Contenido", pct: "% Cont." };
   const selectedBlockSums = castigoBlocks.includes(selectedBlock) && selectedBlockRows.length
     ? selectedBlockRows.reduce(
         (acc, row) => ({
@@ -441,9 +445,9 @@ export default function ScTardiaPage() {
                   <tr>
                     <th>Ejecutivo</th>
                     <th className="pd-num">Deuda asignada</th>
-                    <th className="pd-num">Meta cont.</th>
-                    <th className="pd-num">Contenido</th>
-                    <th className="pd-num">% Cont.</th>
+                    <th className="pd-num">{contLabels.meta}</th>
+                    <th className="pd-num">{contLabels.monto}</th>
+                    <th className="pd-num">{contLabels.pct}</th>
                     {showNormalizationColumns && <th className="pd-num">Meta norm.</th>}
                     {showNormalizationColumns && <th className="pd-num">Normalizado</th>}
                     {showNormalizationColumns && <th className="pd-num">% Norm.</th>}
@@ -458,10 +462,10 @@ export default function ScTardiaPage() {
                       <td className="pd-num">{formatMoney(row.deuda_asignada)}</td>
                       <td className="pd-num">{formatMoney(row.monto_meta_cont)}</td>
                       <td className="pd-num">{formatMoney(row.contenido)}</td>
-                      <td className="pd-num"><span className={metricClass(row.pct_contencion)}>{formatPct(row.pct_contencion)}</span></td>
+                      <td className="pd-num"><span className={metricClass(row.pct_contencion)}>{formatPct(row.pct_contencion, 0)}</span></td>
                       {showNormalizationColumns && <td className="pd-num">{row.monto_meta_norm ? formatMoney(row.monto_meta_norm) : "-"}</td>}
                       {showNormalizationColumns && <td className="pd-num">{row.normalizado ? formatMoney(row.normalizado) : "-"}</td>}
-                      {showNormalizationColumns && <td className="pd-num"><span className={metricClass(row.pct_normalizacion)}>{row.monto_meta_norm ? formatPct(row.pct_normalizacion) : "-"}</span></td>}
+                      {showNormalizationColumns && <td className="pd-num"><span className={metricClass(row.pct_normalizacion)}>{row.monto_meta_norm ? formatPct(row.pct_normalizacion, 0) : "-"}</span></td>}
                       {showNormalizationColumns && <td className="pd-num"><span className={metricClass(row.cumplimiento_operativo)}>{formatPct(row.cumplimiento_operativo, 0)}</span></td>}
                       <td className="pd-num">{num(row.cantidad_casos).toLocaleString("es-CL")}</td>
                     </tr>
@@ -472,7 +476,7 @@ export default function ScTardiaPage() {
                       <td className="pd-num">{formatMoney(selectedBlockTotal.deuda_asignada)}</td>
                       <td className="pd-num">{formatMoney(selectedBlockTotal.monto_meta_cont)}</td>
                       <td className="pd-num">{formatMoney(selectedBlockTotal.contenido)}</td>
-                      <td className="pd-num"><span className={metricClass(selectedBlockTotal.pct_contencion)}>{formatPct(selectedBlockTotal.pct_contencion)}</span></td>
+                      <td className="pd-num"><span className={metricClass(selectedBlockTotal.pct_contencion)}>{formatPct(selectedBlockTotal.pct_contencion, 0)}</span></td>
                       <td className="pd-num">{selectedBlockTotal.cantidad_casos.toLocaleString("es-CL")}</td>
                     </tr>
                   )}

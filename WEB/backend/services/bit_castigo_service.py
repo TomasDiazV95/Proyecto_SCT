@@ -289,7 +289,7 @@ def _periodo_sql(cobertura: tuple[str, str]) -> str:
         SUM(CASE WHEN {es_nuevo_convenio} THEN 1 ELSE 0 END) AS nuevos_convenios,
         SUM(CASE WHEN {es_nuevo_convenio} THEN {_numero_sql(cast_recupero)} ELSE 0 END) AS abono_inicial
     INTO #cast
-    FROM dbo.tmp_BIT_castigo
+    FROM dbo.vw_BIT_castigo_ultima
     WHERE {cast['periodo_col']} = ?
       AND {cast_rut} IS NOT NULL
       AND LTRIM(RTRIM(COALESCE(CONVERT(VARCHAR(50), {cast_rut}), ''))) <> ''
@@ -410,7 +410,7 @@ def _get_source_file(periodo: str) -> str:
     rows = run_query(
         """
         SELECT TOP 1 """ + cast_source_file + """
-        FROM dbo.tmp_BIT_castigo
+        FROM dbo.vw_BIT_castigo_ultima
         WHERE """ + cast_periodo + """ = ?
           AND """ + cast_source_file + """ IS NOT NULL
           AND LTRIM(RTRIM(""" + cast_source_file + """)) <> ''

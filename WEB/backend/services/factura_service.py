@@ -195,7 +195,7 @@ def _build_bit_response(selected_period: str, available_periods: list[str]) -> d
                     WHEN ISNUMERIC(CONVERT(VARCHAR(255), gasto_cobranza)) = 1 THEN CAST(gasto_cobranza AS float)
                     ELSE 0
                 END AS gasto_cobranza
-            FROM dbo.tmp_BIT_contencion
+            FROM dbo.vw_BIT_contencion_ultima
             WHERE periodo = ?
               AND periodo >= ?
               AND LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) <> 'T0'
@@ -232,7 +232,7 @@ def _build_bit_response(selected_period: str, available_periods: list[str]) -> d
                     ELSE 0.25
                 END
             ) AS castigo_simulado
-        FROM dbo.tmp_BIT_castigo
+        FROM dbo.vw_BIT_castigo_ultima
         WHERE periodo = ?
           AND periodo >= ?
         """,

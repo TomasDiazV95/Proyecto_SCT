@@ -122,12 +122,31 @@ def clean_numeric(value) -> Decimal | None:
         return Decimal(s)
     except Exception:
         return None
-def to_sql_numeric(col: str, value):
+# Mediana de MM$ Monto sobre la que el archivo ya viene en pesos (ej. 70.990.434.256): en millones una operacion
+# no llega ni cerca de 100.000 MM.
+MM_MONTO_PESOS_UMBRAL = Decimal("100000")
+
+
+def factor_mm_monto(df: pd.DataFrame) -> Decimal:
+    """1.000.000 si MM$ Monto viene en millones (lo habitual, ej. 184,805363); 1 si el archivo ya lo trae en pesos."""
+    valores = sorted(
+        abs(number)
+        for col in df.columns
+        if col_is_mm_monto(normalize_excel_col(col))
+        for number in map(clean_numeric, df[col])
+        if number
+    )
+    if valores and valores[len(valores) // 2] > MM_MONTO_PESOS_UMBRAL:
+        return Decimal("1")
+    return Decimal("1000000")
+
+
+def to_sql_numeric(col: str, value, factor_mm: Decimal = Decimal("1000000")):
     number = clean_numeric(value)
     if number is None:
         return None
     if col_is_mm_monto(col):
-        return (number * Decimal("1000000")).quantize(Decimal("1"))
+        return (number * factor_mm).quantize(Decimal("1"))
     if col_is_numeric(col):
         return int(number)
     return number
@@ -241,12 +260,15 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
     insert_cols = ["source_file"] + fld_cols
     placeholders = ",".join(["?"] * len(insert_cols))
     sql = f"INSERT INTO {TABLE} ({','.join(map(sql_ident, insert_cols))}) VALUES ({placeholders})"
+    factor_mm = factor_mm_monto(df)
+    if factor_mm == 1:
+        print(f"{source_file}: MM$ Monto viene en pesos; se carga sin multiplicar por 1.000.000.")
     rows = []
     for row in df.itertuples(index=False, name=None):
         out = [source_file]
         for col, value in zip(excel_cols, row):
             if col_is_numeric(col):
-                out.append(to_sql_numeric(col, value))
+                out.append(to_sql_numeric(col, value, factor_mm))
             else:
                 if pd.isna(value):
                     out.append(None)

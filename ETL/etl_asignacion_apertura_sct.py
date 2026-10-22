@@ -10,6 +10,7 @@ agregan columnas nuevas. PERIODO sale del nombre del archivo y FECHA es el prime
 
 import os
 import re
+from datetime import datetime
 from pathlib import Path
 
 import bench_recarga
@@ -21,6 +22,9 @@ BENCH_FOLDER = Path(require_env("BENCH_STC_FOLDER"))
 SHEET_NAME = os.getenv("ASIGNACION_APERTURA_SHEET_NAME", "").strip() or None
 PERIODO_PATTERN = re.compile(r"^\s*(\d{6})\s*-\s*ASIGNACION_APERTURA", re.IGNORECASE)
 BATCH_SIZE = 5000
+# descarga_SCT.py solo baja la asignacion estos primeros dias del mes (mismo .env);
+# despues no hay archivo y la carga se omite sin error.
+DIAS_DESCARGA_INICIO_DE_MES = int(os.getenv("INICIO_DE_MES_DIAS_DESCARGA", "5"))
 
 # Columnas del archivo de apertura que en las tablas de bench tienen otro nombre.
 EQUIVALENTES_COMUNES = {
@@ -202,6 +206,12 @@ def main() -> None:
     for carga in CARGAS:
         files = pick_files(carga["glob"])
         if not files:
+            if datetime.now().day > DIAS_DESCARGA_INICIO_DE_MES:
+                print(
+                    f"Se omite {carga['nombre']}: la asignacion solo se descarga "
+                    f"los primeros {DIAS_DESCARGA_INICIO_DE_MES} dias del mes."
+                )
+                continue
             raise FileNotFoundError(
                 f"No se encontro el archivo de {carga['nombre']} en {BENCH_FOLDER} con el patron {carga['glob']}"
             )

@@ -62,7 +62,7 @@ WITH carterizado_unico AS (
         ISNULL(c.mto_contiene, 0) AS mto_contenido,
         ISNULL(c.contiene, 0) AS contiene,
         c.tipo_cont
-    FROM dbo.tmp_BIT_contencion c
+    FROM dbo.vw_BIT_contencion_ultima c
     LEFT JOIN carterizado_unico cu
         ON cu.periodo = c.periodo
        AND cu.operation_key = CASE
@@ -143,7 +143,7 @@ WITH carterizado_unico AS (
         ISNULL(c.mto_contiene, 0) AS mto_contenido,
         ISNULL(c.contiene, 0) AS contiene,
         c.tipo_cont
-    FROM dbo.tmp_BIT_contencion c
+    FROM dbo.vw_BIT_contencion_ultima c
     LEFT JOIN carterizado_unico cu
         ON cu.periodo = c.periodo
        AND cu.operation_key = CASE
@@ -221,7 +221,7 @@ def _get_contencion_source_file(periodo: str) -> str:
     rows = run_query(
         """
         SELECT TOP 1 source_file
-        FROM dbo.tmp_BIT_contencion
+        FROM dbo.vw_BIT_contencion_ultima
         WHERE periodo = ? AND source_file IS NOT NULL AND LTRIM(RTRIM(source_file)) <> ''
           AND UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) <> 'UNIVERSITARIOS'
         GROUP BY source_file
@@ -298,7 +298,7 @@ def get_filter_values(periodo: str | None = None) -> dict:
                         WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T4', 'T5', 'T6', 'T7') THEN 2
                         ELSE 99
                     END) AS ord
-                FROM dbo.tmp_BIT_contencion
+                FROM dbo.vw_BIT_contencion_ultima
                 WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) <> 'UNIVERSITARIOS'
                 GROUP BY CASE
                     WHEN LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) IN ('T1', 'T2', 'T3') THEN '30-90'
