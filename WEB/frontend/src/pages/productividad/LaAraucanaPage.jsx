@@ -25,6 +25,11 @@ function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
 }
 
+// Desde octubre 2026 PHOENIX no tiene % aporte (viene en null): se muestra "—" como en SC Tardia.
+function sinAporte(value) {
+  return value === null || value === undefined;
+}
+
 const CARTERAS = [
   { key: "VIGENTE", label: "Vigente" },
   { key: "CASTIGO", label: "Castigo" },
@@ -64,7 +69,7 @@ function pivotRows(rows) {
     const nombre = row.ejecutivo || "PHOENIX";
     const current = grouped.get(nombre) || { ejecutivo: nombre, carteras: {}, cumplimiento: 0 };
     current.carteras[row.tipo_cartera] = row;
-    current.cumplimiento = Number(row.pct_aporte_final || 0);
+    current.cumplimiento = sinAporte(row.pct_aporte_final) ? null : Number(row.pct_aporte_final);
     grouped.set(nombre, current);
   });
   return Array.from(grouped.values()).sort(
@@ -164,8 +169,8 @@ export default function LaAraucanaPage() {
   const detalleVisible = negocios.detalle.filter((row) => !ejecutivoDetalle || row.ejecutivo === ejecutivoDetalle);
   const executiveRows = pivotRows(rows);
   const totalCarteras = totalByCartera(rows);
-  const totalAporteFinal = executiveRows.reduce((acc, row) => acc + row.cumplimiento, 0);
-  const finalValues = executiveRows.map((row) => row.cumplimiento).sort((a, b) => a - b);
+  const totalAporteFinal = executiveRows.reduce((acc, row) => acc + (row.cumplimiento || 0), 0);
+  const finalValues = executiveRows.map((row) => row.cumplimiento).filter((value) => !sinAporte(value)).sort((a, b) => a - b);
   const finalThresholds = { p33: percentile(finalValues, 0.33), p66: percentile(finalValues, 0.66) };
   // Umbrales relativos del % cumplimiento dentro de cada cartera.
   const carteraThresholds = Object.fromEntries(
@@ -360,7 +365,11 @@ export default function LaAraucanaPage() {
         <td className="pd-num pd-group-start">{formatMM(data.deuda)}</td>
         <td className="pd-num">{formatRecovero(data.recupero)}</td>
         <td className="pd-num">
-          <span className={isTotal ? "pd-status pd-status-none" : dotClassByThresholds(data.pct_aporte, carteraThresholds[key])}>{formatPct(data.pct_aporte)}</span>
+          {sinAporte(data.pct_aporte) ? (
+            <span className="pd-cell-muted">—</span>
+          ) : (
+            <span className={isTotal ? "pd-status pd-status-none" : dotClassByThresholds(data.pct_aporte, carteraThresholds[key])}>{formatPct(data.pct_aporte)}</span>
+          )}
         </td>
       </React.Fragment>
     );
@@ -504,7 +513,11 @@ export default function LaAraucanaPage() {
                     <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                     {CARTERAS.map(({ key }) => renderCarteraCells(row.carteras[key], key, false))}
                     <td className="pd-num pd-group-start">
-                      <span className={dotClassByThresholds(row.cumplimiento, finalThresholds)}>{formatPct(row.cumplimiento)}</span>
+                      {sinAporte(row.cumplimiento) ? (
+                        <span className="pd-cell-muted">—</span>
+                      ) : (
+                        <span className={dotClassByThresholds(row.cumplimiento, finalThresholds)}>{formatPct(row.cumplimiento)}</span>
+                      )}
                     </td>
                   </tr>
                 ))}

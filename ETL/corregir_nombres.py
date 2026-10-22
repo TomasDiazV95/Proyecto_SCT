@@ -36,6 +36,7 @@ COLUMNAS = [
     ("dbo.tmp_carterizado_STH", "ejecutivo"),
     ("dbo.tmp_BIT_carterizado", "usuario"),
     ("dbo.tmp_bench_STC", "fld_COBRADOR"),
+    ("dbo.tmp_bench_STC_tel", "fld_COBRADOR"),
     ("dbo.tmp_bench_temp_STC", "fld_COBRADOR"),
     ("dbo.tmp_bench_temp_STC_asignado", "fld_COBRADOR"),
     ("dbo.tmp_bench_SC_Castigo", "fld_COBRADOR"),

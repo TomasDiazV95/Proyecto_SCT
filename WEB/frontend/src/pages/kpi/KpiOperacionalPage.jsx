@@ -108,9 +108,18 @@ function trend(kpi, sentido) {
 
 const ARROW = { up: "▲", down: "▼", flat: "=", none: "" };
 
-function verdict(t, prevMonth) {
+// Mes anterior al corte equivalente (mismos dias habiles para el cierre que hoy) o, si ya no quedan, su cierre.
+function refLabel(mes) {
+  if (!mes) return "el mes anterior";
+  const nombre = monthName(mes.periodo);
+  if (!mes.corte_equivalente || mes.corte_equivalente === mes.corte) return `el cierre de ${nombre}`;
+  const n = mes.dias_habiles_restantes;
+  const [, month, day] = mes.corte_equivalente.split("-");
+  return `${nombre} a ${n} ${n === 1 ? "día hábil" : "días hábiles"} del cierre (${Number(day)}-${MONTHS_SHORT[Number(month) - 1].toLowerCase()})`;
+}
+
+function verdict(t, ref) {
   if (t.dir === "none") return "sin mes anterior para comparar";
-  const ref = `el cierre de ${prevMonth}`;
   if (t.dir === "flat") return `igual que ${ref}`;
   if (t.calidad === "good") return `mejor que ${ref}`;
   if (t.calidad === "bad") return `peor que ${ref}`;
@@ -120,7 +129,7 @@ function verdict(t, prevMonth) {
 // ------------------------------------------------------------
 // Componentes
 // ------------------------------------------------------------
-function Delta({ kpi, sentido, prevMonth }) {
+function Delta({ kpi, sentido, refText }) {
   const t = trend(kpi, sentido);
   return (
     <div className={`kpo-delta is-${t.calidad}`}>
@@ -129,7 +138,7 @@ function Delta({ kpi, sentido, prevMonth }) {
           <span aria-hidden="true">{ARROW[t.dir]}</span> {fDelta(kpi.delta, kpi.delta_tipo)}
         </span>
       )}
-      <span className="kpo-delta-text">{verdict(t, prevMonth)}</span>
+      <span className="kpo-delta-text">{verdict(t, refText)}</span>
     </div>
   );
 }
@@ -139,7 +148,9 @@ function Delta({ kpi, sentido, prevMonth }) {
 function MiniColumns({ kpi, meses, label, kpi2, label2 }) {
   const format = FORMAT[kpi?.tipo || "int"];
   const formatShort = FORMAT_SHORT[kpi?.tipo || "int"];
-  const rows = meses.map((mes, i) => ({ ...mes, value: kpi?.valores[i], value2: kpi2?.valores[i] })).reverse();
+  const rows = meses
+    .map((mes, i) => ({ ...mes, value: kpi?.valores[i], value2: kpi2?.valores[i], cierre: kpi?.valores_cierre?.[i] }))
+    .reverse();
   const max = Math.max(0, ...rows.map((r) => Math.max(Number(r.value || 0), Number(r.value2 || 0))));
   if (max <= 0) return <div className="kpo-mini-empty">Sin datos para comparar</div>;
   const height = (value) => (value ? Math.max(3, Math.round((Number(value) / max) * 100)) : 0);
@@ -149,9 +160,11 @@ function MiniColumns({ kpi, meses, label, kpi2, label2 }) {
       <div className={`kpo-mini${kpi2 ? " is-dual" : ""}`} role="img" aria-label={`${label}: ${rows.map(describe).join(", ")}`}>
         {rows.map((row, i) => {
           const current = i === rows.length - 1;
-          const cuando = current ? `${monthName(row.periodo)} al ${cutLabel(row.corte)}` : `cierre de ${monthName(row.periodo)}`;
+          const alCorte = !current && row.corte_equivalente && row.corte_equivalente !== row.corte;
+          const cuando = current || alCorte ? `${monthName(row.periodo)} al ${cutLabel(alCorte ? row.corte_equivalente : row.corte)}` : `cierre de ${monthName(row.periodo)}`;
+          const cierre = alCorte && row.cierre != null && row.cierre !== row.value ? ` · cierre: ${format(row.cierre)}` : "";
           return (
-            <div key={row.periodo} className={`kpo-mini-col${current ? " is-current" : ""}`} title={`${label} · ${cuando}: ${format(row.value)}${kpi2 ? ` · ${label2}: ${format(row.value2)}` : ""}`}>
+            <div key={row.periodo} className={`kpo-mini-col${current ? " is-current" : ""}`} title={`${label} · ${cuando}: ${format(row.value)}${kpi2 ? ` · ${label2}: ${format(row.value2)}` : ""}${cierre}`}>
               <span className="kpo-mini-value">{formatShort(row.value)}</span>
               {kpi2 && <span className="kpo-mini-value is-second">{formatShort(row.value2)}</span>}
               <div className="kpo-mini-track">
@@ -173,10 +186,13 @@ function MiniColumns({ kpi, meses, label, kpi2, label2 }) {
   );
 }
 
-function KpiCard({ label, help, kpi, meses, sentido = 1, note, kpi2, serie, serie2 }) {
+// refText: contra que se compara (por defecto, el mes anterior al mismo dia habil).
+function KpiCard({ label, help, kpi, meses, sentido = 1, note, kpi2, serie, serie2, refText }) {
   if (!kpi) return null;
   const format = FORMAT[kpi.tipo];
-  const prevMonth = meses[1] ? monthName(meses[1].periodo) : "el mes anterior";
+  const cierreAnterior = kpi.valores_cierre?.[1];
+  // Al corte equivalente el mes anterior aun no cerraba: su cierre queda como referencia.
+  const conCierre = meses[1] && meses[1].corte_equivalente !== meses[1].corte && cierreAnterior != null && cierreAnterior !== kpi.valores[1];
   return (
     <article className="kpo-card kpo-kpi">
       <header className="kpo-kpi-head">
@@ -184,7 +200,12 @@ function KpiCard({ label, help, kpi, meses, sentido = 1, note, kpi2, serie, seri
         <p className="kpo-kpi-help">{help}</p>
       </header>
       <div className="kpo-kpi-value">{format(kpi.valores[0])}</div>
-      <Delta kpi={kpi} sentido={sentido} prevMonth={prevMonth} />
+      <Delta kpi={kpi} sentido={sentido} refText={refText || refLabel(meses[1])} />
+      {conCierre && (
+        <p className="kpo-kpi-note">
+          Cierre de {monthName(meses[1].periodo)}: {format(cierreAnterior)} ({fDelta(kpi.delta_cierre, kpi.delta_tipo)} hoy vs cierre).
+        </p>
+      )}
       <MiniColumns kpi={kpi} meses={meses} label={serie || label} kpi2={kpi2} label2={serie2} />
       {kpi.tipo === "money" && <p className="kpo-kpi-note">Gráfico en millones de pesos (MM$).</p>}
       {note && <p className="kpo-kpi-note">{note}</p>}
@@ -275,7 +296,7 @@ function ProjectionCard({ proy, meses }) {
         <>
           <div className="kpo-proj-top">
             <div className="kpo-kpi-value">{fMM(proy.proyeccion)}</div>
-            <Delta kpi={kpi} sentido={1} prevMonth={prevMonth} />
+            <Delta kpi={kpi} sentido={1} refText={`el cierre de ${prevMonth}`} />
           </div>
 
           <div className="kpo-proj-bar-wrap" role="img" aria-label={`Pagos a hoy ${fMM(hoy)}, aporte esperado del tubo ${fMM(aporte)}${cierre ? `, cierre de ${prevMonth} ${fMM(cierre)}` : ""}`}>
@@ -492,6 +513,8 @@ export default function KpiOperacionalPage() {
   const actual = meses[0]?.periodo;
   const anterior = meses[1]?.periodo;
   const prevMonth = anterior ? monthName(anterior) : "el mes anterior";
+  const prevRef = refLabel(meses[1]);
+  const restantes = data?.dias_habiles_restantes;
   // Los filtros especificos y el detalle por tramo solo aplican con un unico mandante elegido.
   const mandante = filters.mandante.length === 1 ? filters.mandante[0] : "";
   const tramoLabel = mandante ? labels.tramo || "Tramo" : "Mandante";
@@ -506,8 +529,8 @@ export default function KpiOperacionalPage() {
     .join(" · ");
 
   const segmentos = data?.segmentos || [];
-  const aproximados = meses.filter((m) => m.con_datos && m.aproximado);
   const sinDatos = meses.filter((m) => !m.con_datos);
+  const sinHistoria = meses.filter((m) => m.con_datos && m.meses_historia < 3);
   // Sin mandante: mandantes sin datos este mes pero si en los anteriores (el total no es comparable).
   const mandantesSinMes = !mandante
     ? segmentos.filter((s) => !s.meses[actual] && meses.slice(1).some((m) => s.meses[m.periodo])).map((s) => s.mandante)
@@ -519,6 +542,8 @@ export default function KpiOperacionalPage() {
       { key: "pagos", nombre: "Pagos recuperados", sentido: 1 },
       { key: "recuperacion", nombre: "Recuperación", sentido: 1 },
       { key: "contactabilidad", nombre: "Contactabilidad", sentido: 1 },
+      // Alcance: los meses anteriores van completos (sin corte equivalente).
+      { key: "avance_alcance", nombre: "Alcance de contacto", sentido: 1, ref: `el cierre de ${prevMonth}` },
       { key: "cobertura", nombre: "Cobertura de gestión", sentido: 1 },
       { key: "pct_cumplidos", nombre: "Compromisos cumplidos", sentido: 1 },
     ];
@@ -528,10 +553,10 @@ export default function KpiOperacionalPage() {
     const proy = data?.proyeccion;
     if (proy?.proyeccion != null) {
       const kpi = { tipo: "money", valores: [proy.proyeccion], delta: proy.delta_vs_cierre_anterior, delta_tipo: "pct" };
-      out.splice(1, 0, { key: "proyeccion", nombre: "Proyección de cierre", sentido: 1, kpi, t: trend(kpi, 1) });
+      out.splice(1, 0, { key: "proyeccion", nombre: "Proyección de cierre", sentido: 1, kpi, t: trend(kpi, 1), ref: `el cierre de ${prevMonth}` });
     }
     return out;
-  }, [kpis, data]);
+  }, [kpis, data, prevMonth]);
 
   const tipos = useMemo(
     () =>
@@ -563,7 +588,8 @@ export default function KpiOperacionalPage() {
           </div>
           <h1 className="kpo-title">KPI Operacional</h1>
           <p className="kpo-subtitle">
-            Cómo va el mes <strong>hoy</strong>, comparado con el <strong>cierre</strong> de los 3 meses anteriores.
+            Cómo va el mes <strong>hoy</strong>, comparado con los 3 meses anteriores <strong>al mismo día hábil</strong> antes
+            del cierre{restantes != null && ` (quedan ${restantes} ${restantes === 1 ? "día hábil" : "días hábiles"})`}.
           </p>
         </div>
       </header>
@@ -615,24 +641,20 @@ export default function KpiOperacionalPage() {
                   <span className="kpo-summary-name">{it.nombre}</span>
                   <span className="kpo-summary-value">{FORMAT[it.kpi.tipo](it.kpi.valores[0])}</span>
                   <span className="kpo-summary-verdict">
-                    {it.t.dir === "none" ? "sin comparación" : `${fDelta(it.kpi.delta, it.kpi.delta_tipo)} · ${verdict(it.t, prevMonth)}`}
+                    {it.t.dir === "none" ? "sin comparación" : `${fDelta(it.kpi.delta, it.kpi.delta_tipo)} · ${verdict(it.t, it.ref || prevRef)}`}
                   </span>
                 </li>
               ))}
             </ul>
-            {(aproximados.length > 0 || sinDatos.length > 0 || mandantesSinMes.length > 0) && (
+            {(sinDatos.length > 0 || mandantesSinMes.length > 0 || sinHistoria.length > 0) && (
               <div className="kpo-note" role="note">
                 <strong>Ojo al comparar:</strong>{" "}
                 {sinDatos.length > 0 && <span>no hay asignación cargada en {sinDatos.map((m) => monthName(m.periodo)).join(", ")}. </span>}
                 {mandantesSinMes.length > 0 && (
                   <span>{mandantesSinMes.join(", ")} no tiene datos en {monthName(actual)}, así que el total no es comparable. </span>
                 )}
-                {aproximados.length > 0 && (
-                  <span>
-                    los pagos de {[...new Set(aproximados.flatMap((m) => m.aproximado_mandantes || []))].join(", ") || "algunas fuentes"} en{" "}
-                    {aproximados.map((m) => monthName(m.periodo)).join(", ")} son aproximados: esa fuente aún no tiene una foto de
-                    pagos hasta hoy.
-                  </span>
+                {sinHistoria.length > 0 && (
+                  <span>el alcance de contacto de {sinHistoria.map((m) => monthName(m.periodo)).join(", ")} usa menos de 3 meses de historia. </span>
                 )}
               </div>
             )}
@@ -663,6 +685,31 @@ export default function KpiOperacionalPage() {
               note={kpis.no_gestionados?.valores[0] != null ? `${fInt(kpis.no_gestionados.valores[0])} clientes sin gestión.` : ""}
             />
             <KpiCard label="Contactabilidad" help="De cada 100 clientes gestionados, con cuántos hablamos directamente (titular)." kpi={kpis.contactabilidad} meses={meses} />
+            <KpiCard
+              label="Alcance de contacto"
+              help="De los clientes asignados con los que hablamos con el titular en los últimos 3 meses, cuántos ya contactamos directamente este mes. Meses anteriores completos, hasta el cierre."
+              kpi={kpis.avance_alcance}
+              meses={meses}
+              refText={`el cierre de ${prevMonth}`}
+              note={
+                kpis.contactables?.valores[0]
+                  ? `Te falta contactar el ${fPct(kpis.contactables_pendientes.valores[0] / kpis.contactables.valores[0])} (${fInt(kpis.contactables_pendientes.valores[0])} de ${fInt(kpis.contactables.valores[0])}) de los RUT asignados que tuvieron gestión titular los últimos 3 meses.`
+                  : ""
+              }
+            />
+            <KpiCard
+              label="Por contactar (con histórico)"
+              help="Clientes asignados con contacto titular en los últimos 3 meses que aún no contactamos directamente este mes. Meses anteriores completos, hasta el cierre."
+              kpi={kpis.contactables_pendientes}
+              meses={meses}
+              sentido={-1}
+              refText={`el cierre de ${prevMonth}`}
+              note={
+                kpis.contactables?.valores[0] != null
+                  ? `${fInt(kpis.contactables.valores[0])} asignados (${fPct(kpis.alcance_contacto.valores[0])}) tuvieron contacto titular en los últimos 3 meses.`
+                  : ""
+              }
+            />
             <KpiCard label="Intensidad de gestión" help="Promedio de gestiones por cliente" kpi={kpis.intensidad} meses={meses} />
             <StackedMonths
               title="Tipos de contacto"
@@ -723,7 +770,7 @@ export default function KpiOperacionalPage() {
               <div>
                 <h2 id="kpo-detail-title" className="kpo-section-title">Detalle por {tramoLabel.toLowerCase()}</h2>
                 <p className="kpo-section-desc">
-                  {monthName(actual) && `${monthName(actual)[0].toUpperCase()}${monthName(actual).slice(1)} al ${cutLabel(meses[0]?.corte)}`}, comparado con el cierre de {prevMonth}.
+                  {monthName(actual) && `${monthName(actual)[0].toUpperCase()}${monthName(actual).slice(1)} al ${cutLabel(meses[0]?.corte)}`}, comparado con {prevRef}.
                 </p>
               </div>
             </div>
@@ -763,12 +810,12 @@ export default function KpiOperacionalPage() {
                           <td>{fInt(cur.casos)}</td>
                           <td>{fMM(cur.saldo)}</td>
                           <td>{fMM(cur.pagos)}</td>
-                          <td className={`is-${tP.calidad}`}>
+                          <td className={`is-${tP.calidad}`} title={prev.pagos_cierre != null ? `Cierre de ${prevMonth}: ${fMM(prev.pagos_cierre)}` : undefined}>
                             {tP.dir !== "none" && <span aria-hidden="true">{ARROW[tP.dir]} </span>}
                             {fDelta(dPagos.delta, "pct")}
                           </td>
                           <td>{fPct(cur.recuperacion)}</td>
-                          <td className={`is-${tR.calidad}`}>
+                          <td className={`is-${tR.calidad}`} title={prev.recuperacion_cierre != null ? `Cierre de ${prevMonth}: ${fPct(prev.recuperacion_cierre)}` : undefined}>
                             {tR.dir !== "none" && <span aria-hidden="true">{ARROW[tR.dir]} </span>}
                             {fDelta(dRecup.delta, "pp")}
                           </td>

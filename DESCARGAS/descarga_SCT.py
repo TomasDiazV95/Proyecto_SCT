@@ -132,6 +132,7 @@ def resolver_carpeta_extraida() -> Path:
 # Nombres de archivo en el visor: mismos patrones glob que usan los ETL.
 BENCH_TEMP_PATTERN = os.getenv("BENCH_TEMP_PATTERN", "").strip()
 BENCH_STC_PATTERN = os.getenv("BENCH_STC_PATTERN", "").strip()
+BENCH_STC_TEL_PATTERN = os.getenv("BENCH_STC_TEL_PATTERN", "").strip()
 BENCH_SC_CASTIGO_PATTERN = os.getenv("BENCH_SC_CASTIGO_PATTERN", "").strip()
 
 
@@ -174,11 +175,20 @@ def registrar_descarga(nombre_logico: str, nombre_archivo: str) -> None:
 
 # Las descargas con "fin_de_mes" traen, ademas del archivo mas reciente, el ultimo bench
 # del mes anterior en todas sus cargas (pre-cierre y cierre), aunque el nombre venga
-# escrito de otra forma. Se buscan los primeros dias del mes; los ETL omiten lo ya cargado.
+# escrito de otra forma. Se buscan solo hasta el dia 10 del mes; los ETL omiten lo ya cargado.
 DIAS_BUSQUEDA_FIN_DE_MES = int(
     os.getenv(
         "FIN_DE_MES_DIAS_BUSQUEDA",
-        "15",
+        "10",
+    )
+)
+
+# Las descargas con "solo_inicio_de_mes" (asignacion mensual) solo se bajan hasta este dia
+# del mes; despues ya estan cargadas y no hace falta volver a pedirlas hasta el mes siguiente.
+DIAS_DESCARGA_INICIO_DE_MES = int(
+    os.getenv(
+        "INICIO_DE_MES_DIAS_DESCARGA",
+        "5",
     )
 )
 
@@ -211,6 +221,24 @@ DESCARGAS = [
             texto_desde_patron(
                 "BENCH_STC_PATTERN",
                 BENCH_STC_PATTERN,
+            ),
+
+        "fin_de_mes":
+            True,
+    },
+
+    # Mora tardia telefonia: YYYYMMDD_BENCH_MORA_TARDIA_PHOENIX (TELEFONIA), en la carpeta EXTRAS.
+    {
+        "nombre":
+            "BENCH MORA TARDIA - TELEFONIA",
+
+        "carpeta_visor":
+            "📁 EXTRAS",
+
+        "patron_archivo":
+            texto_desde_patron(
+                "BENCH_STC_TEL_PATTERN",
+                BENCH_STC_TEL_PATTERN,
             ),
 
         "fin_de_mes":
@@ -250,6 +278,9 @@ DESCARGAS = [
 
         "patron_archivo":
             "ASIGNACION_APERTURA - PHOENIX.XLSX",
+
+        "solo_inicio_de_mes":
+            True,
     },
 
     {
@@ -261,8 +292,28 @@ DESCARGAS = [
 
         "patron_archivo":
             "ASIGNACION_APERTURA - PHOENIX (TELEFONIA).XLSX",
+
+        "solo_inicio_de_mes":
+            True,
     },
 ]
+
+
+def descargas_del_dia(descargas: list[dict]) -> list[dict]:
+    """Quita las descargas de inicio de mes cuando ya paso el plazo del mes en curso."""
+    if datetime.now().day <= DIAS_DESCARGA_INICIO_DE_MES:
+        return descargas
+
+    vigentes = []
+    for configuracion in descargas:
+        if configuracion.get("solo_inicio_de_mes"):
+            print(
+                f"Se omite {configuracion['nombre']}: solo se descarga "
+                f"los primeros {DIAS_DESCARGA_INICIO_DE_MES} dias del mes."
+            )
+            continue
+        vigentes.append(configuracion)
+    return vigentes
 
 # Se descarga con el usuario judicial (USUARIO_JUD / CLAVE_JUD).
 # Archivo: YYYYMMDD - BENCH BENCH JUDICIAL - P&S.xlsx; se toma el de carga mas reciente.
@@ -1975,7 +2026,7 @@ def run(
 
             zips, codigo = descargar_con_sesion(
                 browser,
-                DESCARGAS,
+                descargas_del_dia(DESCARGAS),
             )
 
             zips_descargados.extend(zips)

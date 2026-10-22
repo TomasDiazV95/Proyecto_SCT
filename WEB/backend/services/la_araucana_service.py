@@ -19,6 +19,8 @@ TIPOS_PAGO_VALIDOS = ["E-ACTSEGCES", "E-MANUAL", "E-INTER-CC", "E-CC"]
 TIPOS_PAGO_NEGOCIO = ["NE-REPRO"]
 # Los negocios se separan segun la deuda del folio: hasta este monto o sobre el.
 TRAMO_DEUDA_NEGOCIO = 1000000
+# Desde este mes el % aporte se calcula solo sobre el recupero de las ejecutivas (sin PHOENIX).
+APORTE_SOLO_EJECUTIVOS_DESDE = "2026-10"
 
 
 def _columns(table_name: str) -> set[str]:
@@ -572,8 +574,12 @@ def _deuda_cte(periodo: str) -> tuple[str, list]:
 def get_resumen(filters: dict) -> dict:
     c = _resolved_cols()
     periodo = str(filters.get("periodo") or "")
-    base_sql, pre_params, _period_month = _atribucion_sql(c, periodo)
+    base_sql, pre_params, period_month = _atribucion_sql(c, periodo)
     deuda_sql, deuda_params = _deuda_cte(periodo)
+    solo_ejecutivos = period_month >= APORTE_SOLO_EJECUTIVOS_DESDE
+    # PHOENIX queda fuera del total del aporte y su % aporte va en NULL (se muestra como "-").
+    aporte_where = "base.ejecutivo IS NOT NULL" + (" AND base.ejecutivo <> 'PHOENIX'" if solo_ejecutivos else "")
+    phoenix_sin_aporte = "WHEN k.ejecutivo = 'PHOENIX' THEN NULL" if solo_ejecutivos else ""
     where = ["1 = 1"]
     params: list = []
 
@@ -603,7 +609,7 @@ def get_resumen(filters: dict) -> dict:
             base.tipo_cartera,
             SUM(base.recupero) AS recupero_total
         FROM base
-        WHERE base.ejecutivo IS NOT NULL
+        WHERE {aporte_where}
         GROUP BY base.tipo_cartera
     ),
     aporte_final AS (
@@ -612,7 +618,7 @@ def get_resumen(filters: dict) -> dict:
             SUM(base.recupero) AS recupero_ejecutivo,
             SUM(SUM(base.recupero)) OVER () AS recupero_total
         FROM base
-        WHERE base.ejecutivo IS NOT NULL
+        WHERE {aporte_where}
         GROUP BY base.ejecutivo
     ),
     claves AS (
@@ -629,10 +635,12 @@ def get_resumen(filters: dict) -> dict:
         COALESCE(r.q_titular, 0) AS q_titular,
         CASE WHEN COALESCE(r.q_folios, 0) = 0 THEN 0 ELSE CAST(r.q_titular AS float) / r.q_folios END AS pct_contacto_titular,
         CASE
+            {phoenix_sin_aporte}
             WHEN a.recupero_total IS NULL OR a.recupero_total = 0 THEN 0
             ELSE CAST(COALESCE(r.recupero, 0) AS float) / a.recupero_total
         END AS pct_aporte,
         CASE
+            {phoenix_sin_aporte}
             WHEN af.recupero_total IS NULL OR af.recupero_total = 0 THEN 0
             ELSE CAST(af.recupero_ejecutivo AS float) / af.recupero_total
         END AS pct_aporte_final

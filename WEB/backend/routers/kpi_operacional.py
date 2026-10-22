@@ -32,7 +32,7 @@ def dashboard(
     producto: list[str] | None = Query(default=None),
     zona: list[str] | None = Query(default=None),
 ) -> dict:
-    """Mes en curso (hasta hoy) vs el cierre de los 3 meses anteriores (sin filtro de periodo)."""
+    """Mes en curso (hasta hoy) vs los 3 meses anteriores al mismo dia habil restante y a su cierre."""
     try:
         return get_dashboard(_filters(mandante, cartera, tramo, producto, zona))
     except Exception as exc:

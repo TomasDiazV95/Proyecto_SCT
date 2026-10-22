@@ -1,7 +1,9 @@
 """KPI Operacional: lee las tablas consolidadas que arma dbo.sp_kpi_operacional_cargar (SQL/007_kpi_operacional.sql).
 
-Sin filtro de periodo: compara el mes en curso (hasta hoy) con el cierre de los 3 meses anteriores
-(la ultima informacion disponible de cada mes).
+Sin filtro de periodo: compara el mes en curso (hasta hoy) con los 3 meses anteriores cortados al mismo dia habil
+restante antes del cierre (corte equivalente). Gestiones, pagos y compromisos se calculan a ese corte y tambien al
+cierre de cada mes (la ultima informacion disponible); los deltas usan el corte equivalente y la proyeccion, el cierre.
+Dias habiles = lun-vie sin feriados de feriados_chile (los años fuera del catalogo cuentan solo lun-vie).
 
 Universo:
   - Casos = RUT unico por mandante (dentro de un mandante, un RUT en dos carteras cuenta una vez).
@@ -16,11 +18,11 @@ Universo:
 from __future__ import annotations
 
 import calendar
-import threading
-import time
 from datetime import date, timedelta
 
+from cache import cached
 from database import run_query, run_query_sets
+from feriados_chile import es_habil
 
 
 SIN_PRODUCTO = "Sin producto"
@@ -28,6 +30,8 @@ FILTROS_TTL = 600  # segundos; la asignacion solo cambia cuando corre sp_kpi_ope
 SIN_ASIGNACION = "Sin asignación"
 MESES_COMPARACION = 4  # mes actual + 3 anteriores
 DIMENSIONES = ("mandante", "cartera", "tramo", "producto", "zona")
+# Cada mes se calcula al cierre y al corte equivalente; sufijo de las columnas SQL de cada uno.
+CORTES_TIPO = {"cierre": "", "eq": "_eq"}
 
 # Segmentacion de cada mandante (orden de despliegue). Los valores son los que guarda el SP de carga.
 SEGMENTACION: dict[str, dict] = {
@@ -39,22 +43,23 @@ SEGMENTACION: dict[str, dict] = {
         "cartera_label": "Producto",
         "carteras": ["Hipoteca", "Consumo", "Pyme", "TC"],
         "tramo_label": "Ciclo",
-        "tramos_por_cartera": {
-            "Hipoteca": ["C1", "C2", "C3"],
-            "Consumo": ["C1", "C2"],
-            "Pyme": ["C1", "C2", "C3"],
-            "TC": ["C0", "Multiciclo"],
-        },
+        # Todos los ciclos que traen los datos (C0, C1, ...) del producto elegido.
+        "tramos_desde_datos": True,
     },
     "SC TELEFONÍA": {
         "tramo_label": "Segmento",
-        # C1-C3 y, para los tramos mayores, los segmentos de SC Terreno (C4 = Susc. CV, C7-C8 = Pre Castigo).
-        "tramos": ["C1", "C2", "C3", "Susc. CV", "C5", "C6", "Pre Castigo", "Castigo"],
+        # Solo C1, C2 y C3 (el SP de carga deja fuera los demas tramos).
+        "tramos": ["C1", "C2", "C3"],
+    },
+    "SC PILOTO": {
+        "tramo_label": "Segmento",
+        # Bench de mora tardia telefonia, con los segmentos de mora tardia de SC Terreno.
+        "tramos": ["Susc. CV", "C5", "C6", "Pre Castigo", "Castigo"],
     },
     "BANCO INTERNACIONAL": {
-        "carteras": ["VIGENTE", "CASTIGO"],
+        # Solo filtro de tramo: 30-90 y 90+ son la cartera Vigente; Castigo, la cartera Castigo.
         "tramo_label": "Tramo",
-        "tramos_por_cartera": {"VIGENTE": ["30-90", "90+"], "CASTIGO": ["Castigo"]},
+        "tramos": ["30-90", "90+", "Castigo"],
     },
     "SC TERRENO": {
         "tramo_label": "Segmento",
@@ -95,6 +100,11 @@ TIPO_KPI = {
     "sin_gestion": ("pct", "pp"),
     "no_gestionados": ("int", "pct"),
     "monto_comprometido": ("money", "pct"),
+    "contactables": ("int", "pct"),
+    "alcance_contacto": ("pct", "pp"),
+    "contactables_logrados": ("int", "pct"),
+    "contactables_pendientes": ("int", "pct"),
+    "avance_alcance": ("pct", "pp"),
 }
 
 
@@ -113,13 +123,36 @@ def _iso(value) -> str | None:
 # ------------------------------------------------------------
 # Cortes
 # ------------------------------------------------------------
-def _cortes(hoy: date) -> list[tuple[str, date]]:
-    """Mes actual hasta hoy y los 3 anteriores completos (cortados a su ultimo dia)."""
-    out = [(f"{hoy.year:04d}-{hoy.month:02d}", hoy)]
+def _fin_de_mes(year: int, month: int) -> date:
+    return date(year, month, calendar.monthrange(year, month)[1])
+
+
+def _habiles_restantes(dia: date) -> int:
+    """Dias habiles despues de `dia` hasta el fin de su mes."""
+    fin = _fin_de_mes(dia.year, dia.month)
+    return sum(es_habil(dia + timedelta(days=i)) for i in range(1, (fin - dia).days + 1))
+
+
+def _corte_equivalente(year: int, month: int, n: int) -> date:
+    """Ultima fecha del mes a la que aun le quedan `n` dias habiles para el cierre."""
+    fin = _fin_de_mes(year, month)
+    if n <= 0:
+        return fin
+    habiles = [d for d in (date(year, month, i) for i in range(1, fin.day + 1)) if es_habil(d)]
+    if n > len(habiles):
+        return date(year, month, 1)
+    return max(habiles[-n] - timedelta(days=1), date(year, month, 1))
+
+
+def _cortes(hoy: date) -> list[tuple[str, date, date]]:
+    """(periodo, corte al cierre, corte equivalente): mes actual hasta hoy y los 3 anteriores al cierre y al
+    mismo dia habil restante que hoy."""
+    out = [(f"{hoy.year:04d}-{hoy.month:02d}", hoy, hoy)]
+    restantes = _habiles_restantes(hoy)
     year, month = hoy.year, hoy.month
     for _ in range(MESES_COMPARACION - 1):
         year, month = (year - 1, 12) if month == 1 else (year, month - 1)
-        out.append((f"{year:04d}-{month:02d}", date(year, month, calendar.monthrange(year, month)[1])))
+        out.append((f"{year:04d}-{month:02d}", _fin_de_mes(year, month), _corte_equivalente(year, month, restantes)))
     return out
 
 
@@ -181,23 +214,18 @@ def _union(listas) -> list[str]:
     return out
 
 
-_combinaciones_cache: dict[str, tuple[float, list[dict]]] = {}
-_combinaciones_lock = threading.Lock()
-
-
 def _combinaciones(periodo: str) -> list[dict]:
-    """Combinaciones distintas de dimensiones del mes (pocas filas), en cache por FILTROS_TTL."""
-    with _combinaciones_lock:
-        cached = _combinaciones_cache.get(periodo)
-        if cached and time.monotonic() - cached[0] < FILTROS_TTL:
-            return cached[1]
-        rows = run_query(
+    """Combinaciones distintas de dimensiones del mes (pocas filas), en la cache compartida por FILTROS_TTL.
+    datos_version la limpia apenas cambian las tablas, asi una carga nueva aparece al instante."""
+    return cached(
+        ("kpi_operacional_combinaciones", periodo),
+        lambda: run_query(
             f"""SELECT DISTINCT mandante, cartera, tramo, ISNULL(producto, N'{SIN_PRODUCTO}') AS producto, zona
             FROM dbo.kpi_asignacion WHERE periodo = ?""",
             (periodo,),
-        )
-        _combinaciones_cache[periodo] = (time.monotonic(), rows)
-        return rows
+        ),
+        ttl=FILTROS_TTL,
+    )
 
 
 def _coincide(row: dict, filters: dict, include: tuple[str, ...] = DIMENSIONES) -> bool:
@@ -247,7 +275,10 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
         out["visibles"]["cartera"] = True
         out["carteras"] = _ordered(config["carteras"], distinct("cartera", ("mandante",)))
 
-    if config.get("tramos_por_cartera"):
+    if config.get("tramos_desde_datos"):
+        # (largo, texto): C2 antes que C10.
+        tramos = sorted(distinct("tramo", ("mandante", "cartera")), key=lambda v: (len(v), v))
+    elif config.get("tramos_por_cartera"):
         por_cartera = config["tramos_por_cartera"]
         tramos = _union(por_cartera.get(c, []) for c in carteras) if carteras else _union(por_cartera.values())
     else:
@@ -283,19 +314,55 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     dim_a_sql, dim_a_params = _dimension_filters(filters, "a")
     dim_p_sql, dim_p_params = _dimension_filters(filters, "p")
     mand_sql, mand_params = _dimension_filters(filters, "p", ("mandante",))
-    cortes_values = ", ".join("(?, ?)" for _ in cortes)
+    cortes_values = ", ".join("(?, ?, ?)" for _ in cortes)
     # Fechas como texto ISO: el driver ODBC "SQL Server" no enlaza parametros date.
-    cortes_params = [v for periodo, corte in cortes for v in (periodo, corte.isoformat())]
+    cortes_params = [v for periodo, corte, corte_eq in cortes for v in (periodo, corte.isoformat(), corte_eq.isoformat())]
     # Con un mandante se desglosa por cartera y tramo; con ninguno o varios, por mandante.
     seg_cols = "mandante, cartera, tramo" if mandante else "mandante"
     seg_cols_a = ", ".join(f"a.{c}" for c in seg_cols.split(", "))
     seg_cols_p = ", ".join(f"p.{c}" for c in seg_cols.split(", "))
 
+    def pagos_al_corte(tabla: str, foto: str, corte: str) -> str:
+        """Pagos al corte (con todos los segmentos del mandante: los compromisos se cruzan por RUT)."""
+        return f"""
+    SELECT p.periodo, p.mandante, p.cartera, p.tramo, p.producto, p.zona, p.rut, CAST(p.monto AS float) AS monto,
+           p.pago_efectivo, ISNULL(p.fecha_pago, p.fecha_foto) AS f_pago, p.fecha_foto,
+           CASE WHEN f.{foto} IS NULL AND p.fecha_pago IS NULL THEN 1 ELSE 0 END AS aprox
+    INTO {tabla}
+    FROM dbo.kpi_pagos_diario p
+    INNER JOIN #fotos f ON f.periodo = p.periodo AND f.fuente = p.fuente AND p.fecha_foto = ISNULL(f.{foto}, f.f_min)
+    INNER JOIN #cortes c ON c.periodo = p.periodo
+    WHERE (p.fecha_pago IS NULL OR p.fecha_pago <= c.{corte}){mand_sql};
+    CREATE INDEX IX_{tabla[1:]} ON {tabla}(periodo, mandante, rut);"""
+
+    def pagos_por_mes(tabla: str) -> str:
+        """Pagos por mes (solo los de la asignacion cuentan como pagos del KPI)."""
+        return f"""(
+        SELECT p.periodo,
+               SUM(CASE WHEN p.tramo <> N'{SIN_ASIGNACION}' THEN p.monto ELSE 0 END) AS pagos,
+               SUM(CASE WHEN p.tramo = N'{SIN_ASIGNACION}' THEN p.monto ELSE 0 END) AS pagos_fuera,
+               MAX(p.aprox) AS aprox,
+               MAX(p.fecha_foto) AS foto
+        FROM {tabla} p
+        WHERE 1 = 1{dim_p_sql}
+        GROUP BY p.periodo
+    )"""
+
+    def cumplido(tabla: str) -> str:
+        """Compromiso con un pago efectivo del mismo mandante + RUT (y cartera) desde la fecha de gestion."""
+        return f"""EXISTS (
+                       SELECT 1 FROM {tabla} p
+                       WHERE p.periodo = c.periodo AND p.mandante = c.mandante AND p.rut = c.rut
+                         AND p.pago_efectivo = 1
+                         AND (c.crm_cartera_kpi IS NULL OR p.cartera = c.crm_cartera_kpi)
+                         AND p.f_pago >= c.f_gest
+                   )"""
+
     sql = f"""
     SET NOCOUNT ON;
 
-    CREATE TABLE #cortes (periodo CHAR(7) NOT NULL PRIMARY KEY, corte DATE NOT NULL);
-    INSERT INTO #cortes (periodo, corte) VALUES {cortes_values};
+    CREATE TABLE #cortes (periodo CHAR(7) NOT NULL PRIMARY KEY, corte DATE NOT NULL, corte_eq DATE NOT NULL);
+    INSERT INTO #cortes (periodo, corte, corte_eq) VALUES {cortes_values};
 
     -- Asignacion final de cada mes con los filtros.
     SELECT a.periodo, a.mandante, a.cartera, a.tramo, a.rut, CAST(a.saldo_asignado AS float) AS saldo
@@ -307,8 +374,11 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
 
     -- Foto de pagos de cada fuente: meses cerrados = la ultima foto disponible del mes (aunque llegue despues
     -- del cierre); mes actual = la ultima <= hoy (si no hay, la primera).
+    -- f_eq: la ultima foto <= corte equivalente (si el corte equivalente es el cierre, con la regla del cierre).
     SELECT d.periodo, d.fuente,
            MAX(CASE WHEN d.fecha_foto <= c.corte OR c.periodo <> ? THEN d.fecha_foto END) AS f_ok,
+           MAX(CASE WHEN d.fecha_foto <= c.corte_eq OR (c.corte_eq = c.corte AND c.periodo <> ?)
+                    THEN d.fecha_foto END) AS f_eq,
            MIN(d.fecha_foto) AS f_min
     INTO #fotos
     FROM (
@@ -319,16 +389,9 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     INNER JOIN #cortes c ON c.periodo = d.periodo
     GROUP BY d.periodo, d.fuente;
 
-    -- Pagos al corte (con todos los segmentos del mandante: los compromisos se cruzan por RUT).
-    SELECT p.periodo, p.mandante, p.cartera, p.tramo, p.producto, p.zona, p.rut, CAST(p.monto AS float) AS monto,
-           p.pago_efectivo, ISNULL(p.fecha_pago, p.fecha_foto) AS f_pago, p.fecha_foto,
-           CASE WHEN f.f_ok IS NULL AND p.fecha_pago IS NULL THEN 1 ELSE 0 END AS aprox
-    INTO #pagos
-    FROM dbo.kpi_pagos_diario p
-    INNER JOIN #fotos f ON f.periodo = p.periodo AND f.fuente = p.fuente AND p.fecha_foto = ISNULL(f.f_ok, f.f_min)
-    INNER JOIN #cortes c ON c.periodo = p.periodo
-    WHERE (p.fecha_pago IS NULL OR p.fecha_pago <= c.corte){mand_sql};
-    CREATE INDEX IX_pagos ON #pagos(periodo, mandante, rut);
+    -- Pagos al cierre (#pagos) y al corte equivalente (#pagos_eq).
+    {pagos_al_corte("#pagos", "f_ok", "corte")}
+    {pagos_al_corte("#pagos_eq", "f_eq", "corte_eq")}
 
     -- 1) Asignacion por mes.
     SELECT c.periodo, COUNT(DISTINCT a.mandante + '|' + CAST(a.rut AS varchar(20))) AS casos,
@@ -337,7 +400,7 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     LEFT JOIN #asig a ON a.periodo = c.periodo
     GROUP BY c.periodo;
 
-    -- 2) Contacto al corte por mes (mejor contacto por mandante + RUT asignado).
+    -- 2) Contacto al cierre y al corte equivalente (_eq) por mes (mejor contacto por mandante + RUT asignado).
     ;WITH casos AS (
         SELECT periodo, COUNT(*) AS n FROM (SELECT DISTINCT periodo, mandante, rut FROM #asig) x GROUP BY periodo
     ),
@@ -353,36 +416,73 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
         INNER JOIN dbo.kpi_gestiones_rut g
             ON g.periodo = s.periodo AND g.crm_cartera = k.crm_cartera AND g.rut = s.rut
         GROUP BY s.periodo, s.mandante, s.rut
+    ),
+    -- Alcance de contacto: RUT asignado con contacto titular en alguno de los 3 meses anteriores.
+    hist AS (
+        SELECT DISTINCT s.periodo, s.mandante, s.rut
+        FROM (SELECT DISTINCT periodo, mandante, cartera, rut FROM #asig) s
+        INNER JOIN dbo.kpi_crm_cartera k
+            ON k.mandante = s.mandante AND (k.cartera IS NULL OR k.cartera = s.cartera)
+        INNER JOIN dbo.kpi_gestiones_rut g
+            ON g.crm_cartera = k.crm_cartera AND g.rut = s.rut AND g.fecha_primer_directo IS NOT NULL
+           AND g.periodo < s.periodo
+           AND g.periodo >= CONVERT(char(7), DATEADD(month, -3, CAST(s.periodo + '-01' AS date)), 120)
+    ),
+    -- Sin corte equivalente: meses cerrados completos, mes actual hasta hoy.
+    alcance AS (
+        SELECT h.periodo, COUNT(*) AS contactables,
+               SUM(CASE WHEN g.f_dir <= c.corte THEN 1 ELSE 0 END) AS contactables_ok
+        FROM hist h
+        INNER JOIN #cortes c ON c.periodo = h.periodo
+        LEFT JOIN gest g ON g.periodo = h.periodo AND g.mandante = h.mandante AND g.rut = h.rut
+        GROUP BY h.periodo
+    ),
+    -- Meses de historia disponibles (de los 3 anteriores) en kpi_gestiones_rut.
+    historia AS (
+        SELECT c.periodo, COUNT(m.periodo) AS meses_historia
+        FROM #cortes c
+        LEFT JOIN (SELECT DISTINCT periodo FROM dbo.kpi_gestiones_rut) m
+            ON m.periodo < c.periodo
+           AND m.periodo >= CONVERT(char(7), DATEADD(month, -3, CAST(c.periodo + '-01' AS date)), 120)
+        GROUP BY c.periodo
     )
     SELECT c.periodo, ISNULL(MAX(cs.n), 0) AS asignados,
+           MAX(al.contactables) AS contactables, MAX(al.contactables_ok) AS contactables_ok,
+           MAX(hi.meses_historia) AS meses_historia,
            SUM(CASE WHEN g.f_gest <= c.corte THEN 1 ELSE 0 END) AS gestionados,
            SUM(CASE WHEN g.f_dir <= c.corte THEN 1 ELSE 0 END) AS directo,
            SUM(CASE WHEN (g.f_dir IS NULL OR g.f_dir > c.corte) AND g.f_ind <= c.corte THEN 1 ELSE 0 END) AS indirecto,
            SUM(CASE WHEN g.f_gest <= c.corte AND (g.f_dir IS NULL OR g.f_dir > c.corte)
                          AND (g.f_ind IS NULL OR g.f_ind > c.corte) THEN 1 ELSE 0 END) AS sin_contacto,
            -- Gestiones del mes de cualquier tipo/canal (sin las EXCLUIR). Mes actual: hasta la ultima carga del CRM.
-           SUM(CASE WHEN g.f_gest <= c.corte THEN g.n_gestiones ELSE 0 END) AS gestiones
+           SUM(CASE WHEN g.f_gest <= c.corte THEN g.n_gestiones ELSE 0 END) AS gestiones,
+           SUM(CASE WHEN g.f_gest <= c.corte_eq THEN 1 ELSE 0 END) AS gestionados_eq,
+           SUM(CASE WHEN g.f_dir <= c.corte_eq THEN 1 ELSE 0 END) AS directo_eq,
+           SUM(CASE WHEN (g.f_dir IS NULL OR g.f_dir > c.corte_eq) AND g.f_ind <= c.corte_eq THEN 1 ELSE 0 END) AS indirecto_eq,
+           SUM(CASE WHEN g.f_gest <= c.corte_eq AND (g.f_dir IS NULL OR g.f_dir > c.corte_eq)
+                         AND (g.f_ind IS NULL OR g.f_ind > c.corte_eq) THEN 1 ELSE 0 END) AS sin_contacto_eq,
+           -- n_gestiones es el total del mes por RUT: en meses cerrados, al corte equivalente queda sobreestimado.
+           SUM(CASE WHEN g.f_gest <= c.corte_eq THEN g.n_gestiones ELSE 0 END) AS gestiones_eq
     FROM #cortes c
     LEFT JOIN casos cs ON cs.periodo = c.periodo
+    LEFT JOIN alcance al ON al.periodo = c.periodo
+    LEFT JOIN historia hi ON hi.periodo = c.periodo
     LEFT JOIN gest g ON g.periodo = c.periodo
     GROUP BY c.periodo;
 
-    -- 3) Pagos al corte por mes (solo los de la asignacion cuentan como pagos del KPI).
-    SELECT c.periodo,
-           SUM(CASE WHEN p.tramo <> N'{SIN_ASIGNACION}' THEN p.monto ELSE 0 END) AS pagos,
-           SUM(CASE WHEN p.tramo = N'{SIN_ASIGNACION}' THEN p.monto ELSE 0 END) AS pagos_fuera,
-           MAX(p.aprox) AS aprox,
-           MAX(p.fecha_foto) AS foto
+    -- 3) Pagos al cierre y al corte equivalente (_eq) por mes.
+    SELECT c.periodo, x.pagos, x.pagos_fuera, x.aprox, x.foto,
+           e.pagos AS pagos_eq, e.pagos_fuera AS pagos_fuera_eq, e.aprox AS aprox_eq, e.foto AS foto_eq
     FROM #cortes c
-    LEFT JOIN #pagos p ON p.periodo = c.periodo{dim_p_sql}
-    GROUP BY c.periodo;
+    LEFT JOIN {pagos_por_mes("#pagos")} x ON x.periodo = c.periodo
+    LEFT JOIN {pagos_por_mes("#pagos_eq")} e ON e.periodo = c.periodo;
 
-    -- 4) Compromisos generados hasta el corte, por mes y estado, con su monto. en_mes = vence hasta fin de mes
-    --    (los pendientes que vencen en el mes forman el tubo).
+    -- 4) Compromisos generados hasta el corte (cierre y equivalente), por mes y estado, con su monto.
+    --    en_mes = vence hasta fin de mes (los pendientes que vencen en el mes forman el tubo).
     --    El monto es el que trae el CRM (kpi_compromisos.monto_compromiso), sin ajustes.
     ;WITH comp AS (
         SELECT DISTINCT c.id, c.periodo, k.mandante, k.cartera AS crm_cartera_kpi, c.rut,
-               CAST(c.fecha_gestion AS date) AS f_gest, c.fecha_compromiso, ct.corte,
+               CAST(c.fecha_gestion AS date) AS f_gest, c.fecha_compromiso, ct.corte, ct.corte_eq,
                CAST(ISNULL(c.monto_compromiso, 0) AS float) AS monto
         FROM dbo.kpi_compromisos c
         INNER JOIN #cortes ct ON ct.periodo = c.periodo
@@ -392,47 +492,63 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
            AND (k.cartera IS NULL OR k.cartera = s.cartera)
         WHERE CAST(c.fecha_gestion AS date) <= ct.corte
     )
-    SELECT x.periodo, x.estado, x.en_mes, COUNT(*) AS n, SUM(x.monto) AS monto
+    SELECT x.periodo, x.corte_tipo, x.estado, x.en_mes, COUNT(*) AS n, SUM(x.monto) AS monto
     FROM (
-        SELECT c.periodo, c.monto,
+        SELECT c.periodo, c.monto, v.corte_tipo,
                CASE WHEN c.fecha_compromiso <= EOMONTH(c.corte) THEN 1 ELSE 0 END AS en_mes,
                CASE
-                   WHEN EXISTS (
-                       SELECT 1 FROM #pagos p
-                       WHERE p.periodo = c.periodo AND p.mandante = c.mandante AND p.rut = c.rut
-                         AND p.pago_efectivo = 1
-                         AND (c.crm_cartera_kpi IS NULL OR p.cartera = c.crm_cartera_kpi)
-                         AND p.f_pago >= c.f_gest
-                   ) THEN 'CUMPLIDO'
-                   WHEN c.fecha_compromiso < c.corte THEN 'INCUMPLIDO'
+                   WHEN v.corte_tipo = 'cierre' AND {cumplido("#pagos")} THEN 'CUMPLIDO'
+                   WHEN v.corte_tipo = 'eq' AND {cumplido("#pagos_eq")} THEN 'CUMPLIDO'
+                   WHEN c.fecha_compromiso < v.corte_x THEN 'INCUMPLIDO'
                    ELSE 'PENDIENTE'
                END AS estado
         FROM comp c
+        CROSS APPLY (VALUES ('cierre', c.corte), ('eq', c.corte_eq)) v(corte_tipo, corte_x)
+        WHERE c.f_gest <= v.corte_x
     ) x
-    GROUP BY x.periodo, x.estado, x.en_mes;
+    GROUP BY x.periodo, x.corte_tipo, x.estado, x.en_mes;
 
     -- 5) Segmentos por mes.
     SELECT a.periodo, {seg_cols_a}, COUNT(DISTINCT a.mandante + '|' + CAST(a.rut AS varchar(20))) AS casos, SUM(a.saldo) AS saldo
     FROM #asig a
     GROUP BY a.periodo, {seg_cols_a};
 
-    SELECT p.periodo, {seg_cols_p}, SUM(p.monto) AS pagos
+    SELECT 'cierre' AS corte_tipo, p.periodo, {seg_cols_p}, SUM(p.monto) AS pagos
     FROM #pagos p
+    WHERE p.tramo <> N'{SIN_ASIGNACION}'{dim_p_sql}
+    GROUP BY p.periodo, {seg_cols_p}
+    UNION ALL
+    SELECT 'eq' AS corte_tipo, p.periodo, {seg_cols_p}, SUM(p.monto) AS pagos
+    FROM #pagos_eq p
     WHERE p.tramo <> N'{SIN_ASIGNACION}'{dim_p_sql}
     GROUP BY p.periodo, {seg_cols_p};
 
     -- 6) Mandantes con pagos aproximados por mes (sin foto diaria anterior al corte).
-    SELECT DISTINCT p.periodo, p.mandante
+    SELECT DISTINCT 'cierre' AS corte_tipo, p.periodo, p.mandante
     FROM #pagos p
+    WHERE p.aprox = 1{dim_p_sql}
+    UNION
+    SELECT DISTINCT 'eq' AS corte_tipo, p.periodo, p.mandante
+    FROM #pagos_eq p
     WHERE p.aprox = 1{dim_p_sql};
     """
     # Mes que se trata como "en curso" en las fotos de pagos; con mes_anterior todos los meses estan cerrados.
     periodo_abierto = "" if mes_anterior else periodo_en_curso
-    params = [*cortes_params, *dim_a_params, periodo_abierto, *mand_params, *mand_params, *dim_p_params, *dim_p_params, *dim_p_params]
+    params = [
+        *cortes_params, *dim_a_params,
+        periodo_abierto, periodo_abierto, *mand_params,  # #fotos
+        *mand_params, *mand_params,  # #pagos, #pagos_eq
+        *dim_p_params, *dim_p_params,  # 3) pagos por mes
+        *dim_p_params, *dim_p_params,  # 5) pagos por segmento
+        *dim_p_params, *dim_p_params,  # 6) aproximados
+    ]
     asig, contacto, pagos, compromisos, seg_asig, seg_pagos, aprox = run_query_sets(sql, tuple(params))
     response = _build_response(referencia, cortes, filters, asig, contacto, pagos, compromisos, seg_asig, seg_pagos)
     for mes in response["meses"]:
-        mes["aproximado_mandantes"] = sorted({r["mandante"] for r in aprox if r["periodo"] == mes["periodo"]})
+        for tipo, sufijo in CORTES_TIPO.items():
+            mes[f"aproximado_mandantes{sufijo}"] = sorted(
+                {r["mandante"] for r in aprox if r["periodo"] == mes["periodo"] and r["corte_tipo"] == tipo}
+            )
     response["hoy"] = hoy.isoformat()
     response["mes_anterior"] = mes_anterior
     response["periodo_en_curso"] = periodo_en_curso
@@ -442,13 +558,23 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     return response
 
 
-def _kpi(nombre: str, valores: list) -> dict:
+def _delta(actual, anterior, delta_tipo: str) -> float | None:
+    if actual is None or anterior is None:
+        return None
+    return actual - anterior if delta_tipo == "pp" else _safe_div(actual - anterior, anterior)
+
+
+def _kpi(nombre: str, valores: list, valores_cierre: list) -> dict:
+    """valores/delta al corte equivalente (comparable con hoy); valores_cierre/delta_cierre al cierre de cada mes."""
     tipo, delta_tipo = TIPO_KPI[nombre]
-    actual, anterior = valores[0], valores[1]
-    delta = None
-    if actual is not None and anterior is not None:
-        delta = actual - anterior if delta_tipo == "pp" else _safe_div(actual - anterior, anterior)
-    return {"tipo": tipo, "valores": valores, "delta": delta, "delta_tipo": delta_tipo}
+    return {
+        "tipo": tipo,
+        "valores": valores,
+        "delta": _delta(valores[0], valores[1], delta_tipo),
+        "valores_cierre": valores_cierre,
+        "delta_cierre": _delta(valores_cierre[0], valores_cierre[1], delta_tipo),
+        "delta_tipo": delta_tipo,
+    }
 
 
 def _segment_order(mandante: str):
@@ -466,124 +592,149 @@ def _segment_order(mandante: str):
     return key
 
 
+def _valores_mes(a: dict, c: dict, p: dict, cp: dict, mp: dict, sufijo: str) -> dict:
+    """KPIs de un mes a un corte; sufijo '' = cierre, '_eq' = corte equivalente (asignacion igual en ambos)."""
+    saldo = float(a.get("saldo") or 0)
+    asignados = int(c.get("asignados") or 0)
+    gestionados = int(c.get(f"gestionados{sufijo}") or 0)
+    directo = int(c.get(f"directo{sufijo}") or 0)
+    monto = float(p.get(f"pagos{sufijo}") or 0)
+    total_comp = sum(cp.values())
+    # Alcance de contacto: sin sufijo a proposito (meses anteriores completos, mes actual hasta hoy).
+    contactables = int(c.get("contactables") or 0)
+    logrados = int(c.get("contactables_ok") or 0)
+    return {
+        "casos": int(a.get("casos") or 0),
+        # Operaciones asignadas (un RUT puede tener varias).
+        "operaciones": int(a.get("operaciones") or 0),
+        "saldo": saldo,
+        "contactabilidad": _safe_div(directo, gestionados),
+        "cobertura": _safe_div(gestionados, asignados),
+        "pagos": monto,
+        "recuperacion": _safe_div(monto, saldo),
+        "gestionados": gestionados,
+        "contacto_directo": directo,
+        "contacto_indirecto": int(c.get(f"indirecto{sufijo}") or 0),
+        "sin_contacto": int(c.get(f"sin_contacto{sufijo}") or 0),
+        "compromisos": total_comp,
+        "cumplidos": cp["CUMPLIDO"],
+        "incumplidos": cp["INCUMPLIDO"],
+        "pendientes": cp["PENDIENTE"],
+        # Sobre el total de compromisos generados (cumplidos + incumplidos + pendientes = 100%).
+        "pct_cumplidos": _safe_div(cp["CUMPLIDO"], total_comp),
+        "pct_incumplidos": _safe_div(cp["INCUMPLIDO"], total_comp),
+        # Intensidad = gestiones (cualquier tipo) / casos asignados.
+        "intensidad": _safe_div(int(c.get(f"gestiones{sufijo}") or 0), asignados),
+        # Clientes asignados sin ninguna gestion al corte.
+        "sin_gestion": _safe_div(asignados - gestionados, asignados),
+        "no_gestionados": max(asignados - gestionados, 0),
+        "monto_comprometido": sum(mp.values()),
+        # Contactables = asignados con contacto titular en los 3 meses anteriores.
+        "contactables": contactables,
+        "alcance_contacto": _safe_div(contactables, asignados),
+        "contactables_logrados": logrados,
+        "contactables_pendientes": max(contactables - logrados, 0),
+        "avance_alcance": _safe_div(logrados, contactables),
+    }
+
+
 def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, seg_asig, seg_pagos) -> dict:
-    periodos = [periodo for periodo, _ in cortes]
+    periodos = [periodo for periodo, _, _ in cortes]
     by = lambda rows: {row["periodo"]: row for row in rows}  # noqa: E731
     asig_p, cont_p, pagos_p = by(asig), by(contacto), by(pagos)
 
-    comp_p: dict[str, dict] = {p: {"CUMPLIDO": 0, "INCUMPLIDO": 0, "PENDIENTE": 0} for p in periodos}
-    monto_p: dict[str, dict] = {p: {"CUMPLIDO": 0.0, "INCUMPLIDO": 0.0, "PENDIENTE": 0.0} for p in periodos}
-    tubo_p: dict[str, dict] = {p: {"n": 0, "monto": 0.0} for p in periodos}
+    # Compromisos por (periodo, corte_tipo).
+    claves = [(p, t) for p in periodos for t in CORTES_TIPO]
+    comp_p: dict[tuple, dict] = {k: {"CUMPLIDO": 0, "INCUMPLIDO": 0, "PENDIENTE": 0} for k in claves}
+    monto_p: dict[tuple, dict] = {k: {"CUMPLIDO": 0.0, "INCUMPLIDO": 0.0, "PENDIENTE": 0.0} for k in claves}
+    tubo_p: dict[tuple, dict] = {k: {"n": 0, "monto": 0.0} for k in claves}
     for row in compromisos:
-        periodo, estado = row["periodo"], row["estado"]
+        key, estado = (row["periodo"], row["corte_tipo"]), row["estado"]
         n, monto_c = int(row.get("n") or 0), float(row.get("monto") or 0)
-        comp_p[periodo][estado] += n
-        monto_p[periodo][estado] += monto_c
+        comp_p[key][estado] += n
+        monto_p[key][estado] += monto_c
         # Tubo: pendientes (sin pago, aun no vencen) que vencen hasta fin de mes.
         if estado == "PENDIENTE" and row.get("en_mes"):
-            tubo_p[periodo]["n"] += n
-            tubo_p[periodo]["monto"] += monto_c
+            tubo_p[key]["n"] += n
+            tubo_p[key]["monto"] += monto_c
 
-    series: dict[str, list] = {name: [] for name in TIPO_KPI}
+    series: dict[str, dict[str, list]] = {t: {name: [] for name in TIPO_KPI} for t in CORTES_TIPO}
     meses = []
     tipos_contacto = []
-    for periodo, corte in cortes:
-        a, c, p, cp, mp = asig_p.get(periodo, {}), cont_p.get(periodo, {}), pagos_p.get(periodo, {}), comp_p[periodo], monto_p[periodo]
-        casos = int(a.get("casos") or 0)
-        saldo = float(a.get("saldo") or 0)
-        asignados = int(c.get("asignados") or 0)
-        gestionados = int(c.get("gestionados") or 0)
-        directo = int(c.get("directo") or 0)
-        indirecto = int(c.get("indirecto") or 0)
-        sin_contacto = int(c.get("sin_contacto") or 0)
-        monto = float(p.get("pagos") or 0)
-        total_comp = sum(cp.values())
-        con_datos = casos > 0
-
-        valores = {
-            "casos": casos,
-            # Operaciones asignadas (un RUT puede tener varias).
-            "operaciones": int(a.get("operaciones") or 0),
-            "saldo": saldo,
-            "contactabilidad": _safe_div(directo, gestionados),
-            "cobertura": _safe_div(gestionados, asignados),
-            "pagos": monto,
-            "recuperacion": _safe_div(monto, saldo),
-            "gestionados": gestionados,
-            "contacto_directo": directo,
-            "contacto_indirecto": indirecto,
-            "sin_contacto": sin_contacto,
-            "compromisos": total_comp,
-            "cumplidos": cp["CUMPLIDO"],
-            "incumplidos": cp["INCUMPLIDO"],
-            "pendientes": cp["PENDIENTE"],
-            # Sobre el total de compromisos generados (cumplidos + incumplidos + pendientes = 100%).
-            "pct_cumplidos": _safe_div(cp["CUMPLIDO"], total_comp),
-            "pct_incumplidos": _safe_div(cp["INCUMPLIDO"], total_comp),
-            # Intensidad = gestiones (cualquier tipo) / casos asignados.
-            "intensidad": _safe_div(int(c.get("gestiones") or 0), asignados),
-            # Clientes asignados sin ninguna gestion al corte.
-            "sin_gestion": _safe_div(asignados - gestionados, asignados),
-            "no_gestionados": max(asignados - gestionados, 0),
-            "monto_comprometido": sum(mp.values()),
-        }
-        for name, value in valores.items():
-            # Mes sin asignacion cargada: sin dato (no cero), para no mostrar caidas falsas.
-            series[name].append(value if con_datos else None)
+    for periodo, corte, corte_eq in cortes:
+        a, c, p = asig_p.get(periodo, {}), cont_p.get(periodo, {}), pagos_p.get(periodo, {})
+        con_datos = int(a.get("casos") or 0) > 0
+        for tipo, sufijo in CORTES_TIPO.items():
+            valores = _valores_mes(a, c, p, comp_p[(periodo, tipo)], monto_p[(periodo, tipo)], sufijo)
+            for name, value in valores.items():
+                # Mes sin asignacion cargada: sin dato (no cero), para no mostrar caidas falsas.
+                series[tipo][name].append(value if con_datos else None)
 
         meses.append({
             "periodo": periodo,
             "corte": corte.isoformat(),
+            "corte_equivalente": corte_eq.isoformat(),
+            "dias_habiles_restantes": _habiles_restantes(corte_eq),
             "con_datos": con_datos,
             "aproximado": bool(p.get("aprox")),
+            "aproximado_eq": bool(p.get("aprox_eq")),
             "foto_pagos": _iso(p.get("foto")),
+            "foto_pagos_eq": _iso(p.get("foto_eq")),
             "pagos_fuera_asignacion": float(p.get("pagos_fuera") or 0),
+            "pagos_fuera_asignacion_eq": float(p.get("pagos_fuera_eq") or 0),
+            # Meses (de los 3 anteriores) con gestiones cargadas para el alcance de contacto.
+            "meses_historia": int(c.get("meses_historia") or 0),
         })
+        # Tipos de contacto al corte equivalente (comparable con hoy).
         tipos_contacto.append({
             "periodo": periodo,
-            "gestionados": gestionados,
-            "directo": directo,
-            "indirecto": indirecto,
-            "sin_contacto": sin_contacto,
+            "gestionados": int(c.get("gestionados_eq") or 0),
+            "directo": int(c.get("directo_eq") or 0),
+            "indirecto": int(c.get("indirecto_eq") or 0),
+            "sin_contacto": int(c.get("sin_contacto_eq") or 0),
         })
 
-    # Segmentos: una fila por segmento con los 4 meses.
+    # Segmentos: una fila por segmento con los 4 meses. pagos/recuperacion al corte equivalente; *_cierre al cierre.
     segmentos: dict[tuple, dict] = {}
     keys = ("mandante", "cartera", "tramo") if _unico(filters, "mandante") else ("mandante",)
+    vacio = lambda: {"casos": 0, "saldo": 0.0, "pagos": 0.0, "pagos_cierre": 0.0}  # noqa: E731
     for row in seg_asig:
         key = tuple(row.get(k) for k in keys)
         item = segmentos.setdefault(key, {**dict(zip(keys, key)), "meses": {}})
-        item["meses"][row["periodo"]] = {"casos": int(row.get("casos") or 0), "saldo": float(row.get("saldo") or 0), "pagos": 0.0}
+        item["meses"][row["periodo"]] = {**vacio(), "casos": int(row.get("casos") or 0), "saldo": float(row.get("saldo") or 0)}
     for row in seg_pagos:
         key = tuple(row.get(k) for k in keys)
         if key not in segmentos:
             continue
-        mes = segmentos[key]["meses"].setdefault(row["periodo"], {"casos": 0, "saldo": 0.0, "pagos": 0.0})
-        mes["pagos"] = float(row.get("pagos") or 0)
+        mes = segmentos[key]["meses"].setdefault(row["periodo"], vacio())
+        mes["pagos" if row["corte_tipo"] == "eq" else "pagos_cierre"] = float(row.get("pagos") or 0)
     seg_rows = []
     for item in segmentos.values():
         for mes in item["meses"].values():
             mes["recuperacion"] = _safe_div(mes["pagos"], mes["saldo"])
+            mes["recuperacion_cierre"] = _safe_div(mes["pagos_cierre"], mes["saldo"])
         seg_rows.append(item)
     seg_rows.sort(key=_segment_order(_unico(filters, "mandante")))
 
-    # Proyeccion de cierre: pagos a hoy + tubo del mes x cumplimiento en monto de los 3 meses cerrados.
+    # Proyeccion de cierre: pagos a hoy + tubo del mes x cumplimiento en monto de los 3 meses cerrados (al cierre).
+    cierre, eq = series["cierre"], series["eq"]
     cerrados = [p for p, m in zip(periodos[1:], meses[1:]) if m["con_datos"]]
-    cumplido_3m = sum(monto_p[p]["CUMPLIDO"] for p in cerrados)
-    vencido_3m = sum(monto_p[p]["CUMPLIDO"] + monto_p[p]["INCUMPLIDO"] for p in cerrados)
+    cumplido_3m = sum(monto_p[(p, "cierre")]["CUMPLIDO"] for p in cerrados)
+    vencido_3m = sum(monto_p[(p, "cierre")]["CUMPLIDO"] + monto_p[(p, "cierre")]["INCUMPLIDO"] for p in cerrados)
     tasa = _safe_div(cumplido_3m, vencido_3m)
-    tubo = tubo_p[periodos[0]]
-    pagos_hoy = series["pagos"][0]
+    tubo = tubo_p[(periodos[0], "cierre")]
+    pagos_hoy = cierre["pagos"][0]
     aporte = tubo["monto"] * tasa if tasa is not None else None
     proyeccion = (pagos_hoy or 0) + aporte if pagos_hoy is not None and aporte is not None else None
-    cierre_anterior = series["pagos"][1]
-    saldo_actual = series["saldo"][0]
+    cierre_anterior = cierre["pagos"][1]
+    saldo_actual = cierre["saldo"][0]
 
     return {
         "hoy": hoy.isoformat(),
         "filtros": filters,
+        "dias_habiles_restantes": _habiles_restantes(hoy),
         "meses": meses,
-        "kpis": {name: _kpi(name, values) for name, values in series.items()},
+        "kpis": {name: _kpi(name, eq[name], cierre[name]) for name in TIPO_KPI},
         "proyeccion": {
             "pagos_hoy": pagos_hoy,
             "tubo_n": tubo["n"],
@@ -594,6 +745,8 @@ def _build_response(hoy, cortes, filters, asig, contacto, pagos, compromisos, se
             "proyeccion": proyeccion,
             "recuperacion_proyectada": _safe_div(proyeccion, saldo_actual) if proyeccion is not None else None,
             "cierre_anterior": cierre_anterior,
+            # Pagos del mes anterior al corte equivalente (mismos dias habiles restantes que hoy).
+            "pagos_mismo_dia_anterior": eq["pagos"][1],
             "delta_vs_cierre_anterior": _safe_div(proyeccion - cierre_anterior, cierre_anterior)
             if proyeccion is not None and cierre_anterior else None,
             "fin_mes": _cortes(hoy)[0][1].replace(day=calendar.monthrange(hoy.year, hoy.month)[1]).isoformat(),
