@@ -20,8 +20,9 @@ CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
 CONTENCION_TABLE = "dbo.tmp_BIT_contencion"
 ASIGNACION_TABLE = "dbo.tmp_BIT_asignacion"
 ASIGNACION_MENSUAL_TABLE = "dbo.tmp_BIT_asignacion_mensual"
-# Contencion y castigo guardan una foto por archivo (fecha_archivo); las vistas dejan solo la ultima de cada periodo.
-CONTENCION_VIEW = "dbo.vw_BIT_contencion_ultima"
+# Contencion y castigo guardan una foto por archivo (fecha_archivo). Castigo tiene una vista con la ultima de cada
+# periodo; contencion ya no: la web toma directo de la tabla la de mayor fecha_archivo (la vista vieja se elimina).
+CONTENCION_VIEW_ELIMINADA = "dbo.vw_BIT_contencion_ultima"
 CASTIGO_VIEW = "dbo.vw_BIT_castigo_ultima"
 ASIGNACION_REMOTE_DIR = "/Entrada/Carga_Cobranza"
 SEGUIMIENTOS_REMOTE_DIR = "/Entrada/Seguimientos"
@@ -631,9 +632,10 @@ def ensure_fecha_archivo(cur: pyodbc.Cursor, table_name: str) -> None:
 
 
 def ensure_vistas(cur: pyodbc.Cursor) -> None:
-    """Vistas con la ultima foto de cada periodo, que es lo que leen productividad y factura. Se recrean en cada
-    carga para que tomen las columnas nuevas de los archivos."""
-    for view_name, table_name in ((CONTENCION_VIEW, CONTENCION_TABLE), (CASTIGO_VIEW, CASTIGO_TABLE)):
+    """Vista con la ultima foto de castigo de cada periodo. Se recrea en cada carga para que tome las columnas
+    nuevas de los archivos."""
+    cur.execute(f"IF OBJECT_ID('{CONTENCION_VIEW_ELIMINADA}', 'V') IS NOT NULL DROP VIEW {CONTENCION_VIEW_ELIMINADA}")
+    for view_name, table_name in ((CASTIGO_VIEW, CASTIGO_TABLE),):
         if "FECHA_ARCHIVO" not in get_table_columns(cur, table_name):
             continue
         cur.execute(f"IF OBJECT_ID('{view_name}', 'V') IS NOT NULL DROP VIEW {view_name}")

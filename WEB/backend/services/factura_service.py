@@ -1,4 +1,5 @@
 from database import run_query
+from services.bit_service import CONTENCION_ULTIMA
 
 
 MIN_FACTURA_PERIOD = "2026-06"
@@ -182,7 +183,7 @@ def _build_empty_dashboard(selected_scope: str, available_periods: list[str]) ->
 
 def _build_bit_response(selected_period: str, available_periods: list[str]) -> dict:
     cont_rows = run_query(
-        """
+        f"""
         WITH filtered_data AS (
             SELECT
                 CASE
@@ -195,7 +196,7 @@ def _build_bit_response(selected_period: str, available_periods: list[str]) -> d
                     WHEN ISNUMERIC(CONVERT(VARCHAR(255), gasto_cobranza)) = 1 THEN CAST(gasto_cobranza AS float)
                     ELSE 0
                 END AS gasto_cobranza
-            FROM dbo.vw_BIT_contencion_ultima
+            FROM {CONTENCION_ULTIMA} c
             WHERE periodo = ?
               AND periodo >= ?
               AND LEFT(COALESCE(tramo_proyectado_nuevo, ''), 2) <> 'T0'
