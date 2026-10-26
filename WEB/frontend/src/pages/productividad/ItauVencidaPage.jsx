@@ -456,6 +456,9 @@ export default function ItauVencidaPage() {
         >
           {loading ? (
             <LoadingState />
+          ) : error ? (
+            // Si la consulta fallo no hay datos: no es que falten casos medibles (el error se muestra arriba).
+            <div className="pd-small pd-muted">No se pudieron cargar los datos.</div>
           ) : !filtrosMedibles.length ? (
             <div className="alert alert-warning">
               {formatDate(metadata.periodo).slice(3) || "Este mes"} no tiene casos medibles configurados, por eso no hay cumplimiento que mostrar.

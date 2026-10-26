@@ -344,8 +344,9 @@ def _gm(p: _Planilla) -> None:
     _negocios_cargados(p, "gm")
 
 
-def _ejecutivos_itau_vigente() -> set[str]:
-    """Ejecutivos de Itau Vigente con el nombre que llevan en el carterizado de castigo (cambia entre meses)."""
+def _ejecutivos_itau_vigente(corte: str) -> set[str]:
+    """Ejecutivos de Itau Vigente a la fecha de corte, con el nombre que llevan en el carterizado de castigo
+    (cambia entre meses)."""
     rows = run_query(
         """
         SELECT a.nombre_carterizado
@@ -353,7 +354,10 @@ def _ejecutivos_itau_vigente() -> set[str]:
         INNER JOIN dbo.itau_vigente_ejecutivos e
             ON e.usuario = a.usuario
            AND e.activo = 1
-        """
+           AND (e.desde IS NULL OR e.desde <= ?)
+           AND (e.hasta IS NULL OR e.hasta >= ?)
+        """,
+        (corte, corte),
     )
     return {str(row["nombre_carterizado"] or "").strip().upper() for row in rows}
 
@@ -374,7 +378,7 @@ def _itau_castigo(p: _Planilla) -> None:
     # Terreno y MCV son campañas distintas: se separan por el cobrador del ejecutivo.
     campanas = {"Phoenix MCV": p.con_campana("Banco Itau MCV")}
     # Los ejecutivos de Itau Vigente se pagan por esa campaña: no van en castigo.
-    vigente = _ejecutivos_itau_vigente()
+    vigente = _ejecutivos_itau_vigente(p.corte)
     for row in itau_castigo_service.get_general({"fecha_carga": p.corte})["rows"]:
         if not _es_colaborador(row["ejecutivo"]) or str(row["ejecutivo"]).strip().upper() in vigente:
             continue
@@ -471,13 +475,14 @@ def _itau_vigente(p: _Planilla) -> None:
                 grupal=castigo["cumplimiento"],
                 q=row.get("castigo_recupero"),
             )
-        # Pestaña Efectivo recuperado del panel: casos no medibles de Vencida, por cuotas pagadas.
-        p.add_efectivo(
-            ITAU_VIGENTE_EFECTIVO,
-            row["ejecutivo"],
-            row.get("recupero_nm_efectivo"),
-            cuotas=int(row.get("recupero_nm_cuotas") or 0),
-        )
+        # Pestaña Efectivo recuperado del panel: casos no medibles de Vencida, por cuotas pagadas (hasta septiembre 2026).
+        if data.get("efectivo_recuperado", True):
+            p.add_efectivo(
+                ITAU_VIGENTE_EFECTIVO,
+                row["ejecutivo"],
+                row.get("recupero_nm_efectivo"),
+                cuotas=int(row.get("recupero_nm_cuotas") or 0),
+            )
         p.add_efectivo(ITAU_VIGENTE_CASTIGO, row["ejecutivo"], row.get("castigo_recupero"))
     # Detalle del recupero castigo: por RUT, el archivo de recupero de Itau Castigo no trae numero de operacion.
     ejecutivos = {row["ejecutivo"] for row in data["rows"] if _es_colaborador(row["ejecutivo"])}
