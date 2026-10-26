@@ -363,6 +363,8 @@ def _cobertura_terreno(periodo: str, fecha_carga: str, ejecutivo: str = "") -> d
         ON t.RUT = u.RUT
     {filter_sql}
     GROUP BY u.Ejecutivo
+    -- Sin el hint SQL Server cruza las gestiones del CRM con nested loops y la consulta pasa de 4 s a mas de 10 min.
+    OPTION (HASH JOIN)
     """
     )
     return {
@@ -452,6 +454,8 @@ def _general(fecha_carga: str) -> dict:
     LEFT JOIN gestion ge
         ON ge.RUT = b.RUT
     GROUP BY b.Ejecutivo, b.Producto, b.Fase, b.RUT
+    -- Ver _cobertura_terreno: sin el hint el cruce con el CRM se va a nested loops y no termina.
+    OPTION (HASH JOIN)
     """
     )
 

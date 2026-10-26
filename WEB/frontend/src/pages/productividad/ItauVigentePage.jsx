@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { fetchItauVigenteFilters, fetchItauVigenteGeneral, fetchItauVigenteNegocios } from "../../api";
 import ItauNegociosCard from "../../components/productividad/ItauNegociosCard";
-import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../../components/productividad/ui";
+import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../../components/productividad/ui";
 
 
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
@@ -25,6 +25,32 @@ function formatPct(value) {
     return "N/D";
   }
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
+}
+
+// Colores del % aporte como en La Araucana: tercios entre los ejecutivos (percentiles 33 y 66).
+function percentile(sortedValues, p) {
+  if (!sortedValues.length) {
+    return 0;
+  }
+  const idx = (sortedValues.length - 1) * p;
+  const lower = Math.floor(idx);
+  const upper = Math.ceil(idx);
+  if (lower === upper) {
+    return sortedValues[lower];
+  }
+  const weight = idx - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+}
+
+function dotClassByThresholds(value, thresholds) {
+  const num = Number(value || 0);
+  if (num >= thresholds.p66) {
+    return "pd-status pd-status-success";
+  }
+  if (num >= thresholds.p33) {
+    return "pd-status pd-status-warning";
+  }
+  return "pd-status pd-status-danger";
 }
 
 
@@ -70,6 +96,23 @@ export default function ItauVigentePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { logout } = useAuth();
+  // Desde octubre 2026 el universo suma Inteligencia y los cruces vigente (sin los RUT de ejecutivos de castigo).
+  const universoCanales = (metadata.canales || []).includes("INTELIGENCIA")
+    ? "Call/Contact Center, Inteligencia y cruces vigente"
+    : "Call y Contact Center";
+  // Desde octubre 2026 no hay efectivo recuperado (SIN_EFECTIVO_DESDE en el backend). Se decide por la fecha
+  // elegida para que la pestaña no aparezca mientras carga o si la consulta falla.
+  const conEfectivo = metadata.efectivo !== false && !(filters.fecha_carga >= "2026-10-01");
+  // % aporte y cobertura gestión solo desde octubre 2026 (APORTE_COBERTURA_DESDE en el backend).
+  const conAporteCobertura = metadata.aporteCobertura === true;
+  const aporteValues = rows.map((row) => row.pct_aporte).filter((value) => value != null).sort((a, b) => a - b);
+  const aporteThresholds = { p33: percentile(aporteValues, 0.33), p66: percentile(aporteValues, 0.66) };
+
+  useEffect(() => {
+    if (!conEfectivo) {
+      setView((prev) => (prev === "efectivo" ? "resumen" : prev));
+    }
+  }, [conEfectivo]);
 
   useEffect(() => {
     async function loadFilters() {
@@ -99,7 +142,13 @@ export default function ItauVigentePage() {
         setMetas(data.metas || []);
         setCastigo(data.castigo || null);
         setFotosCuotas(data.recupero_no_medible || null);
-        setMetadata({ fecha_carga: data.fecha_carga || filters.fecha_carga, periodo: data.periodo || "" });
+        setMetadata({
+          fecha_carga: data.fecha_carga || filters.fecha_carga,
+          periodo: data.periodo || "",
+          canales: data.canales || [],
+          efectivo: data.efectivo_recuperado !== false,
+          aporteCobertura: data.con_aporte_cobertura === true,
+        });
       } catch (err) {
         setError(err.message);
       } finally {
@@ -260,6 +309,46 @@ export default function ItauVigentePage() {
     );
   }
 
+  // % aporte como en La Araucana: contenido del ejecutivo sobre todo lo contenido por los ejecutivos.
+  // Cobertura gestión (grupal): RUT de todas las marcas y fases con gestión telefónica válida (sin VDAD) antes
+  // del pago. Mismo % en todos los ejecutivos. Colores de cumplimiento (< 80% / 80% - 99,9% / >= 100%).
+  function renderCoberturaCell(row) {
+    if (!conAporteCobertura) {
+      return null;
+    }
+    return (
+      <td className="pd-num pd-group-start">
+        {row.cobertura_gestion == null ? (
+          <span className="pd-cell-muted">—</span>
+        ) : (
+          // Numero entero truncado (99,76% -> 99%): redondeado mostraria 100% con color de no cumplido.
+          <span className={cumplimientoFraccionClass(row.cobertura_gestion)}>{Math.floor(Number(row.cobertura_gestion) * 100)}%</span>
+        )}
+      </td>
+    );
+  }
+
+  // PHOENIX no lleva aporte (viene en null): se muestra "—". El total va sin color.
+  function renderAporteCell(row, isTotal = false) {
+    if (!conAporteCobertura) {
+      return null;
+    }
+    if (row.pct_aporte == null) {
+      return (
+        <td className="pd-num pd-group-start">
+          <span className="pd-cell-muted">—</span>
+        </td>
+      );
+    }
+    return (
+      <td className="pd-num pd-group-start">
+        <span className={isTotal ? "pd-status pd-status-none" : dotClassByThresholds(row.pct_aporte, aporteThresholds)}>
+          {formatPct(row.pct_aporte)}
+        </span>
+      </td>
+    );
+  }
+
   // Pestaña Efectivo recuperado: casos no medibles de Vencida, calculado con las cuotas pagadas. Informativo,
   // no entra al cumplimiento. Solo ejecutivos: lo que no tiene gestion (PHOENIX) no se muestra.
   function renderEfectivoRecuperado() {
@@ -299,6 +388,8 @@ export default function ItauVigentePage() {
         {renderGroupCells(row, "hipotecario")}
         {renderCastigoCells(row)}
         {renderFinalCell(row)}
+        {renderAporteCell(row, isTotal)}
+        {renderCoberturaCell(row)}
       </tr>
     );
   }
@@ -342,6 +433,8 @@ export default function ItauVigentePage() {
           {/* El castigo y el cumplimiento final no se abren por fase. */}
           {castigo && <td colSpan={2} className="pd-num pd-group-start pd-cell-muted">—</td>}
           <td className="pd-num pd-group-start pd-cell-muted">—</td>
+          {conAporteCobertura && <td className="pd-num pd-group-start pd-cell-muted">—</td>}
+          {conAporteCobertura && <td className="pd-num pd-group-start pd-cell-muted">—</td>}
         </tr>
       )),
       <tr key={`${keyPrefix}-subtotal`} className={isTotal ? "pd-row-total" : "pd-row-subtotal"}>
@@ -351,6 +444,8 @@ export default function ItauVigentePage() {
         {renderGroupCells(row, "hipotecario")}
         {renderCastigoCells(row)}
         {renderFinalCell(row)}
+        {renderAporteCell(row, isTotal)}
+        {renderCoberturaCell(row)}
       </tr>,
     ];
   }
@@ -379,6 +474,8 @@ export default function ItauVigentePage() {
               </th>
             )}
             <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+            {conAporteCobertura && <th rowSpan={2} className="pd-num pd-group-start">% Aporte</th>}
+            {conAporteCobertura && <th rowSpan={2} className="pd-num pd-group-start">Cobertura gestión</th>}
           </tr>
           <tr>
             {subHeaders.map((label, idx) => (
@@ -428,7 +525,7 @@ export default function ItauVigentePage() {
             <i className="bi bi-info-circle" aria-hidden="true" /> Metas
           </button>
         }
-        note={`Base: contención Phoenix ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"}, fases 1 a 3 Call y Contact Center${castigo ? ` · Recupero castigo: ${formatDate(castigo.fecha_recupero) || "N/D"}` : ""}`}
+        note={`Base: contención Phoenix ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"}, fases 1 a 3 ${universoCanales}${castigo ? ` · Recupero castigo: ${formatDate(castigo.fecha_recupero) || "N/D"}` : ""}`}
       >
         <Field label="Fecha de carga">
           <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>
@@ -464,7 +561,7 @@ export default function ItauVigentePage() {
             { value: "detalle", label: "Detalle por fase", icon: "bi-layers" },
             { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
             { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
-            { value: "efectivo", label: "Efectivo recuperado", icon: "bi-cash-coin" },
+            ...(conEfectivo ? [{ value: "efectivo", label: "Efectivo recuperado", icon: "bi-cash-coin" }] : []),
           ]}
         />
         {view === "negocios" || view === "negocios-detalle" ? (
@@ -474,7 +571,7 @@ export default function ItauVigentePage() {
             fetcher={fetchItauVigenteNegocios}
             fechaCarga={filters.fecha_carga}
             ejecutivo={filters.ejecutivo}
-            universo="Call y Contact Center"
+            universo={universoCanales}
             compacto
             vistaFija={view === "negocios" ? "resumen" : "detalle"}
             exportName={exportFileName("Itau-Vigente", view, filters.fecha_carga)}
@@ -492,7 +589,10 @@ export default function ItauVigentePage() {
           exportName={exportFileName("Itau-Vigente", view, filters.fecha_carga)}
           bodyClassName=""
           footer={
-            <StatusLegend items={cumplimientoLegendItems} />
+            <>
+              <StatusLegend items={cumplimientoLegendItems} />
+              {conAporteCobertura && <StatusLegend title="Aporte" items={aporteLegendItems} />}
+            </>
           }
         >
           {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderTable()}</div>}

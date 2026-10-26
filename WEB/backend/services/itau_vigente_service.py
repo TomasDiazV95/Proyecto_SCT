@@ -26,9 +26,38 @@ from services.itau_vencida_service import (
 DEFAULT_EXECUTIVE = "PHOENIX"
 # Cartera Itau Vencida en el CRM de gestiones (dbo.tmp_GEST_CRM).
 CRM_CARTERA = 523
+# Cobertura gestion: solo cuenta la gestion telefonica, de cualquier usuario menos el discador.
+CANAL_GESTION_VALIDA = "LLAMADA"
+USUARIOS_SIN_GESTION_VALIDA = ("VDAD",)
 # Universo de Itau Vigente dentro de la contencion Itau Vencida.
 FASES = (1, 2, 3)
 CANALES = ("CALL CENTER", "CONTACT CENTER")
+# Desde octubre 2026 tambien entran Inteligencia y los cruces vigente, salvo los RUT del cruce vigente que
+# estan carterizados a ejecutivos de Itau Castigo en el mes (esos los mide el panel de castigo).
+CANALES_DESDE_2026_10 = (
+    "CALL CENTER",
+    "CALL CENTER - CRUCE VIGENTE",
+    "INTELIGENCIA",
+    "CONTACT CENTER",
+    "TERRENO PREJUDICIAL - CRUCE VIGENTE",
+)
+CANALES_AMPLIADOS_DESDE = "2026-10-01"
+
+
+def _canales(periodo: str) -> tuple[str, ...]:
+    return CANALES_DESDE_2026_10 if periodo >= CANALES_AMPLIADOS_DESDE else CANALES
+
+
+# Desde octubre 2026 no se informa el efectivo recuperado de los casos no medibles.
+SIN_EFECTIVO_DESDE = "2026-10-01"
+
+
+def _con_efectivo(periodo: str) -> bool:
+    return periodo < SIN_EFECTIVO_DESDE
+
+
+# Desde octubre 2026 el resumen lleva % aporte y cobertura gestion.
+APORTE_COBERTURA_DESDE = "2026-10-01"
 VARIABLE_CASTIGO = "CASTIGO"
 # Respuestas con mas peso al elegir la mejor gestion del RUT: compromiso, pago o renegociacion.
 RESPUESTAS_COMPROMISO = (
@@ -71,10 +100,31 @@ def _load_metas(periodo: str) -> tuple[dict[str, dict], dict | None]:
     return metas, castigo
 
 
-def _load_ejecutivos() -> list[str]:
+def _vigente_en(alias: str, fecha_sql: str) -> str:
+    """Condicion SQL: el ejecutivo (alias de dbo.itau_vigente_ejecutivos) esta activo y vigente en fecha_sql
+    (desde/hasta NULL = sin limite)."""
+    return (
+        f"{alias}.activo = 1"
+        f" AND ({alias}.desde IS NULL OR {alias}.desde <= {fecha_sql})"
+        f" AND ({alias}.hasta IS NULL OR {alias}.hasta >= {fecha_sql})"
+    )
+
+
+def _load_ejecutivos(periodo: str) -> list[str]:
+    """Ejecutivos vigentes en algun dia del mes."""
     return [
         _clean_text(row.get("ejecutivo"))
-        for row in run_query("SELECT ejecutivo FROM dbo.itau_vigente_ejecutivos WHERE activo = 1 ORDER BY ejecutivo")
+        for row in run_query(
+            """
+            SELECT ejecutivo
+            FROM dbo.itau_vigente_ejecutivos
+            WHERE activo = 1
+              AND (desde IS NULL OR desde <= EOMONTH(?))
+              AND (hasta IS NULL OR hasta >= ?)
+            ORDER BY ejecutivo
+            """,
+            (periodo, periodo),
+        )
         if _clean_text(row.get("ejecutivo"))
     ]
 
@@ -125,7 +175,7 @@ def _recupero_castigo_ruts(periodo: str, fecha_carga: str) -> tuple[str | None, 
             "fecha_recupero": _clean_text(row.get("Fecha_Recupero")),
         }
         for row in run_query(
-            """
+            f"""
             WITH cart AS (
                 -- El nombre del carterizado cambia de escritura entre meses: se cruza por la tabla de equivalencias.
                 SELECT DISTINCT c.rut, e.ejecutivo
@@ -134,7 +184,7 @@ def _recupero_castigo_ruts(periodo: str, fecha_carga: str) -> tuple[str | None, 
                     ON UPPER(a.nombre_carterizado) = UPPER(LTRIM(RTRIM(c.ejecutivo)))
                 INNER JOIN dbo.itau_vigente_ejecutivos e
                     ON e.usuario = a.usuario
-                   AND e.activo = 1
+                   AND {_vigente_en("e", "c.mes_carterizado")}
                 WHERE c.mes_carterizado = ?
             )
             SELECT
@@ -182,9 +232,10 @@ def get_filter_values(fecha_carga: str | None = None) -> dict:
         if r.get("fecha_carga")
     ]
 
+    fecha = (fecha_carga or "")[:10] or (fechas_carga[0] if fechas_carga else "")
     return {
         "fechas_carga": fechas_carga,
-        "ejecutivos": _load_ejecutivos(),
+        "ejecutivos": _load_ejecutivos(_periodo_from_fecha(fecha)) if fecha else [],
     }
 
 
@@ -221,13 +272,25 @@ def _result(nombre: str, casos: int, acc: dict, metas: dict, castigo: dict | Non
     return out
 
 
-def _universo_canal(con_fases: bool = True) -> str:
-    """Universo Itau Vigente dentro de la contencion: Call/Contact Center y, para el cumplimiento, fases 1 a 3."""
+def _universo_canal(periodo: str, con_fases: bool = True) -> str:
+    """Universo Itau Vigente dentro de la contencion: los canales del mes y, para el cumplimiento, fases 1 a 3."""
     fases = f"AND b.FASE_PROY_MAX IN ({', '.join(str(fase) for fase in FASES)})" if con_fases else ""
-    return f"{fases} AND UPPER(LTRIM(RTRIM(b.CANAL))) IN ({_in_list(CANALES)})"
+    sql = f"{fases} AND UPPER(LTRIM(RTRIM(b.CANAL))) IN ({_in_list(_canales(periodo))})"
+    if periodo >= CANALES_AMPLIADOS_DESDE:
+        # periodo viene de _periodo_from_fecha (YYYY-MM-DD): se puede interpolar. Va como un solo NOT EXISTS
+        # con cruce por igualdad: escrito como NOT (canal AND EXISTS) no admite el OPTION (HASH JOIN) de las consultas.
+        sql += f"""
+          AND NOT EXISTS (
+              SELECT 1
+              FROM dbo.tmp_carterizado_ITAU_CASTIGO cc
+              WHERE cc.mes_carterizado = '{periodo}'
+                AND cc.rut = b.RUT
+                AND UPPER(b.CANAL) LIKE '%CRUCE VIGENTE%'
+          )"""
+    return sql
 
 
-def _base_cte(universo_sql: str | None = None) -> str:
+def _base_cte(periodo: str, universo_sql: str | None = None) -> str:
     """CTE `base` del universo Itau Vigente (o el universo que se indique en universo_sql, cuyos parametros van
     despues de estos). Parametros: periodo, fecha_carga (gestiones), fecha_carga, GESTOR.
     Cada RUT (su saldo inicial y lo contenido) va al ejecutivo con la mejor gestion del mes: primero el peso
@@ -248,7 +311,7 @@ def _base_cte(universo_sql: str | None = None) -> str:
         FROM dbo.tmp_GEST_CRM g
         INNER JOIN dbo.itau_vigente_ejecutivos e
             ON e.usuario = UPPER(LTRIM(RTRIM(g.UsuarioGestion)))
-           AND e.activo = 1
+           AND {_vigente_en("e", "g.GestionFecha")}
         WHERE g.cartera = {CRM_CARTERA}
           AND g.GestionFecha >= ?
           AND g.GestionFecha <= ?
@@ -276,14 +339,16 @@ def _base_cte(universo_sql: str | None = None) -> str:
             COALESCE(CAST(b.SALDO_CONT AS float), 0) AS SALDO_CONT,
             b.OPER,
             b.NOMBRE,
-            COALESCE(CAST(b.RENE_MES AS int), 0) AS RENE_MES
+            COALESCE(CAST(b.RENE_MES AS int), 0) AS RENE_MES,
+            UPPER(LTRIM(RTRIM(b.CANAL))) AS CANAL,
+            LTRIM(RTRIM(b.DETALLE_MARCA)) AS MARCA
         FROM dbo.contencion_itau_vencida b
         LEFT JOIN mejor_gestion mg
             ON mg.RUT = b.RUT
            AND mg.rn = 1
         WHERE b.fecha_carga = ?
           AND b.GESTOR = ?
-          {_universo_canal() if universo_sql is None else universo_sql}
+          {_universo_canal(periodo) if universo_sql is None else universo_sql}
     )
     """
 
@@ -324,6 +389,8 @@ def get_efectivo_detalle(filters: dict) -> list[dict]:
     Efectivo recuperado: la suma por ejecutivo da recupero_nm_efectivo)."""
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
+    if not _con_efectivo(periodo):
+        return []
     sql, params = _recupero_no_medible_sql(
         periodo,
         fecha_carga,
@@ -360,7 +427,7 @@ def _recupero_no_medible_sql(periodo: str, fecha_carga: str, ejecutivo: str, sel
         filter_sql = "WHERE UPPER(o.Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
         params.append(ejecutivo)
     sql = (
-        _base_cte(universo_sql)
+        _base_cte(periodo, universo_sql)
         + f""", ops AS (
         SELECT Ejecutivo, OPER, MAX(RUT) AS RUT, MAX(NOMBRE) AS NOMBRE
         FROM base
@@ -425,7 +492,7 @@ def get_general(filters: dict) -> dict:
         params.append(ejecutivo)
 
     sql = (
-        _base_cte()
+        _base_cte(periodo)
         + f"""
     SELECT
         Ejecutivo,
@@ -443,7 +510,7 @@ def get_general(filters: dict) -> dict:
     )
 
     metas, meta_castigo = _load_metas(periodo)
-    ejecutivos = _load_ejecutivos()
+    ejecutivos = _load_ejecutivos(periodo)
     # Los ejecutivos se muestran aunque todavia no se lleven ningun RUT.
     por_ejecutivo: dict[str, dict] = {
         nombre: _empty_acc() for nombre in ejecutivos if not ejecutivo or nombre.upper() == ejecutivo.upper()
@@ -471,7 +538,8 @@ def get_general(filters: dict) -> dict:
         }
 
     # Efectivo recuperado de los casos no medibles de Vencida: informativo, no entra al cumplimiento.
-    fotos_cuotas, recupero_nm = _recupero_no_medible(periodo, fecha_carga, ejecutivo)
+    efectivo = _con_efectivo(periodo)
+    fotos_cuotas, recupero_nm = _recupero_no_medible(periodo, fecha_carga, ejecutivo) if efectivo else (None, {})
     for nombre in recupero_nm:
         por_ejecutivo.setdefault(nombre, _empty_acc())
 
@@ -489,6 +557,29 @@ def get_general(filters: dict) -> dict:
     total_result["recupero_nm_cuotas"] = sum(cuotas for cuotas, _ in recupero_nm.values())
     total_result["recupero_nm_efectivo"] = sum(efectivo for _, efectivo in recupero_nm.values())
 
+    # % aporte (como La Araucana): lo contenido por cada ejecutivo sobre la bolsa de todo lo contenido por los
+    # ejecutivos. PHOENIX (sin gestion) no entra a la bolsa ni lleva aporte. Filtrando por ejecutivo, la bolsa
+    # sigue siendo la de todos.
+    # La cobertura de gestion es grupal (todas las marcas y fases, gestion telefonica de cualquier usuario sin VDAD,
+    # antes del pago): el mismo % en cada ejecutivo, aunque se filtre.
+    # Aporte y cobertura solo existen desde octubre 2026; los meses anteriores no los llevan.
+    con_aporte = periodo >= APORTE_COBERTURA_DESDE
+    bolsa = None
+    cobertura = None
+    if con_aporte and ejecutivo:
+        completo = get_general({"fecha_carga": fecha_carga})
+        bolsa = completo["aporte_bolsa"]
+        cobertura = completo["cobertura_gestion"]
+    elif con_aporte:
+        bolsa = sum(row["saldo_cont"] for row in rows if row["ejecutivo"] != DEFAULT_EXECUTIVE)
+        cobertura = _cobertura_gestion(periodo, fecha_carga)
+    for row in rows:
+        es_phoenix = row["ejecutivo"] == DEFAULT_EXECUTIVE
+        row["pct_aporte"] = None if es_phoenix or not con_aporte else _safe_div(row["saldo_cont"], bolsa)
+        row["cobertura_gestion"] = None if es_phoenix or not con_aporte else cobertura["pct"]
+    total_result["pct_aporte"] = sum(row["pct_aporte"] or 0 for row in rows) if con_aporte else None
+    total_result["cobertura_gestion"] = cobertura["pct"] if con_aporte else None
+
     metas_vista = [
         {
             "producto": producto,
@@ -504,8 +595,13 @@ def get_general(filters: dict) -> dict:
     return {
         "fecha_carga": fecha_carga,
         "periodo": periodo,
+        "canales": list(_canales(periodo)),
         "metas": metas_vista,
         "castigo": castigo,
+        "efectivo_recuperado": efectivo,
+        "con_aporte_cobertura": con_aporte,
+        "aporte_bolsa": bolsa,
+        "cobertura_gestion": cobertura,
         "recupero_no_medible": fotos_cuotas,
         "rows": rows,
         "total": total_result,
@@ -526,7 +622,7 @@ def get_negocios(filters: dict) -> dict:
         filter_sql = "AND UPPER(Ejecutivo) = UPPER(LTRIM(RTRIM(?)))"
         params.append(ejecutivo)
     rows = run_query(
-        _base_cte(_universo_canal(con_fases=False))
+        _base_cte(periodo, _universo_canal(periodo, con_fases=False))
         + f"""
     SELECT Ejecutivo, RUT, NOMBRE, OPER, Producto, Fase, SALDO_INI, SALDO_CONT
     FROM base
@@ -537,3 +633,60 @@ def get_negocios(filters: dict) -> dict:
         tuple(params),
     )
     return {"fecha_carga": fecha_carga, "periodo": periodo, **negocios_result(rows)}
+
+
+def _cobertura_gestion(periodo: str, fecha_carga: str) -> dict:
+    """Cobertura de gestion grupal: RUT del universo Vigente del mes (todos sus canales y marcas, cualquier fase)
+    con una gestion valida antes del pago. Valida = telefonica (canal LLAMADA) de cualquier usuario del CRM, salvo
+    el discador VDAD. La fecha de pago es la primera carga de contencion del mes en que el RUT aparece con saldo
+    contenido (igual que Itau Vencida); si aun no paga, vale cualquier gestion hasta la fecha consultada.
+    Es grupal: el mismo % va en todos los ejecutivos."""
+    rows = run_query(
+        _base_cte(periodo, _universo_canal(periodo, con_fases=False))
+        + f""", pago AS (
+        SELECT RUT, MIN(fecha_carga) AS fecha_pago
+        FROM (
+            SELECT RUT, fecha_carga
+            FROM dbo.contencion_itau_vencida
+            WHERE fecha_carga >= ?
+              AND fecha_carga <= ?
+              AND GESTOR = ?
+            GROUP BY RUT, fecha_carga
+            HAVING SUM(COALESCE(CAST(SALDO_CONT AS float), 0)) > 0
+        ) x
+        GROUP BY RUT
+    ), gestion AS (
+        SELECT TRY_CAST(g.rut AS bigint) AS RUT, MIN(CAST(g.GestionFecha AS date)) AS primera_gestion
+        FROM dbo.tmp_GEST_CRM g
+        INNER JOIN dbo.kpi_accion_canal ac
+            ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
+           AND ac.canal = '{CANAL_GESTION_VALIDA}'
+        WHERE g.cartera = {CRM_CARTERA}
+          AND g.GestionFecha >= ?
+          AND g.GestionFecha <= ?
+          AND UPPER(LTRIM(RTRIM(g.UsuarioGestion))) NOT IN ({_in_list(USUARIOS_SIN_GESTION_VALIDA)})
+        GROUP BY TRY_CAST(g.rut AS bigint)
+    )
+    -- Primero por RUT: con COUNT(DISTINCT ...) directo el OPTION (HASH JOIN) no arma plan.
+    SELECT COUNT(*) AS Ruts, SUM(Gestionado) AS Gestionados
+    FROM (
+        SELECT
+            b.RUT,
+            MAX(CASE
+                WHEN ge.primera_gestion IS NOT NULL AND (p.fecha_pago IS NULL OR ge.primera_gestion < p.fecha_pago)
+                THEN 1 ELSE 0
+            END) AS Gestionado
+        FROM base b
+        LEFT JOIN pago p
+            ON p.RUT = b.RUT
+        LEFT JOIN gestion ge
+            ON ge.RUT = b.RUT
+        GROUP BY b.RUT
+    ) x
+    OPTION (HASH JOIN)
+    """,
+        (periodo, fecha_carga, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga),
+    )
+    ruts = int(rows[0].get("Ruts") or 0) if rows else 0
+    gestionados = int(rows[0].get("Gestionados") or 0) if rows else 0
+    return {"ruts": ruts, "gestionados": gestionados, "pct": _safe_div(gestionados, ruts) if ruts else None}
