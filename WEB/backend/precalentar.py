@@ -6,11 +6,13 @@ PRECALENTAR=0 en el entorno.
 from __future__ import annotations
 
 import contextlib
+import functools
 import importlib
 import logging
 import os
 import threading
 import time
+from datetime import date
 
 import cache
 
@@ -50,18 +52,28 @@ def precalentar_modulo(nombre: str, fn_filtros: str, clave_fecha: str, vistas: l
         getattr(servicio, vista)({clave_fecha: fechas[0]})
 
 
+def precalentar_kpi_operacional() -> None:
+    """KPI Operacional no se filtra por fecha: filtros y vista inicial (todos los mandantes), con la misma
+    clave que pide la pagina. Los mandantes quedan en cache con la primera visita."""
+    servicio = importlib.import_module("services.kpi_operacional_service")
+    servicio.get_filter_values({})
+    servicio.get_dashboard({}, hoy=date.today())
+
+
 def precalentar(renovar: bool = True) -> None:
     """renovar=True vuelve a consultar aunque haya algo guardado (ciclo periodico). Con False usa los
     candados de la cache: sirve justo despues de limpiarla, cuando las paginas abiertas tambien piden."""
+    pasos = [(modulo[0], functools.partial(precalentar_modulo, *modulo)) for modulo in MODULOS]
+    pasos.append(("kpi_operacional", precalentar_kpi_operacional))
     with cache.refrescando() if renovar else contextlib.nullcontext():
-        for modulo in MODULOS:
+        for nombre, paso in pasos:
             inicio = time.perf_counter()
             try:
-                precalentar_modulo(*modulo)
+                paso()
             except Exception as exc:  # un modulo que falla no detiene a los demas
-                logger.warning("Precalentamiento de %s fallo: %s", modulo[0], exc)
+                logger.warning("Precalentamiento de %s fallo: %s", nombre, exc)
             else:
-                logger.info("Precalentado %s en %.1fs", modulo[0], time.perf_counter() - inicio)
+                logger.info("Precalentado %s en %.1fs", nombre, time.perf_counter() - inicio)
 
 
 def _ciclo() -> None:

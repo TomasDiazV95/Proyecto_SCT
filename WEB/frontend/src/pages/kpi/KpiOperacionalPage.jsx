@@ -20,12 +20,12 @@ const C = {
   incumplido: "var(--kpo-comp-bad)",
 };
 
-const FILTER_ORDER = ["mandante", "cartera", "tramo", "producto", "zona"];
+const FILTER_ORDER = ["mandante", "cartera", "tramo", "producto", "zona", "canal"];
 // Cada filtro guarda los valores elegidos; vacio = todos.
-const emptyFilters = { mandante: [], cartera: [], tramo: [], producto: [], zona: [] };
+const emptyFilters = { mandante: [], cartera: [], tramo: [], producto: [], zona: [], canal: [] };
 // Con mas opciones que esto, el filtro deja elegir varias (salvo el mandante, que es de a uno).
 const MAX_OPCIONES_SIMPLE = 2;
-const emptyOptions = { mandantes: [], labels: {}, visibles: {}, carteras: [], tramos: [], productos: [], zonas: [] };
+const emptyOptions = { mandantes: [], labels: {}, visibles: {}, carteras: [], tramos: [], productos: [], zonas: [], canales: [] };
 
 // ------------------------------------------------------------
 // Formato
@@ -524,6 +524,7 @@ export default function KpiOperacionalPage() {
     filters.producto.join(", "),
     filters.tramo.join(", "),
     filters.zona.length > 0 && `Zona ${filters.zona.join(", ")}`,
+    filters.canal.length > 0 && `Canal ${filters.canal.join(", ")}`,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -608,9 +609,19 @@ export default function KpiOperacionalPage() {
         {visibles.zona && (
           <Select id="kpo-zona" label={labels.zona} value={filters.zona} options={options.zonas} allLabel="Todas" onChange={(v) => onFilter("zona", v)} />
         )}
+        {visibles.canal && (
+          <Select id="kpo-canal" label={labels.canal} value={filters.canal} options={options.canales} allLabel="Todos" onChange={(v) => onFilter("canal", v)} />
+        )}
         <button type="button" className="kpo-btn" onClick={() => setFilters(emptyFilters)}>
           Limpiar filtros
         </button>
+        {/* Al cambiar un filtro se siguen viendo los datos anteriores hasta que llega la respuesta. */}
+        {loading && data && (
+          <span className="kpo-updating" role="status">
+            <span className="kpo-updating-dot" aria-hidden="true" />
+            Actualizando…
+          </span>
+        )}
       </section>
 
       {error && <div className="kpo-error">{error}</div>}

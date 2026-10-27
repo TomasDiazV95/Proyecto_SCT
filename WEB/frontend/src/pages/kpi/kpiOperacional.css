@@ -233,6 +233,36 @@
   background: #f4f7fc;
 }
 
+.kpo-updating {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--kpo-muted);
+}
+
+.kpo-updating-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--kpo-accent);
+  animation: kpo-pulse 1s ease-in-out infinite;
+}
+
+@keyframes kpo-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kpo-updating-dot {
+    animation: none;
+  }
+}
+
 .kpo select:focus-visible,
 .kpo .kpo-multi-trigger:focus-visible,
 .kpo .kpo-btn:focus-visible {
