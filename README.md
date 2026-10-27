@@ -232,6 +232,7 @@ El proyecto crea o consulta, entre otras, las siguientes entidades:
 - `dbo.tmp_LA_asignacion`
 - `dbo.tmp_LA_pagos`
 - `dbo.tmp_LA_performance_cache`
+- `dbo.tmp_asignacion_forum` (asignacion FORUM para el KPI Operacional; se carga con `python ETL\etl_asignacion_forum.py [YYYYMM]`, por defecto el mes actual y el archivo `ASIGNACION FORUM.xlsx` de la raiz, configurable con `ASIGNACION_FORUM_FOLDER` / `ASIGNACION_FORUM_FILENAME`)
 
 La API tambien depende de tablas operacionales existentes, por ejemplo `dbo.tmp_GEST_CRM`, `dbo.tmp_ejecutivos`, `dbo.tmp_carterizado_GM` y `dbo.tmp_pagos_gm`.
 

@@ -35,7 +35,7 @@ TABLAS = [
     "sth_ejecutivos_ciclo", "sth_metas_mensuales", "tbl_gestiones_diarias_sct", "tmp_BENCH_CONTROL_DIARIO",
     "tmp_BIT_asignacion", "tmp_BIT_asignacion_mensual", "tmp_BIT_carterizado", "tmp_BIT_castigo",
     "tmp_BIT_contencion", "tmp_BIT_metas", "tmp_FECHA_COMPROMISO_CRM", "tmp_GEST_CRM", "tmp_LA_asignacion",
-    "tmp_LA_pagos", "tmp_LA_respuesta", "tmp_asig_GM", "tmp_bench_SC_Castigo", "tmp_bench_STC",
+    "tmp_LA_pagos", "tmp_LA_respuesta", "tmp_asig_GM", "tmp_asignacion_forum", "tmp_bench_SC_Castigo", "tmp_bench_STC",
     "tmp_bench_STH", "tmp_bench_temp_STC", "tmp_carterizado_GM", "tmp_carterizado_ITAU_CASTIGO",
     "tmp_carterizado_ITAU_VENCIDA", "tmp_carterizado_SCT", "tmp_carterizado_STH", "tmp_ejecutivos",
     "tmp_itau_castigo_asignacion", "tmp_pagos_gm",

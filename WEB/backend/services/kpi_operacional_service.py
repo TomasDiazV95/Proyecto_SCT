@@ -20,7 +20,7 @@ from __future__ import annotations
 import calendar
 from datetime import date, timedelta
 
-from cache import cached
+from cache import cached, cached_view
 from database import run_query, run_query_sets
 from feriados_chile import es_habil
 
@@ -29,7 +29,7 @@ SIN_PRODUCTO = "Sin producto"
 FILTROS_TTL = 600  # segundos; la asignacion solo cambia cuando corre sp_kpi_operacional_cargar
 SIN_ASIGNACION = "Sin asignación"
 MESES_COMPARACION = 4  # mes actual + 3 anteriores
-DIMENSIONES = ("mandante", "cartera", "tramo", "producto", "zona")
+DIMENSIONES = ("mandante", "cartera", "tramo", "producto", "zona", "canal")
 # Cada mes se calcula al cierre y al corte equivalente; sufijo de las columnas SQL de cada uno.
 CORTES_TIPO = {"cierre": "", "eq": "_eq"}
 
@@ -68,13 +68,23 @@ SEGMENTACION: dict[str, dict] = {
         "zonas": ["Norte", "Metropolitana", "Sur"],
     },
     "ITAÚ": {
-        "carteras": ["VENCIDA", "CASTIGO"],
+        "carteras": ["VIGENTE", "VENCIDA", "CASTIGO"],
         "tramo_label": "Fase / tipo",
-        "tramos_por_cartera": {"VENCIDA": ["Fase 4", "Fase 5", "Fase 6", "Fase 7"], "CASTIGO": ["Stock", "MCV"]},
-        "productos_por_cartera": {"VENCIDA": ["Consumo", "Hipoteca"]},
+        "tramos_por_cartera": {
+            "VIGENTE": ["Fase 1", "Fase 2", "Fase 3"],
+            "VENCIDA": ["Fase 4", "Fase 5", "Fase 6", "Fase 7"],
+            "CASTIGO": ["Stock", "MCV"],
+        },
+        "productos_por_cartera": {"VIGENTE": ["Consumo", "Hipoteca"], "VENCIDA": ["Consumo", "Hipoteca"]},
+        # Canal de la contencion (los valores salen de los datos); solo Vigente y Vencida lo traen.
+        "canal_carteras": ["VIGENTE", "VENCIDA"],
     },
     "LA ARAUCANA": {
         "carteras": ["VIGENTE", "CASTIGO", "+365"],
+    },
+    "FORUM": {
+        # Sin saldo asignado ni pagos: solo casos y gestiones (CRM 574).
+        "carteras": ["VIGENTE", "CASTIGO"],
     },
 }
 
@@ -179,7 +189,7 @@ def _unico(filters: dict, field: str) -> str:
 
 
 def _dimension_filters(filters: dict, alias: str, include: tuple[str, ...] = DIMENSIONES) -> tuple[str, list]:
-    """Filtros de mandante/cartera/tramo/producto/zona (mismas columnas en asignacion y pagos)."""
+    """Filtros de mandante/cartera/tramo/producto/zona/canal (mismas columnas en asignacion y pagos)."""
     clauses: list[str] = []
     params: list = []
     for field in include:
@@ -220,7 +230,7 @@ def _combinaciones(periodo: str) -> list[dict]:
     return cached(
         ("kpi_operacional_combinaciones", periodo),
         lambda: run_query(
-            f"""SELECT DISTINCT mandante, cartera, tramo, ISNULL(producto, N'{SIN_PRODUCTO}') AS producto, zona
+            f"""SELECT DISTINCT mandante, cartera, tramo, ISNULL(producto, N'{SIN_PRODUCTO}') AS producto, zona, canal
             FROM dbo.kpi_asignacion WHERE periodo = ?""",
             (periodo,),
         ),
@@ -257,12 +267,13 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
     out = {
         "periodo_actual": periodo_actual,
         "mandantes": _ordered(list(SEGMENTACION), distinct("mandante", ())),
-        "labels": {"cartera": "Cartera", "tramo": "Tramo", "producto": "Producto", "zona": "Zona"},
-        "visibles": {"cartera": False, "tramo": False, "producto": False, "zona": False},
+        "labels": {"cartera": "Cartera", "tramo": "Tramo", "producto": "Producto", "zona": "Zona", "canal": "Canal"},
+        "visibles": {"cartera": False, "tramo": False, "producto": False, "zona": False, "canal": False},
         "carteras": [],
         "tramos": [],
         "productos": [],
         "zonas": [],
+        "canales": [],
     }
     config = SEGMENTACION.get(mandante)
     if not config:
@@ -295,12 +306,20 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
     if config.get("zonas"):
         out["visibles"]["zona"] = True
         out["zonas"] = _ordered(config["zonas"], distinct("zona", ("mandante", "cartera", "tramo", "producto")) & set(config["zonas"]))
+
+    # Canal: sin cartera elegida o con alguna que lo trae; elegir un canal deja fuera las carteras sin canal.
+    canal_carteras = config.get("canal_carteras", [])
+    if canal_carteras and (not carteras or set(carteras) & set(canal_carteras)):
+        out["visibles"]["canal"] = True
+        out["canales"] = _ordered([], distinct("canal", ("mandante", "cartera", "tramo", "producto")))
     return out
 
 
 # ------------------------------------------------------------
 # Dashboard
 # ------------------------------------------------------------
+# En cache por filtros y dia (hoy va en la clave); datos_version la limpia cuando corre la carga del KPI.
+@cached_view
 def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     hoy = hoy or date.today()
     filters = {k: _valores(filters, k) for k in DIMENSIONES}
@@ -325,7 +344,7 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     def pagos_al_corte(tabla: str, foto: str, corte: str) -> str:
         """Pagos al corte (con todos los segmentos del mandante: los compromisos se cruzan por RUT)."""
         return f"""
-    SELECT p.periodo, p.mandante, p.cartera, p.tramo, p.producto, p.zona, p.rut, CAST(p.monto AS float) AS monto,
+    SELECT p.periodo, p.mandante, p.cartera, p.tramo, p.producto, p.zona, p.canal, p.rut, CAST(p.monto AS float) AS monto,
            p.pago_efectivo, ISNULL(p.fecha_pago, p.fecha_foto) AS f_pago, p.fecha_foto,
            CASE WHEN f.{foto} IS NULL AND p.fecha_pago IS NULL THEN 1 ELSE 0 END AS aprox
     INTO {tabla}
@@ -349,13 +368,18 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     )"""
 
     def cumplido(tabla: str) -> str:
-        """Compromiso con un pago efectivo del mismo mandante + RUT (y cartera) desde la fecha de gestion."""
+        """Compromiso con un pago efectivo del mismo mandante + RUT desde la fecha de gestion, en una cartera que
+        atiende su cartera CRM (cartera NULL en kpi_crm_cartera = cualquiera; 523 = Itau Vencida o Vigente)."""
         return f"""EXISTS (
                        SELECT 1 FROM {tabla} p
                        WHERE p.periodo = c.periodo AND p.mandante = c.mandante AND p.rut = c.rut
                          AND p.pago_efectivo = 1
-                         AND (c.crm_cartera_kpi IS NULL OR p.cartera = c.crm_cartera_kpi)
                          AND p.f_pago >= c.f_gest
+                         AND EXISTS (
+                             SELECT 1 FROM dbo.kpi_crm_cartera k
+                             WHERE k.crm_cartera = c.crm_cartera AND k.mandante = c.mandante
+                               AND (k.cartera IS NULL OR k.cartera = p.cartera)
+                         )
                    )"""
 
     sql = f"""
@@ -370,7 +394,44 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     FROM dbo.kpi_asignacion a
     INNER JOIN #cortes c ON c.periodo = a.periodo
     WHERE 1 = 1{dim_a_sql};
-    CREATE INDEX IX_asig ON #asig(periodo, mandante, rut);
+    CREATE CLUSTERED INDEX IX_asig ON #asig(periodo, mandante, rut);
+
+    -- RUT asignados por mes y cartera (base de casos, gestiones, alcance y compromisos).
+    SELECT DISTINCT periodo, mandante, cartera, rut
+    INTO #asig_rut
+    FROM #asig;
+    CREATE CLUSTERED INDEX IX_asig_rut ON #asig_rut(periodo, mandante, rut);
+
+    -- Mejor contacto por mandante + RUT asignado (lo usan el contacto y el alcance). Cada cartera CRM del RUT
+    -- entra una vez aunque el RUT este en dos carteras que la comparten (Itau Vencida y Vigente = 523).
+    SELECT s.periodo, s.mandante, s.rut,
+           MIN(g.fecha_primera_gestion) AS f_gest,
+           MIN(g.fecha_primer_directo) AS f_dir,
+           MIN(g.fecha_primer_indirecto) AS f_ind,
+           SUM(CAST(ISNULL(g.n_gestiones, 0) AS bigint)) AS n_gestiones
+    INTO #gest
+    FROM (
+        SELECT DISTINCT s.periodo, s.mandante, s.rut, k.crm_cartera
+        FROM #asig_rut s
+        INNER JOIN dbo.kpi_crm_cartera k
+            ON k.mandante = s.mandante AND (k.cartera IS NULL OR k.cartera = s.cartera)
+    ) s
+    INNER JOIN dbo.kpi_gestiones_rut g
+        ON g.periodo = s.periodo AND g.crm_cartera = s.crm_cartera AND g.rut = s.rut
+    GROUP BY s.periodo, s.mandante, s.rut;
+    CREATE CLUSTERED INDEX IX_gest ON #gest(periodo, mandante, rut);
+
+    -- Alcance de contacto: RUT asignado con contacto titular en alguno de los 3 meses anteriores.
+    -- Los meses se enumeran para buscar por la clave de kpi_gestiones_rut (periodo, crm_cartera, rut).
+    SELECT DISTINCT s.periodo, s.mandante, s.rut
+    INTO #hist
+    FROM #asig_rut s
+    CROSS APPLY (VALUES (1), (2), (3)) m(n)
+    INNER JOIN dbo.kpi_crm_cartera k
+        ON k.mandante = s.mandante AND (k.cartera IS NULL OR k.cartera = s.cartera)
+    INNER JOIN dbo.kpi_gestiones_rut g
+        ON g.periodo = CONVERT(char(7), DATEADD(month, -m.n, CAST(s.periodo + '-01' AS date)), 120)
+       AND g.crm_cartera = k.crm_cartera AND g.rut = s.rut AND g.fecha_primer_directo IS NOT NULL;
 
     -- Foto de pagos de cada fuente: meses cerrados = la ultima foto disponible del mes (aunque llegue despues
     -- del cierre); mes actual = la ultima <= hoy (si no hay, la primera).
@@ -394,47 +455,26 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     {pagos_al_corte("#pagos_eq", "f_eq", "corte_eq")}
 
     -- 1) Asignacion por mes.
-    SELECT c.periodo, COUNT(DISTINCT a.mandante + '|' + CAST(a.rut AS varchar(20))) AS casos,
-           COUNT(a.rut) AS operaciones, SUM(a.saldo) AS saldo
+    SELECT c.periodo, ISNULL(cs.casos, 0) AS casos, ISNULL(op.operaciones, 0) AS operaciones, op.saldo
     FROM #cortes c
-    LEFT JOIN #asig a ON a.periodo = c.periodo
-    GROUP BY c.periodo;
+    LEFT JOIN (
+        SELECT periodo, COUNT(*) AS casos FROM (SELECT DISTINCT periodo, mandante, rut FROM #asig_rut) x GROUP BY periodo
+    ) cs ON cs.periodo = c.periodo
+    LEFT JOIN (
+        SELECT periodo, COUNT(rut) AS operaciones, SUM(saldo) AS saldo FROM #asig GROUP BY periodo
+    ) op ON op.periodo = c.periodo;
 
     -- 2) Contacto al cierre y al corte equivalente (_eq) por mes (mejor contacto por mandante + RUT asignado).
     ;WITH casos AS (
-        SELECT periodo, COUNT(*) AS n FROM (SELECT DISTINCT periodo, mandante, rut FROM #asig) x GROUP BY periodo
-    ),
-    gest AS (
-        SELECT s.periodo, s.mandante, s.rut,
-               MIN(g.fecha_primera_gestion) AS f_gest,
-               MIN(g.fecha_primer_directo) AS f_dir,
-               MIN(g.fecha_primer_indirecto) AS f_ind,
-               SUM(CAST(ISNULL(g.n_gestiones, 0) AS bigint)) AS n_gestiones
-        FROM (SELECT DISTINCT periodo, mandante, cartera, rut FROM #asig) s
-        INNER JOIN dbo.kpi_crm_cartera k
-            ON k.mandante = s.mandante AND (k.cartera IS NULL OR k.cartera = s.cartera)
-        INNER JOIN dbo.kpi_gestiones_rut g
-            ON g.periodo = s.periodo AND g.crm_cartera = k.crm_cartera AND g.rut = s.rut
-        GROUP BY s.periodo, s.mandante, s.rut
-    ),
-    -- Alcance de contacto: RUT asignado con contacto titular en alguno de los 3 meses anteriores.
-    hist AS (
-        SELECT DISTINCT s.periodo, s.mandante, s.rut
-        FROM (SELECT DISTINCT periodo, mandante, cartera, rut FROM #asig) s
-        INNER JOIN dbo.kpi_crm_cartera k
-            ON k.mandante = s.mandante AND (k.cartera IS NULL OR k.cartera = s.cartera)
-        INNER JOIN dbo.kpi_gestiones_rut g
-            ON g.crm_cartera = k.crm_cartera AND g.rut = s.rut AND g.fecha_primer_directo IS NOT NULL
-           AND g.periodo < s.periodo
-           AND g.periodo >= CONVERT(char(7), DATEADD(month, -3, CAST(s.periodo + '-01' AS date)), 120)
+        SELECT periodo, COUNT(*) AS n FROM (SELECT DISTINCT periodo, mandante, rut FROM #asig_rut) x GROUP BY periodo
     ),
     -- Sin corte equivalente: meses cerrados completos, mes actual hasta hoy.
     alcance AS (
         SELECT h.periodo, COUNT(*) AS contactables,
                SUM(CASE WHEN g.f_dir <= c.corte THEN 1 ELSE 0 END) AS contactables_ok
-        FROM hist h
+        FROM #hist h
         INNER JOIN #cortes c ON c.periodo = h.periodo
-        LEFT JOIN gest g ON g.periodo = h.periodo AND g.mandante = h.mandante AND g.rut = h.rut
+        LEFT JOIN #gest g ON g.periodo = h.periodo AND g.mandante = h.mandante AND g.rut = h.rut
         GROUP BY h.periodo
     ),
     -- Meses de historia disponibles (de los 3 anteriores) en kpi_gestiones_rut.
@@ -467,7 +507,7 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     LEFT JOIN casos cs ON cs.periodo = c.periodo
     LEFT JOIN alcance al ON al.periodo = c.periodo
     LEFT JOIN historia hi ON hi.periodo = c.periodo
-    LEFT JOIN gest g ON g.periodo = c.periodo
+    LEFT JOIN #gest g ON g.periodo = c.periodo
     GROUP BY c.periodo;
 
     -- 3) Pagos al cierre y al corte equivalente (_eq) por mes.
@@ -480,14 +520,15 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     -- 4) Compromisos generados hasta el corte (cierre y equivalente), por mes y estado, con su monto.
     --    en_mes = vence hasta fin de mes (los pendientes que vencen en el mes forman el tubo).
     --    El monto es el que trae el CRM (kpi_compromisos.monto_compromiso), sin ajustes.
+    --    Un compromiso por mandante aunque el RUT este en dos carteras que comparten la cartera CRM.
     ;WITH comp AS (
-        SELECT DISTINCT c.id, c.periodo, k.mandante, k.cartera AS crm_cartera_kpi, c.rut,
+        SELECT DISTINCT c.id, c.periodo, k.mandante, c.crm_cartera, c.rut,
                CAST(c.fecha_gestion AS date) AS f_gest, c.fecha_compromiso, ct.corte, ct.corte_eq,
                CAST(ISNULL(c.monto_compromiso, 0) AS float) AS monto
         FROM dbo.kpi_compromisos c
         INNER JOIN #cortes ct ON ct.periodo = c.periodo
         INNER JOIN dbo.kpi_crm_cartera k ON k.crm_cartera = c.crm_cartera
-        INNER JOIN #asig s
+        INNER JOIN #asig_rut s
             ON s.periodo = c.periodo AND s.mandante = k.mandante AND s.rut = c.rut
            AND (k.cartera IS NULL OR k.cartera = s.cartera)
         WHERE CAST(c.fecha_gestion AS date) <= ct.corte
@@ -508,8 +549,8 @@ def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     ) x
     GROUP BY x.periodo, x.corte_tipo, x.estado, x.en_mes;
 
-    -- 5) Segmentos por mes.
-    SELECT a.periodo, {seg_cols_a}, COUNT(DISTINCT a.mandante + '|' + CAST(a.rut AS varchar(20))) AS casos, SUM(a.saldo) AS saldo
+    -- 5) Segmentos por mes (el mandante es parte del segmento: casos = RUT distintos).
+    SELECT a.periodo, {seg_cols_a}, COUNT(DISTINCT a.rut) AS casos, SUM(a.saldo) AS saldo
     FROM #asig a
     GROUP BY a.periodo, {seg_cols_a};
 
