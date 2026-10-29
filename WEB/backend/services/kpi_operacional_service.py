@@ -11,7 +11,9 @@ Universo:
   - Gestiones: contacto al corte segun la fecha del primer contacto de cada tipo.
   - Pagos: meses cerrados = la ultima foto disponible del mes; mes actual = la ultima foto hasta hoy
     (y fecha de pago <= corte cuando la fuente la trae).
-    Solo cuentan los pagos de la asignacion; los de RUT fuera de ella quedan con tramo 'Sin asignación'.
+    Solo cuentan los pagos de la asignacion; los de RUT fuera de ella quedan con tramo 'Sin asignación'
+    (salvo Itau Castigo: un RUT con recupero no asignado se arrastra de la asignacion del mes anterior y, si
+    tampoco estaba, cuenta en Stock o MCV segun su COBRADOR_DES).
   - Compromisos generados hasta el corte, de RUT asignados.
 """
 
