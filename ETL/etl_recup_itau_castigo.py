@@ -355,6 +355,25 @@ def main() -> None:
 
     ensure_table()
     insert_append(df, source_file)
+    arrastre_asignacion()
+
+
+def arrastre_asignacion() -> None:
+    """Con el recupero nuevo pueden aparecer RUT que no vienen en la asignacion del mes: se arrastran de la del mes
+    anterior (SQL/009_itau_castigo_arrastre.sql). El mes es el de la carga (fecha_carga = hoy en el servidor)."""
+    with connect() as cn:
+        cur = cn.cursor()
+        cur.execute(
+            """
+            SET NOCOUNT ON;
+            DECLARE @p CHAR(6) = CONVERT(char(6), GETDATE(), 112), @n INT;
+            EXEC dbo.sp_itau_castigo_arrastre @periodo = @p, @filas = @n OUTPUT;
+            SELECT @p, @n;
+            """
+        )
+        periodo, filas = cur.fetchone()
+        cn.commit()
+    print(f"OK: arrastre asignacion {periodo} (RUT con recupero fuera de la asignacion): {filas} filas")
 
 
 if __name__ == "__main__":

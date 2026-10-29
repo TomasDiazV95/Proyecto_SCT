@@ -284,7 +284,16 @@ def main() -> None:
 
         cn.commit()
 
+        # El DELETE del periodo borra tambien el arrastre: se vuelve a agregar (SQL/009_itau_castigo_arrastre.sql).
+        cur.execute(
+            "SET NOCOUNT ON; DECLARE @n INT; EXEC dbo.sp_itau_castigo_arrastre @periodo = ?, @filas = @n OUTPUT; SELECT @n;",
+            (periodo,),
+        )
+        arrastre = cur.fetchone()[0]
+        cn.commit()
+
     print(f"OK: periodo {periodo} reemplazado ({deleted} filas anteriores), insertadas {inserted} filas en {TABLE}")
+    print(f"OK: arrastre del mes anterior (RUT con recupero fuera de la asignacion): {arrastre} filas")
 
 
 if __name__ == "__main__":
