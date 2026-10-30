@@ -195,6 +195,8 @@ export default function ProcuradoresPage() {
   function renderCartera(item) {
     // Cada cartera muestra solo sus variables (Gestión Judicial es solo de Tanner).
     const columnas = VARIABLES.filter((variable) => item.rows.some((row) => row.variables[variable.key]));
+    // Ponderacion de la columna; si en la cartera difiere entre procuradores, se muestran todas.
+    const pesoColumna = (key) => Array.from(new Set(item.rows.map((row) => row.variables[key]?.peso).filter(Boolean))).map(formatPct).join(" / ");
     return (
       <SectionCard
         key={item.cartera}
@@ -210,7 +212,10 @@ export default function ProcuradoresPage() {
               <tr>
                 <th>Procurador</th>
                 {columnas.map((variable) => (
-                  <th key={variable.key} className="pd-num">{variable.label}</th>
+                  <th key={variable.key} className="pd-num">
+                    {variable.label}
+                    <span className="pd-th-note">{pesoColumna(variable.key)}</span>
+                  </th>
                 ))}
                 <th className="pd-num pd-th-key pd-group-start">% Cumplimiento</th>
               </tr>
