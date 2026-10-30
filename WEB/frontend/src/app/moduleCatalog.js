@@ -89,6 +89,13 @@ export const modulePanels = [
         legacyPath: "/la-araucana",
         buttonLabel: "Ir a La Araucana",
       },
+      {
+        code: "procuradores",
+        title: "Procuradores",
+        description: "Notificaciones, embargos, oficios, incautaciones y cumplimiento de procuradores.",
+        path: "/productividad/procuradores",
+        buttonLabel: "Ir a Procuradores",
+      },
     ],
   },
   {

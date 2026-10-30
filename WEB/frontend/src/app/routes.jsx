@@ -15,6 +15,7 @@ import KpiAvancePhoenixPage from "../pages/kpi/KpiAvancePhoenixPage";
 import KpiOperacionalPage from "../pages/kpi/KpiOperacionalPage";
 import LaAraucanaPage from "../pages/productividad/LaAraucanaPage";
 import NegociosAdministrativasPage from "../pages/administrativas/NegociosAdministrativasPage";
+import ProcuradoresPage from "../pages/productividad/ProcuradoresPage";
 import RrhhPage from "../pages/rrhh/RrhhPage";
 import ScTardiaPage from "../pages/productividad/ScTardiaPage";
 import ScTempranaPage from "../pages/productividad/ScTempranaPage";
@@ -32,6 +33,7 @@ export const modulePages = {
   "/productividad/bit": <BitPage />,
   "/productividad/bit-castigo": <BitCastigoPage />,
   "/productividad/la-araucana": <LaAraucanaPage />,
+  "/productividad/procuradores": <ProcuradoresPage />,
   "/kpi/bench": <BenchPage />,
   "/kpi/avance-phoenix": <KpiAvancePhoenixPage />,
   "/kpi/operacional": <KpiOperacionalPage />,

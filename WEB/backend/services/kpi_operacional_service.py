@@ -6,7 +6,8 @@ cierre de cada mes (la ultima informacion disponible); los deltas usan el corte 
 Dias habiles = lun-vie sin feriados de feriados_chile (los años fuera del catalogo cuentan solo lun-vie).
 
 Universo:
-  - Casos = RUT unico por mandante (dentro de un mandante, un RUT en dos carteras cuenta una vez).
+  - Casos = RUT unico por mandante (dentro de un mandante, un RUT en dos carteras cuenta una vez). Itau es un
+    mandante por cartera (ITAÚ VIGENTE / VENCIDA / CASTIGO).
   - Asignacion = la final de cada mes (no se corta por dia).
   - Gestiones: contacto al corte segun la fecha del primer contacto de cada tipo.
   - Pagos: meses cerrados = la ultima foto disponible del mes; mes actual = la ultima foto hasta hoy
@@ -69,17 +70,22 @@ SEGMENTACION: dict[str, dict] = {
         "tramos": ["C1", "C2", "C3", "Susc. CV", "C5", "C6", "Pre Castigo", "Castigo"],
         "zonas": ["Norte", "Metropolitana", "Sur"],
     },
-    "ITAÚ": {
-        "carteras": ["VIGENTE", "VENCIDA", "CASTIGO"],
-        "tramo_label": "Fase / tipo",
-        "tramos_por_cartera": {
-            "VIGENTE": ["Fase 1", "Fase 2", "Fase 3"],
-            "VENCIDA": ["Fase 4", "Fase 5", "Fase 6", "Fase 7"],
-            "CASTIGO": ["Stock", "MCV"],
-        },
-        "productos_por_cartera": {"VIGENTE": ["Consumo", "Hipoteca"], "VENCIDA": ["Consumo", "Hipoteca"]},
-        # Canal de la contencion (los valores salen de los datos); solo Vigente y Vencida lo traen.
-        "canal_carteras": ["VIGENTE", "VENCIDA"],
+    # Itau: un mandante por cartera. Canal = el de la contencion (los valores salen de los datos); Castigo no lo trae.
+    "ITAÚ VIGENTE": {
+        "tramo_label": "Fase",
+        "tramos": ["Fase 1", "Fase 2", "Fase 3"],
+        "productos": ["Consumo", "Hipoteca"],
+        "canal_carteras": ["VIGENTE"],
+    },
+    "ITAÚ VENCIDA": {
+        "tramo_label": "Fase",
+        "tramos": ["Fase 4", "Fase 5", "Fase 6", "Fase 7"],
+        "productos": ["Consumo", "Hipoteca"],
+        "canal_carteras": ["VENCIDA"],
+    },
+    "ITAÚ CASTIGO": {
+        "tramo_label": "Tipo",
+        "tramos": ["Stock", "MCV"],
     },
     "LA ARAUCANA": {
         "carteras": ["VIGENTE", "CASTIGO", "+365"],
@@ -300,7 +306,7 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
         out["visibles"]["tramo"] = True
         out["tramos"] = _ordered(tramos, distinct("tramo", ("mandante", "cartera")) & set(tramos))
 
-    productos = _union(config.get("productos_por_cartera", {}).get(c, []) for c in carteras)
+    productos = config.get("productos") or _union(config.get("productos_por_cartera", {}).get(c, []) for c in carteras)
     if productos:
         out["visibles"]["producto"] = True
         out["productos"] = _ordered(productos, distinct("producto", ("mandante", "cartera", "tramo")) & set(productos))
@@ -320,7 +326,8 @@ def get_filter_values(filters: dict | None = None, hoy: date | None = None) -> d
 # ------------------------------------------------------------
 # Dashboard
 # ------------------------------------------------------------
-# En cache por filtros y dia (hoy va en la clave); datos_version la limpia cuando corre la carga del KPI.
+# En cache por filtros y dia (hoy va en la clave); datos_version la limpia cuando corre la carga del KPI
+# (kpi_auto la dispara apenas cambian las tablas fuente; la tarea programada de cada hora queda de respaldo).
 @cached_view
 def get_dashboard(filters: dict, hoy: date | None = None) -> dict:
     hoy = hoy or date.today()

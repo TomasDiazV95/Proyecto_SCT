@@ -195,8 +195,8 @@ def _castigo_config() -> dict[str, str]:
 
 
 def _asignacion_table() -> str:
-    # Consolidado mensual (todo RUT asignado algun dia del mes, con su ultima deuda); si el ETL aun no lo
-    # ha creado en el ambiente, se usa la asignacion de cierre.
+    # Consolidado mensual: todo RUT asignado algun dia del mes, con la primera asignacion en que aparece en
+    # campana castigo. Si el ETL aun no lo ha creado en el ambiente, se usa la ultima asignacion cargada.
     if _list_table_columns("tmp_BIT_asignacion_mensual"):
         return "dbo.tmp_BIT_asignacion_mensual"
     return "dbo.tmp_BIT_asignacion"
@@ -296,16 +296,42 @@ def _periodo_sql(cobertura: tuple[str, str]) -> str:
     GROUP BY {_rut_join_key_sql(cast_rut)};
 
     -- La deuda asignada es solo la de campañas castigo; la cobertura no mira la campaña.
+    -- Cada RUT con su primer archivo del mes en campaña castigo. El banco a veces repite una operación
+    -- (cambia solo el correo del ejecutivo comercial): cada operación se cuenta una vez.
     SELECT
-        {_rut_join_key_sql("RUT")} COLLATE DATABASE_DEFAULT AS rut_key,
-        SUM(CASE WHEN {es_castigo} THEN COALESCE(CAST(DEUDA_TOTAL AS float), 0) ELSE 0 END) AS mto_asignado,
-        MAX(CASE WHEN {es_castigo} THEN 1 ELSE 0 END) AS es_castigo
+        rut_key,
+        MIN(source_file) COLLATE DATABASE_DEFAULT AS archivo,
+        SUM(COALESCE(CAST(DEUDA_TOTAL AS float), 0)) AS deuda
+    INTO #asig_mes
+    FROM (
+        SELECT
+            {_rut_join_key_sql("RUT")} COLLATE DATABASE_DEFAULT AS rut_key,
+            source_file,
+            DEUDA_TOTAL,
+            ROW_NUMBER() OVER (
+                PARTITION BY {_rut_join_key_sql("RUT")}, LTRIM(RTRIM(NRO_OPERACION)) ORDER BY id
+            ) AS rn
+        FROM {_asignacion_table()}
+        WHERE periodo = ?
+          AND RUT IS NOT NULL
+          AND LTRIM(RTRIM(RUT)) <> ''
+          AND {es_castigo}
+    ) src
+    WHERE rn = 1
+    GROUP BY rut_key;
+
+    -- Asignados: los de la primera asignación castigo del mes, con su deuda. Los RUT que entran después solo
+    -- cuentan si tienen recupero, con el TOTAL_RUT del archivo de recupero como deuda.
+    DECLARE @primera NVARCHAR(260) = (SELECT MIN(archivo) FROM #asig_mes);
+    SELECT
+        a.rut_key,
+        CASE WHEN a.archivo = @primera THEN a.deuda ELSE COALESCE(c.total_rut, 0) END AS mto_asignado,
+        1 AS es_castigo
     INTO #asig
-    FROM {_asignacion_table()}
-    WHERE periodo = ?
-      AND RUT IS NOT NULL
-      AND LTRIM(RTRIM(RUT)) <> ''
-    GROUP BY {_rut_join_key_sql("RUT")};
+    FROM #asig_mes a
+    LEFT JOIN #cast c ON c.rut_key = a.rut_key
+    WHERE a.archivo = @primera
+       OR c.mto_recupero_final > 0;
 
     -- RUT con al menos una gestion telefonica o en terreno hasta el dia habil de corte.
     SELECT DISTINCT {_rut_join_key_sql("g.rut")} COLLATE DATABASE_DEFAULT AS rut_key

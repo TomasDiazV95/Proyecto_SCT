@@ -317,6 +317,43 @@ export async function fetchBitCastigoGeneral(filters) {
   return res.json();
 }
 
+export async function fetchProcuradoresFilters() {
+  const res = await apiFetch(`${API_BASE}/api/procuradores/filtros`);
+  if (!res.ok) {
+    throw new Error("No se pudieron cargar los filtros de Procuradores");
+  }
+  return res.json();
+}
+
+export async function fetchProcuradoresGeneral(periodo) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/procuradores/general`, { periodo }));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar la vista general de Procuradores");
+  }
+  return res.json();
+}
+
+export async function fetchProcuradoresDetalle(periodo) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/procuradores/detalle`, { periodo }));
+  if (!res.ok) {
+    throw new Error("No se pudo cargar el detalle de Procuradores");
+  }
+  return res.json();
+}
+
+export async function saveProcuradoresLogros(periodo, valores) {
+  const res = await apiFetch(`${API_BASE}/api/procuradores/logros`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ periodo, valores }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron guardar los logros");
+  }
+  return body;
+}
+
 // export async function fetchFacturaBitDashboard(periodo = "", scope = "") {
 //   const res = await apiFetch(withQuery(`${API_BASE}/api/factura/bit`, { periodo, scope }));
 //   const body = await res.json().catch(() => ({}));

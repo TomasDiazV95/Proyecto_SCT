@@ -66,6 +66,15 @@ DB_PASSWORD=tu_password
 DB_DRIVER=ODBC Driver 18 for SQL Server
 ```
 
+Base de reportes del CRM judicial (otro servidor, la usa `/productividad/procuradores`):
+
+```env
+JUDICIAL_DB_SERVER=servidor,puerto
+JUDICIAL_DB_NAME=tu_base
+JUDICIAL_DB_USER=tu_usuario
+JUDICIAL_DB_PASSWORD=tu_password
+```
+
 ## Ejecutar aplicacion web
 
 Opcion rapida en Windows:
@@ -98,7 +107,7 @@ npm run dev -- --host 0.0.0.0 --port 5173
 Rutas principales del frontend:
 
 - `/`: inicio.
-- `/productividad/<modulo>`: productividad por cartera (`sc-tardia`, `sc-temprana`, `gm`, `itau-castigo`, `itau-vencida`, `itau-vigente`, `sth`, `bit`, `bit-castigo`, `la-araucana`).
+- `/productividad/<modulo>`: productividad por cartera (`sc-tardia`, `sc-temprana`, `gm`, `itau-castigo`, `itau-vencida`, `itau-vigente`, `sth`, `bit`, `bit-castigo`, `la-araucana`, `procuradores`).
 - `/kpi/<modulo>`: `bench`, `avance-phoenix`, `operacional`.
 - `/administrativas/<modulo>`: `itau-vencida`, `gestiones-diarias-sct`.
 - `/contactabilidad/itau-vencida`, `/estrategia-asignacion/itau-castigo`, `/rrhh/cumplimientos`, `/admin/usuarios`.
