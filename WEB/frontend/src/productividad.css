@@ -1179,6 +1179,16 @@
   width: min(640px, 100vw);
 }
 
+/* Ingreso de logros de Procuradores: cinco columnas y un campo donde se lea el valor completo. */
+.pd-drawer-logros {
+  width: min(860px, 100vw);
+}
+
+.pd-drawer-logros .form-control {
+  min-width: 170px;
+  text-align: right;
+}
+
 .pd-drawer-header {
   display: flex;
   justify-content: space-between;

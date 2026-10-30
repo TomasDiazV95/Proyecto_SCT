@@ -1,7 +1,8 @@
 @echo off
 setlocal
 
-rem Crea la tarea de Windows que carga el KPI Operacional cada una hora.
+rem Crea la tarea de Windows que carga el KPI Operacional cada una hora (los 4 meses que compara el dashboard).
+rem El mes en curso ya se recalcula al instante desde el backend (WEB/backend/kpi_auto.py); esta tarea queda de respaldo.
 rem Para cambiar la frecuencia: editar CADA_HORAS y volver a ejecutar este archivo.
 set "TASK_NAME=KPI_Operacional_Carga"
 set "CADA_HORAS=1"

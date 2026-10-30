@@ -314,7 +314,7 @@ export function MetasButton({ onClick }) {
 }
 
 // Panel lateral generico (se cierra con Escape o clic fuera). footer: acciones fijas al pie (ej. Guardar / Cancelar).
-export function Drawer({ open, onClose, title, subtitle, wide = false, footer, children }) {
+export function Drawer({ open, onClose, title, subtitle, wide = false, className = "", footer, children }) {
   useEffect(() => {
     if (!open) {
       return undefined;
@@ -334,7 +334,7 @@ export function Drawer({ open, onClose, title, subtitle, wide = false, footer, c
   return (
     <>
       <div className="pd-drawer-backdrop" onClick={onClose} />
-      <aside className={`pd-drawer${wide ? " pd-drawer-wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby="pd-drawer-title">
+      <aside className={`pd-drawer${wide ? " pd-drawer-wide" : ""} ${className}`.trim()} role="dialog" aria-modal="true" aria-labelledby="pd-drawer-title">
         <div className="pd-drawer-header">
           <div>
             <h2 id="pd-drawer-title" className="pd-section-title">{title}</h2>

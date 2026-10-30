@@ -31,6 +31,7 @@ MODULOS = [
     ("bit", "get_filter_values", "periodo", ["get_general", "get_tramos", "get_negocios"]),
     ("la_araucana", "get_filtros", "periodo", ["get_resumen", "get_negocios"]),
     ("bit_castigo", "get_filter_values", "periodo", ["get_general"]),
+    ("procuradores", "get_filter_values", "periodo", ["get_general"]),
 ]
 
 # Se recarga un minuto antes de que venza lo guardado.

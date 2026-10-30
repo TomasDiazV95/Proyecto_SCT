@@ -7,6 +7,9 @@ triggers). Cuando hay un cambio y la base lleva unos segundos quieta (la carga t
 la cache, se precalienta y se sube VERSION: las paginas abiertas la consultan en /api/datos/version
 y vuelven a pedir sus datos.
 
+Las tablas del KPI Operacional se recalculan aparte (kpi_auto.py, con la misma huella sobre sus tablas fuente);
+cuando esa carga termina, este hilo ve el cambio en las kpi_* y renueva la cache.
+
 Se apaga con DATOS_VERSION=0 en el entorno.
 """
 from __future__ import annotations
@@ -31,12 +34,12 @@ TABLAS = [
     "itau_vencida_metas", "itau_vigente_ejecutivos", "itau_vigente_ejecutivos_castigo", "itau_vigente_metas",
     "kpi_accion_canal", "kpi_asignacion", "kpi_compromisos", "kpi_crm_cartera", "kpi_gestiones_rut",
     "kpi_pagos", "kpi_pagos_diario", "kpi_tipo_contacto", "negocios_cargas", "negocios_cierre",
-    "recup_itau_castigo", "rrhh_colaboradores", "stc_bloques_ejecutivos", "stc_metas_mensuales",
+    "procuradores_metas", "recup_itau_castigo", "rrhh_colaboradores", "stc_bloques_ejecutivos", "stc_metas_mensuales",
     "sth_ejecutivos_ciclo", "sth_metas_mensuales", "tbl_gestiones_diarias_sct", "tmp_BENCH_CONTROL_DIARIO",
     "tmp_BIT_asignacion", "tmp_BIT_asignacion_mensual", "tmp_BIT_carterizado", "tmp_BIT_castigo",
     "tmp_BIT_contencion", "tmp_BIT_metas", "tmp_FECHA_COMPROMISO_CRM", "tmp_GEST_CRM", "tmp_LA_asignacion",
     "tmp_LA_pagos", "tmp_LA_respuesta", "tmp_asig_GM", "tmp_asignacion_forum", "tmp_bench_SC_Castigo", "tmp_bench_STC",
-    "tmp_bench_STH", "tmp_bench_temp_STC", "tmp_carterizado_GM", "tmp_carterizado_ITAU_CASTIGO",
+    "tmp_bench_STC_tel", "tmp_bench_STH", "tmp_bench_temp_STC", "tmp_carterizado_GM", "tmp_carterizado_ITAU_CASTIGO",
     "tmp_carterizado_ITAU_VENCIDA", "tmp_carterizado_SCT", "tmp_carterizado_STH", "tmp_ejecutivos",
     "tmp_itau_castigo_asignacion", "tmp_pagos_gm",
 ]
@@ -74,8 +77,8 @@ END
 _ESTADO_SQL = """
 SET LOCK_TIMEOUT 2000;
 SELECT
-    (SELECT SUM(version) FROM dbo.datos_version) AS version,
-    (SELECT DATEDIFF_BIG(MILLISECOND, MAX(actualizado), SYSDATETIME()) FROM dbo.datos_version) AS quieto_ms,
+    (SELECT SUM(version) FROM dbo.datos_version WHERE tabla IN ({tablas})) AS version,
+    (SELECT DATEDIFF_BIG(MILLISECOND, MAX(actualizado), SYSDATETIME()) FROM dbo.datos_version WHERE tabla IN ({tablas})) AS quieto_ms,
     (SELECT CHECKSUM_AGG(CHECKSUM(p.object_id, p.row_count))
      FROM sys.dm_db_partition_stats p
      JOIN sys.tables t ON t.object_id = p.object_id
@@ -83,8 +86,8 @@ SELECT
 """
 
 
-def _tablas_in() -> str:
-    return ", ".join(f"N'{t}'" for t in TABLAS)
+def _tablas_in(tablas: list[str] = TABLAS) -> str:
+    return ", ".join(f"N'{t}'" for t in tablas)
 
 
 def asegurar_triggers() -> int:
@@ -117,12 +120,12 @@ def asegurar_triggers() -> int:
     return creados
 
 
-def _estado() -> tuple | None:
-    """(version, filas) y cuanto lleva quieta la base; None si una carga tiene tomada la tabla."""
+def _estado(tablas: list[str] = TABLAS) -> tuple | None:
+    """(version, filas) de las tablas y cuanto llevan quietas; None si una carga tiene tomada la tabla."""
     try:
         with get_connection() as cn:
             cur = cn.cursor()
-            cur.execute(_ESTADO_SQL.format(tablas=_tablas_in()))
+            cur.execute(_ESTADO_SQL.format(tablas=_tablas_in(tablas)))
             while cur.description is None and cur.nextset():
                 pass
             version, quieto_ms, filas = cur.fetchone()

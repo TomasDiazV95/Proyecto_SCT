@@ -12,8 +12,9 @@ archivos/
 !.env.example
 /Logs
 
-# Scripts SQL: todos viven en SQL/ y no se versionan
+# Scripts SQL: viven en SQL/ y JUDICIAL/ y no se versionan
 /SQL/
+/JUDICIAL/
 
 # Skills descargadas para agentes (npx skills add): se instalan en cada equipo, no se versionan
 /.agents/
@@ -24,6 +25,10 @@ skills-lock.json
 data/Prompt V4.txt
 data/prueba.xlsx
 
+# Excel de clientes que leen los ETL desde la raiz (ej. ASIGNACION FORUM.xlsx) y sus bloqueos de Office
+/*.xlsx
+~$*
+
 # Logs ETL
 ETL/logs/
 
@@ -32,6 +37,7 @@ Logs/
 tmp/
 temp/
 *.tmp
+.vite/
 
 # Editor / sistema
 .DS_Store

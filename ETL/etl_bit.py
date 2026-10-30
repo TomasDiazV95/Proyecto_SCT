@@ -991,7 +991,8 @@ def sync_asignacion_cierre(periodos: list[str] | None = None) -> None:
 
     - ASIGNACION_TABLE: cada mes cerrado queda con la ultima asignacion diaria del mes (la del ultimo dia).
     - ASIGNACION_MENSUAL_TABLE: consolidado del mes con todo RUT asignado algun dia; cada RUT queda con las
-      filas del ultimo archivo diario en que aparece (los que pagan salen de la asignacion antes del cierre).
+      filas del primer archivo diario en que aparece en campana castigo (los que pagan salen de la asignacion
+      antes del cierre). ARCHIVO_CORTE guarda el ultimo archivo revisado.
     Solo descarga cuando el ultimo archivo del mes en el SFTP no es el que esta cargado.
     """
     periodo_actual = date.today().strftime("%Y-%m")
@@ -1007,16 +1008,16 @@ def sync_asignacion_cierre(periodos: list[str] | None = None) -> None:
         if not pendientes:
             return
 
-        def loaded_files(table_name: str) -> dict[str, set[str]]:
+        def loaded_files(table_name: str, column: str = "source_file") -> dict[str, set[str]]:
             loaded: dict[str, set[str]] = {}
-            if get_table_columns(cur, table_name):
-                cur.execute(f"SELECT DISTINCT periodo, source_file FROM {table_name}")
+            if column.upper() in get_table_columns(cur, table_name):
+                cur.execute(f"SELECT DISTINCT periodo, CAST({column} AS NVARCHAR(260)) FROM {table_name}")
                 for row in cur.fetchall():
-                    loaded.setdefault(str(row[0]).strip(), set()).add(str(row[1]).strip().upper())
+                    loaded.setdefault(str(row[0]).strip(), set()).add(str(row[1] or "").strip().upper())
             return loaded
 
         cargados = loaded_files(ASIGNACION_TABLE)
-        cargados_mensual = loaded_files(ASIGNACION_MENSUAL_TABLE)
+        cargados_mensual = loaded_files(ASIGNACION_MENSUAL_TABLE, "ARCHIVO_CORTE")
 
         transport, sftp = _connect_bit_sftp()
         try:
@@ -1064,8 +1065,13 @@ def sync_asignacion_cierre(periodos: list[str] | None = None) -> None:
                     todo = pd.concat(diarios, ignore_index=True).fillna("")
                     todo["__RUT"] = todo["RUT"].astype(str).str.strip()
                     todo = todo[todo["__RUT"] != ""]
-                    ultimo_archivo = todo.groupby("__RUT")["__ARCHIVO"].transform("max")
-                    todo = todo[todo["__ARCHIVO"] == ultimo_archivo]
+                    # Primer archivo en que el RUT aparece en campana castigo (si nunca lo esta, el primero
+                    # en que aparece).
+                    es_castigo = todo["CAMPANA"].astype(str).str.strip().str.upper().str.startswith("CASTIGO")
+                    primer_castigo = todo["__ARCHIVO"].where(es_castigo).groupby(todo["__RUT"]).transform("min")
+                    primer_archivo = primer_castigo.fillna(todo.groupby("__RUT")["__ARCHIVO"].transform("min"))
+                    todo = todo[todo["__ARCHIVO"] == primer_archivo].copy()
+                    todo["ARCHIVO_CORTE"] = cierre
 
                     rows = 0
                     replace_period = True

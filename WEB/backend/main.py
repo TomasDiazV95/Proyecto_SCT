@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import datos_version
+import kpi_auto
 import precalentar
 
 from routers.admin_users import router as admin_users_router
@@ -24,6 +25,7 @@ from routers.itau_vigente import router as itau_vigente_router
 from routers.kpi_diario import router as kpi_diario_router
 from routers.kpi_operacional import router as kpi_operacional_router
 from routers.la_araucana import router as la_araucana_router
+from routers.procuradores import router as procuradores_router
 from routers.rrhh import router as rrhh_router
 from routers.sc_tardia import router as sc_tardia_router
 from routers.sc_temprana import router as sc_temprana_router
@@ -34,6 +36,7 @@ from routers.sth import router as sth_router
 async def lifespan(_app: FastAPI):
     precalentar.iniciar()
     datos_version.iniciar()
+    kpi_auto.iniciar()
     yield
 
 
@@ -80,6 +83,7 @@ app.include_router(bit_router, prefix="/api/bit", tags=["bit"])
 # app.include_router(factura_router, prefix="/api/factura", tags=["factura"])
 app.include_router(la_araucana_router, prefix="/api/la-araucana", tags=["la-araucana"])
 app.include_router(sth_router, prefix="/api/sth", tags=["sth"])
+app.include_router(procuradores_router, prefix="/api/procuradores", tags=["procuradores"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users_router, prefix="/api/admin", tags=["admin-users"])
 app.include_router(administrativas_router, prefix="/api/administrativas", tags=["administrativas"])

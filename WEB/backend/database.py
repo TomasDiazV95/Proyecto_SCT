@@ -59,7 +59,6 @@ def _encrypt_candidates() -> list[str | None]:
 def get_connection() -> pyodbc.Connection:
     load_env_files()
 
-    driver = pick_driver()
     server = os.getenv("DB_SERVER")
     database = os.getenv("DB_NAME")
     user = os.getenv("DB_USER")
@@ -68,6 +67,28 @@ def get_connection() -> pyodbc.Connection:
     if not all([server, database, user, password]):
         raise RuntimeError("Faltan variables DB_SERVER, DB_NAME, DB_USER o DB_PASSWORD en .env")
 
+    return _connect(server, database, user, password)
+
+
+def get_judicial_connection() -> pyodbc.Connection:
+    """Base de reportes del CRM judicial: otro servidor, solo lectura."""
+    load_env_files()
+
+    server = os.getenv("JUDICIAL_DB_SERVER")
+    database = os.getenv("JUDICIAL_DB_NAME")
+    user = os.getenv("JUDICIAL_DB_USER")
+    password = os.getenv("JUDICIAL_DB_PASSWORD")
+
+    if not all([server, database, user, password]):
+        raise RuntimeError(
+            "Faltan variables JUDICIAL_DB_SERVER, JUDICIAL_DB_NAME, JUDICIAL_DB_USER o JUDICIAL_DB_PASSWORD en .env"
+        )
+
+    return _connect(server, database, user, password)
+
+
+def _connect(server: str, database: str, user: str, password: str) -> pyodbc.Connection:
+    driver = pick_driver()
     errors: list[str] = []
     for candidate_driver in _driver_candidates() or [driver]:
         for encrypt in _encrypt_candidates():
@@ -93,6 +114,16 @@ def get_connection() -> pyodbc.Connection:
 
 def run_query(sql: str, params: tuple = ()) -> list[dict]:
     with get_connection() as cn:
+        cur = cn.cursor()
+        cur.execute(sql, params)
+        columns = [col[0] for col in cur.description]
+        rows = cur.fetchall()
+
+    return [dict(zip(columns, row)) for row in rows]
+
+
+def run_query_judicial(sql: str, params: tuple = ()) -> list[dict]:
+    with get_judicial_connection() as cn:
         cur = cn.cursor()
         cur.execute(sql, params)
         columns = [col[0] for col in cur.description]
