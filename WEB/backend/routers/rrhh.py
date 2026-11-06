@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from auth.dependencies import current_user
+from auth.permissions import SUPER_ADMIN_ROLE
 from excel_export import workbook_response
 from services.rrhh_service import (
     EFECTIVO_DETALLE_HEADERS,
@@ -21,14 +22,10 @@ from services.rrhh_service import (
 
 
 def negocios_permitidos(user: dict = Depends(current_user)) -> set[str]:
-    """RRHH, administradores y acceso global ven todos los negocios; el resto (supervisores),
-    solo los negocios cuyo panel de productividad tienen asignado."""
-    if user["role"] in {"super_admin", "admin"} or set(user.get("modules", [])) & {"global", "rrhh"}:
-        return set(NEGOCIOS)
-    permitidos = set(user.get("access", [])) & set(NEGOCIOS)
-    if not permitidos:
+    """El Panel RRHH es solo del super admin (auth/permissions.py), que ve todos los negocios."""
+    if user["role"] != SUPER_ADMIN_ROLE:
         raise HTTPException(status_code=403, detail="Sin permiso para módulo rrhh")
-    return permitidos
+    return set(NEGOCIOS)
 
 
 router = APIRouter(dependencies=[Depends(negocios_permitidos)])

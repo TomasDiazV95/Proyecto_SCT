@@ -239,8 +239,8 @@ def _numero_sql(expr: str) -> str:
 
 def _periodo_sql(cobertura: tuple[str, str]) -> str:
     """Lote del periodo: deja el carterizado, el recupero, la asignacion y las gestiones en tablas
-    temporales (una fila por RUT) y devuelve tres resultados: totales por ejecutivo, RUT con nuevos
-    convenios y ejecutivos del periodo.
+    temporales (una fila por RUT) y devuelve cinco resultados: totales por ejecutivo, RUT con nuevos
+    convenios, ejecutivos del periodo y el detalle por RUT del recupero y de la asignacion (para el Excel).
 
     Va por etapas porque como una sola consulta el optimizador repetia los cruces por RUT y demoraba minutos.
     cobertura = (inicio, corte): ventana de gestiones para la cobertura al dia habil de corte; las fechas
@@ -359,9 +359,12 @@ def _periodo_sql(cobertura: tuple[str, str]) -> str:
     -- Efectividad sobre lo asignado: base = asignacion castigo, cruzada por RUT con el recupero y el carterizado.
     -- Cobertura: base = carterizado de castigo, este o no en la asignacion.
     SELECT
+        COALESCE(cu.rut_key, a.rut_key) AS rut,
         {ejecutivo} AS ejecutivo,
+        CASE WHEN a.es_castigo = 1 THEN 1 ELSE 0 END AS en_asignacion,
         COALESCE(a.mto_asignado, 0) AS mto_asignado,
         CASE WHEN a.es_castigo = 1 THEN COALESCE(r.mto_recupero_final, 0) ELSE 0 END AS mto_recupero_asignado,
+        CASE WHEN ge.rut_key IS NOT NULL THEN 1 ELSE 0 END AS gestionado,
         CASE WHEN cu.rut_key IS NOT NULL THEN 1 ELSE 0 END AS rut_asignado,
         CASE WHEN cu.rut_key IS NOT NULL AND ge.rut_key IS NOT NULL THEN 1 ELSE 0 END AS rut_gestionado
     INTO #asignado
@@ -406,16 +409,29 @@ def _periodo_sql(cobertura: tuple[str, str]) -> str:
     ) src
     WHERE LTRIM(RTRIM(ejecutivo)) <> ''
     ORDER BY v;
+
+    SELECT rut, ejecutivo, mto_inicial AS deuda, mto_contenido AS recupero, nuevos_convenios, abono_inicial
+    FROM #recupero
+    WHERE mto_contenido <> 0 OR nuevos_convenios > 0
+    ORDER BY ejecutivo, rut;
+
+    SELECT rut, ejecutivo, en_asignacion, mto_asignado, mto_recupero_asignado, rut_asignado AS carterizado, gestionado
+    FROM #asignado
+    ORDER BY ejecutivo, rut;
     """
 
 
 def _load_periodo(periodo: str) -> dict:
     corte_cobertura = _dia_habil_del_mes(periodo, DIAS_HABILES_COBERTURA)
     inicio = f"{periodo[:7]}-01"
-    general, convenios, ejecutivos = run_query_sets(_periodo_sql((inicio, corte_cobertura)), (periodo,) * 3)[-3:]
+    general, convenios, ejecutivos, recupero, asignado = run_query_sets(
+        _periodo_sql((inicio, corte_cobertura)), (periodo,) * 3
+    )[-5:]
     return {
         "general": general,
         "convenios": convenios,
+        "recupero_detalle": recupero,
+        "asignado_detalle": asignado,
         "ejecutivos": [row["v"] for row in ejecutivos if row.get("v")],
         "corte_cobertura": corte_cobertura,
         "hay_cobertura": _hay_gestiones_desde(inicio),
@@ -568,6 +584,41 @@ def get_general(filters: dict) -> dict:
             "ruts_gestionados": total_ruts_gestionados,
             "pct_cobertura": _safe_div(total_ruts_gestionados, total_ruts_asignados) if hay_cobertura else None,
         },
+    }
+
+
+@cached_view
+def get_detalle(filters: dict) -> dict:
+    """Detalle por RUT del periodo para el Excel: el recupero (con nuevos convenios y abono inicial) y la
+    asignacion con el carterizado y la gestion, que son la base del % efectividad y del % cobertura. Las sumas
+    por ejecutivo dan los totales de la vista general."""
+    periodo = _resolve_period(filters.get("periodo"))
+    data = _periodo_data(periodo)
+    return {
+        "periodo": periodo,
+        "recupero": [
+            {
+                "rut": _clean_text(row.get("rut")),
+                "ejecutivo": row.get("ejecutivo") or "Phoenix",
+                "deuda": _safe_float(row.get("deuda")),
+                "recupero": _safe_float(row.get("recupero")),
+                "nuevos_convenios": int(_safe_float(row.get("nuevos_convenios"))),
+                "abono_inicial": _safe_float(row.get("abono_inicial")),
+            }
+            for row in data["recupero_detalle"]
+        ],
+        "asignacion": [
+            {
+                "rut": _clean_text(row.get("rut")),
+                "ejecutivo": row.get("ejecutivo") or "Phoenix",
+                "en_asignacion": bool(row.get("en_asignacion")),
+                "monto_asignado": _safe_float(row.get("mto_asignado")),
+                "recupero_asignado": _safe_float(row.get("mto_recupero_asignado")),
+                "carterizado": bool(row.get("carterizado")),
+                "gestionado": bool(row.get("gestionado")),
+            }
+            for row in data["asignado_detalle"]
+        ],
     }
 
 

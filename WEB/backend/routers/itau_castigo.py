@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
-from auth.dependencies import require_module
+from auth.dependencies import require_module, require_roles
+from excel_export import XLSX_MEDIA_TYPE
+from services.itau_castigo_excel import build_excel
 from services.itau_castigo_service import get_filter_values, get_general, get_nuevos_convenios, get_producto, get_recupero_cobrador
 
 
@@ -62,3 +65,17 @@ def nuevos_convenios(
         return get_nuevos_convenios({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# Descarga del detalle de todo lo medible de la fecha (todos los ejecutivos): solo super admin.
+@router.get("/export")
+def export(fecha_carga: str | None = Query(default=None), _user: dict = Depends(require_roles("super_admin"))) -> StreamingResponse:
+    try:
+        output, filename = build_excel(fecha_carga)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return StreamingResponse(
+        output,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
