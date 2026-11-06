@@ -338,12 +338,14 @@ def ensure_table() -> None:
         cn.commit()
 
 
-def should_skip_load(current_source_file: str, fecha_visor: datetime) -> bool:
+def should_skip_load(current_source_file: str, fecha_visor: datetime, fecha_foto=None) -> bool:
     # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
     # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
+    # La foto es la FECHA de los datos (fecha_foto), no la fecha del nombre del archivo.
     with connect() as cn:
         cargar = bench_recarga.debe_cargar(
-            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True
+            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True,
+            fecha_foto=fecha_foto,
         )
         cn.commit()
     return not cargar
@@ -422,10 +424,17 @@ def cargar_archivo(excel_path: Path) -> None:
     ensure_table()
 
     fecha_visor = bench_recarga.fecha_visor_archivo(excel_path)
-    if should_skip_load(source_file, fecha_visor):
+    leido: dict[str, pd.DataFrame] = {}
+
+    def leer() -> pd.DataFrame:
+        if "df" not in leido:
+            leido["df"] = read_excel(excel_path)
+        return leido["df"]
+
+    if should_skip_load(source_file, fecha_visor, lambda: bench_recarga.fecha_foto_df(leer())):
         return
 
-    df = read_excel(excel_path)
+    df = leer()
     print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
     insert_append(df, source_file)
     with connect() as cn:

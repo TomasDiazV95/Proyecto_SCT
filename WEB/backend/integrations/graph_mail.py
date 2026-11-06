@@ -3,10 +3,18 @@ import os
 import requests
 
 
+def _env_first(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 def _graph_access_token() -> str:
-    tenant_id = os.getenv("AZURE_TENANT_ID", "").strip()
-    client_id = os.getenv("AZURE_CLIENT_ID", "").strip()
-    client_secret = os.getenv("AZURE_CLIENT_SECRET", "").strip()
+    tenant_id = _env_first("GRAPH_TENANT_ID", "AZURE_TENANT_ID")
+    client_id = _env_first("GRAPH_CLIENT_ID", "AZURE_CLIENT_ID")
+    client_secret = _env_first("GRAPH_CLIENT_SECRET", "AZURE_CLIENT_SECRET")
 
     if tenant_id and client_id and client_secret:
         token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"

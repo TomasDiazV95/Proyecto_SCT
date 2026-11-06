@@ -1,7 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth.dependencies import require_module, require_roles
+from excel_export import XLSX_MEDIA_TYPE
+from services.procuradores_excel import build_excel
 from services.procuradores_service import get_detalle, get_filter_values, get_general, guardar_logros
 
 
@@ -47,6 +50,20 @@ def detalle(periodo: str | None = Query(default=None)) -> dict:
         return {"rows": get_detalle({"periodo": periodo})}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# Descarga completa del periodo (todas las carteras) con el formato de la planilla del concurso: solo super admin.
+@router.get("/export")
+def export(periodo: str | None = Query(default=None), _user: dict = Depends(require_roles("super_admin"))) -> StreamingResponse:
+    try:
+        output, filename = build_excel(periodo)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return StreamingResponse(
+        output,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # Ver la pagina no basta: los logros manuales los ingresa solo el super admin.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { fetchProcuradoresDetalle, fetchProcuradoresFilters, fetchProcuradoresGeneral, saveProcuradoresLogros } from "../../api";
+import { downloadProcuradoresExcel, fetchProcuradoresDetalle, fetchProcuradoresFilters, fetchProcuradoresGeneral, saveProcuradoresLogros } from "../../api";
 import { useAuth } from "../../auth/AuthContext";
 import { Drawer, EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
@@ -80,7 +80,9 @@ function CeldaVariable({ variable, dato, mapeada }) {
 export default function ProcuradoresPage() {
   const dataVersion = useDataVersion();
   const { user } = useAuth();
-  const puedeEditar = user?.role === "super_admin";
+  // Ingresar logros y descargar el Excel completo: solo super admin.
+  const esSuperAdmin = user?.role === "super_admin";
+  const [descargando, setDescargando] = useState(false);
   const [periodo, setPeriodo] = useState("");
   const [periodos, setPeriodos] = useState([]);
   const [carteraFiltro, setCarteraFiltro] = useState("");
@@ -192,6 +194,26 @@ export default function ProcuradoresPage() {
     }
   }
 
+  async function descargarExcel() {
+    setDescargando(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadProcuradoresExcel(periodo);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDescargando(false);
+    }
+  }
+
   function renderCartera(item) {
     // Cada cartera muestra solo sus variables (Gestión Judicial es solo de Tanner).
     const columnas = VARIABLES.filter((variable) => item.rows.some((row) => row.variables[variable.key]));
@@ -277,10 +299,15 @@ export default function ProcuradoresPage() {
       <FilterBar
         actions={
           <>
-            {puedeEditar && (
-              <button type="button" className="pd-btn pd-btn-secondary" onClick={abrirLogros} disabled={!metasManuales.length}>
-                <i className="bi bi-pencil-square" aria-hidden="true" /> Ingresar logros
-              </button>
+            {esSuperAdmin && (
+              <>
+                <button type="button" className="pd-btn pd-btn-secondary" onClick={descargarExcel} disabled={!periodo || descargando}>
+                  <i className="bi bi-download" aria-hidden="true" /> {descargando ? "Descargando..." : "Descargar Excel"}
+                </button>
+                <button type="button" className="pd-btn pd-btn-secondary" onClick={abrirLogros} disabled={!metasManuales.length}>
+                  <i className="bi bi-pencil-square" aria-hidden="true" /> Ingresar logros
+                </button>
+              </>
             )}
             <MetasButton onClick={() => setMetasOpen(true)} />
           </>

@@ -30,7 +30,7 @@ USER = os.getenv("DB_USER")
 PASSWORD = os.getenv("DB_PASSWORD")
 DRIVER_ENV = os.getenv("DB_DRIVER")
 
-# El bench judicial se descarga (descarga_SCT.py) en la misma carpeta que los demas bench.
+# El bench judicial se descarga (descarga_SCT_judicial.py) en la misma carpeta que los demas bench.
 _folder = (os.getenv("BENCH_SC_JUDICIAL_FOLDER") or os.getenv("BENCH_SC_CASTIGO_FOLDER") or "").strip()
 if not _folder:
     raise RuntimeError("Falta definir BENCH_SC_JUDICIAL_FOLDER o BENCH_SC_CASTIGO_FOLDER en .env")
