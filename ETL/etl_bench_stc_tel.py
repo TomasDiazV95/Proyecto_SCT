@@ -144,12 +144,14 @@ def insert_append(df: pd.DataFrame, source_file: str):
     print(f"OK: insertadas {inserted} filas")
 
 
-def should_skip_load(current_source_file: str, fecha_visor) -> bool:
+def should_skip_load(current_source_file: str, fecha_visor, fecha_foto=None) -> bool:
     # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
     # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
+    # La foto es la FECHA de los datos (fecha_foto), no la fecha del nombre del archivo.
     with connect() as cn:
         cargar = bench_recarga.debe_cargar(
-            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True
+            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True,
+            fecha_foto=fecha_foto,
         )
         cn.commit()
     return not cargar
@@ -169,7 +171,7 @@ def cargar_archivo(excel_path: str):
     ensure_table_and_columns(df)
     current_source_file = Path(excel_path).name
     fecha_visor = bench_recarga.fecha_visor_archivo(excel_path)
-    if should_skip_load(current_source_file, fecha_visor):
+    if should_skip_load(current_source_file, fecha_visor, bench_recarga.fecha_foto_df(df)):
         return
     insert_append(df, current_source_file)
     with connect() as cn:

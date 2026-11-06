@@ -29,6 +29,12 @@ data/prueba.xlsx
 /*.xlsx
 ~$*
 
+# Asignaciones de clientes en CSV en la raiz (ej. 20261106.csv, *_bco_phoenix_ida.csv)
+/*.csv
+
+# Documentos sueltos en la raiz (ej. documentacion API.pdf)
+/*.pdf
+
 # Logs ETL
 ETL/logs/
 

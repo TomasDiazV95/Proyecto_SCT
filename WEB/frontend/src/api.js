@@ -887,6 +887,13 @@ export async function downloadRrhhPlanilla(periodo, negocio) {
   );
 }
 
+export async function downloadProcuradoresExcel(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/procuradores/export`, { periodo }),
+    `Procuradores_${periodo || "periodo"}.xlsx`
+  );
+}
+
 export async function downloadRrhhConsolidado(periodo) {
   return downloadExcelFile(
     withQuery(`${API_BASE}/api/rrhh/export`, { periodo }),

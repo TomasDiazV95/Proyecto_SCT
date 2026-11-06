@@ -637,8 +637,9 @@ def get_producto(filters: dict) -> dict:
 @cached_view
 def get_nuevos_convenios(filters: dict) -> dict:
     """Nuevos convenios del mes M: RUT que en la asignacion de M son Phoenix y en la de M+1 pasan a Phoenix MCV.
-    El ejecutivo es el del carterizado de M (sin carterizar: PHOENIX) y el abono inicial es el recupero del RUT
-    en el ultimo archivo de recupero de M."""
+    Solo cuentan los que en el ultimo archivo de recupero de M tienen CONDICION_CONVENIO = 'SIN CONVENIO'
+    (si ya venian con convenio no es nuevo). El ejecutivo es el del carterizado de M (sin carterizar: PHOENIX)
+    y el abono inicial es el recupero del RUT en ese mismo archivo."""
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
     inicio = date.fromisoformat(periodo)
@@ -704,7 +705,9 @@ def get_nuevos_convenios(filters: dict) -> dict:
             FROM dbo.tmp_carterizado_ITAU_CASTIGO
             WHERE mes_carterizado = ?
         ), rec AS (
-            SELECT RUT, SUM(COALESCE(CAST(RECUPERO AS float), 0)) AS Recupero
+            SELECT RUT,
+                   SUM(COALESCE(CAST(RECUPERO AS float), 0)) AS Recupero,
+                   MAX(UPPER(LTRIM(RTRIM(CONDICION_CONVENIO)))) AS Condicion
             FROM dbo.recup_itau_castigo
             WHERE fecha_carga = ?
               AND source_file = ?
@@ -722,8 +725,9 @@ def get_nuevos_convenios(filters: dict) -> dict:
         LEFT JOIN cart c
             ON c.rut = n.RUT
            AND c.rn = 1
-        LEFT JOIN rec r
+        INNER JOIN rec r
             ON r.RUT = n.RUT
+           AND r.Condicion = 'SIN CONVENIO'
         {filter_sql}
         """,
         tuple(params),

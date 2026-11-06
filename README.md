@@ -161,10 +161,11 @@ Algunos scripts tienen rutas locales por defecto. Si se ejecutan en otro equipo,
 
 ## Descargas
 
-Descarga BENCH desde visor SCT:
+Descarga BENCH desde visor SCT, una por usuario (pueden correr por separado o en paralelo):
 
 ```powershell
-python DESCARGAS\descarga_SCT.py
+python DESCARGAS\descarga_SCT.py            # usuario principal (USUARIO / CLAVE / VISOR_MAILBOX)
+python DESCARGAS\descarga_SCT_judicial.py   # usuario judicial (USUARIO_JUD / CLAVE_JUD / VISOR_MAILBOX_JUD)
 ```
 
 Descarga La Araucana desde FTP:

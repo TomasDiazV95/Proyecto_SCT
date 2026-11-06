@@ -76,10 +76,8 @@ GRAPH_CLIENT_ID = os.getenv("GRAPH_CLIENT_ID", "")
 GRAPH_CLIENT_SECRET = os.getenv("GRAPH_CLIENT_SECRET", "")
 VISOR_MAILBOX = os.getenv("VISOR_MAILBOX", "")
 
-# Credenciales del usuario judicial (mismo visor, otra cuenta y otro buzon OTP).
-USUARIO_JUD = os.getenv("USUARIO_JUD", "").strip()
-CLAVE_JUD = os.getenv("CLAVE_JUD", "").strip()
-VISOR_MAILBOX_JUD = os.getenv("VISOR_MAILBOX_JUD", "").strip()
+# El usuario judicial (USUARIO_JUD / CLAVE_JUD / VISOR_MAILBOX_JUD) se descarga
+# por separado con descarga_SCT_judicial.py, que reutiliza este modulo.
 
 # Espera antes de comenzar a consultar Outlook/Graph.
 OTP_WAIT_SECONDS = int(
@@ -315,38 +313,23 @@ def descargas_del_dia(descargas: list[dict]) -> list[dict]:
         vigentes.append(configuracion)
     return vigentes
 
-# Se descarga con el usuario judicial (USUARIO_JUD / CLAVE_JUD).
-# Archivo: YYYYMMDD - BENCH BENCH JUDICIAL - P&S.xlsx; se toma el de carga mas reciente.
-DESCARGAS_JUDICIAL = [
-    {
-        "nombre":
-            "BENCH JUDICIAL",
 
-        "carpeta_visor":
-            "📁 BENCH JUDICIAL",
-
-        "patron_archivo":
-            "BENCH BENCH JUDICIAL - P&S",
-
-        "fin_de_mes":
-            True,
-    },
-]
+# Archivos del usuario judicial en la carpeta de los bench: la descarga
+# principal no los borra al limpiar (los reemplaza descarga_SCT_judicial.py).
+PATRON_ARCHIVOS_JUDICIAL = "*BENCH JUDICIAL*"
 
 
 # ============================================================
 # VALIDAR CONFIGURACION
 # ============================================================
 
-def validar_configuracion() -> None:
-
+def validar_variables(variables_usuario: dict[str, str]) -> None:
+    # Credenciales de la cuenta + Graph (comun a ambos usuarios, para leer el OTP).
     variables = {
-        "USUARIO": USUARIO,
-        "CLAVE": CLAVE,
+        **variables_usuario,
         "GRAPH_TENANT_ID": GRAPH_TENANT_ID,
         "GRAPH_CLIENT_ID": GRAPH_CLIENT_ID,
         "GRAPH_CLIENT_SECRET": GRAPH_CLIENT_SECRET,
-        "VISOR_MAILBOX": VISOR_MAILBOX,
     }
 
     faltantes = [
@@ -360,21 +343,6 @@ def validar_configuracion() -> None:
             "Faltan variables en .env: "
             + ", ".join(faltantes)
         )
-
-
-def faltantes_judicial() -> list[str]:
-
-    variables = {
-        "USUARIO_JUD": USUARIO_JUD,
-        "CLAVE_JUD": CLAVE_JUD,
-        "VISOR_MAILBOX_JUD": VISOR_MAILBOX_JUD,
-    }
-
-    return [
-        nombre
-        for nombre, valor in variables.items()
-        if not valor
-    ]
 
 
 # ============================================================
@@ -494,12 +462,9 @@ def obtener_codigo_desde_graph(
     fecha_solicitud: datetime,
     timeout: int = 180,
     buzon: str | None = None,
-    codigos_excluidos: set[str] | None = None,
 ) -> str:
 
     token = obtener_token_graph()
-
-    codigos_excluidos = codigos_excluidos or set()
 
     mailbox = quote(
         buzon or VISOR_MAILBOX,
@@ -605,7 +570,7 @@ def obtener_codigo_desde_graph(
                 body
             )
 
-            if codigo and codigo not in codigos_excluidos:
+            if codigo:
                 print(
                     "OTP encontrado correctamente."
                 )
@@ -633,7 +598,12 @@ def obtener_codigo_desde_graph(
 # LIMPIAR EXTRAIDO
 # ============================================================
 
-def limpiar_carpeta_extraida() -> None:
+def limpiar_carpeta_extraida(
+    conservar: tuple[str, ...] = (),
+) -> None:
+
+    # conservar: patrones glob de archivos que no se borran
+    # (los que descarga el otro usuario).
 
     CARPETA_EXTRAIDA.mkdir(
         parents=True,
@@ -643,6 +613,9 @@ def limpiar_carpeta_extraida() -> None:
     for elemento in (
         CARPETA_EXTRAIDA.iterdir()
     ):
+
+        if any(elemento.match(patron) for patron in conservar):
+            continue
 
         if elemento.is_file():
 
@@ -671,15 +644,17 @@ def limpiar_carpeta_extraida() -> None:
 # LIMPIAR ZIP
 # ============================================================
 
-def limpiar_carpeta_zip() -> None:
+def limpiar_carpeta_zip(
+    carpeta_zip: Path = CARPETA_ZIP,
+) -> None:
 
-    CARPETA_ZIP.mkdir(
+    carpeta_zip.mkdir(
         parents=True,
         exist_ok=True,
     )
 
     for archivo in (
-        CARPETA_ZIP.glob(
+        carpeta_zip.glob(
             "*.zip"
         )
     ):
@@ -697,7 +672,7 @@ def limpiar_carpeta_zip() -> None:
 
     print(
         f"Carpeta ZIP limpia: "
-        f"{CARPETA_ZIP}"
+        f"{carpeta_zip}"
     )
 
 
@@ -1068,17 +1043,51 @@ def nombres_fin_de_mes(
         - timedelta(days=1)
     ).strftime("%Y%m")
 
+    mes_actual = hoy.strftime("%Y%m")
+
     esperado = tokens_bench(patron_archivo)
 
     textos = (
         frame
         .locator("tr")
-        .filter(
-            has_text=mes_anterior
-        )
         .all_inner_texts()
     )
 
+    # Desde oct-2026 el nombre lleva el dia en que se sube y los datos (columna FECHA)
+    # son del dia habil anterior: el cierre del mes anterior llega en el primer archivo
+    # con nombre del mes actual (20261102_... trae FECHA 20261030). Se bajan las cargas
+    # de las dos fotos; el ETL decide por la FECHA de los datos.
+    return (
+        _foto_del_mes(textos, mes_anterior, esperado, ciclos, ultima=True)
+        + _foto_del_mes(textos, mes_actual, esperado, ciclos, ultima=False)
+    )
+
+
+def mes_del_nombre(nombre: str) -> str:
+
+    # Mes del bench (YYYYMM). Si el nombre trae el periodo aparte, manda el periodo:
+    # 20261104_202610_PHOENIX (TELEFONIA)_C1_BENCH_MORA_TEMPRANA es el cierre de octubre
+    # aunque se subio en noviembre. Sin periodo, el mes de la fecha del nombre.
+    match_periodo = re.search(
+        r"(?<!\d)(\d{6})(?!\d)",
+        nombre,
+    )
+
+    if match_periodo:
+        return match_periodo.group(1)
+
+    return nombre[:6]
+
+
+def _foto_del_mes(
+    textos: list[str],
+    mes: str,
+    esperado: frozenset,
+    ciclos,
+    ultima: bool,
+) -> list[str]:
+
+    # Archivos (todas sus cargas) de la ultima foto del mes, o de la primera si ultima=False.
     candidatas = []
 
     for texto in textos:
@@ -1098,7 +1107,7 @@ def nombres_fin_de_mes(
 
         if (
             not match_nombre
-            or not match_nombre.group(1).startswith(mes_anterior)
+            or mes_del_nombre(nombre) != mes
             or (
                 tokens_bench(nombre) != esperado
                 and ciclo_bench(nombre, esperado, ciclos) is None
@@ -1117,17 +1126,20 @@ def nombres_fin_de_mes(
     if not candidatas:
         return []
 
-    # Solo el ultimo bench del mes; de la carga mas antigua a la mas nueva.
-    ultima_foto = max(
+    # Solo un bench del mes; de la carga mas antigua a la mas nueva.
+    fotos = [
         candidata[0]
         for candidata in candidatas
-    )
+    ]
 
-    return [
+    foto_elegida = max(fotos) if ultima else min(fotos)
+
+    # Sin repetir: el mismo nombre subido dos veces es una sola fila a descargar.
+    return list(dict.fromkeys(
         nombre
         for foto, _, nombre in sorted(candidatas)
-        if foto == ultima_foto
-    ]
+        if foto == foto_elegida
+    ))
 
 
 # ============================================================
@@ -1137,6 +1149,7 @@ def nombres_fin_de_mes(
 def guardar_download(
     download,
     nombre_logico: str,
+    carpeta_zip: Path = CARPETA_ZIP,
 ) -> Path:
 
     nombre_zip = (
@@ -1153,7 +1166,7 @@ def guardar_download(
         nombre_zip += ".zip"
 
     ruta_zip = (
-        CARPETA_ZIP
+        carpeta_zip
         / nombre_zip
     )
 
@@ -1205,6 +1218,7 @@ def descargar_desde_carpeta(
     configuracion: dict,
     abrir_carpeta: bool = True,
     nombre_archivo: str | None = None,
+    carpeta_zip: Path = CARPETA_ZIP,
 ) -> tuple[Path, datetime, str]:
 
     nombre = (
@@ -1443,6 +1457,7 @@ def descargar_desde_carpeta(
     ruta_zip = guardar_download(
         download,
         nombre,
+        carpeta_zip,
     )
 
     return ruta_zip, fecha_visor, texto_archivo
@@ -1543,7 +1558,6 @@ def autenticar_visor(
     usuario: str | None = None,
     clave: str | None = None,
     buzon: str | None = None,
-    codigos_excluidos: set[str] | None = None,
 ) -> str:
 
     print()
@@ -1693,7 +1707,6 @@ def autenticar_visor(
             OTP_TIMEOUT_SECONDS
         ),
         buzon=buzon,
-        codigos_excluidos=codigos_excluidos,
     )
 
     # ========================================================
@@ -1801,8 +1814,8 @@ def descargar_con_sesion(
     usuario: str | None = None,
     clave: str | None = None,
     buzon: str | None = None,
-    codigos_excluidos: set[str] | None = None,
-) -> tuple[list[tuple[Path, str, datetime]], str]:
+    carpeta_zip: Path = CARPETA_ZIP,
+) -> list[tuple[Path, str, datetime]]:
 
     context = (
         browser
@@ -1818,12 +1831,11 @@ def descargar_con_sesion(
             .new_page()
         )
 
-        codigo = autenticar_visor(
+        autenticar_visor(
             page,
             usuario=usuario,
             clave=clave,
             buzon=buzon,
-            codigos_excluidos=codigos_excluidos,
         )
 
         frame = abrir_explorador(
@@ -1892,6 +1904,7 @@ def descargar_con_sesion(
                             != carpeta_abierta
                         ),
                         nombre_archivo=nombre_archivo,
+                        carpeta_zip=carpeta_zip,
                     )
                 )
 
@@ -1932,6 +1945,7 @@ def descargar_con_sesion(
                         configuracion,
                         abrir_carpeta=False,
                         nombre_archivo=nombre_archivo,
+                        carpeta_zip=carpeta_zip,
                     )
                 )
 
@@ -1939,7 +1953,7 @@ def descargar_con_sesion(
                     (ruta_zip, configuracion["nombre"], fecha_visor)
                 )
 
-        return zips_descargados, codigo
+        return zips_descargados
 
     finally:
 
@@ -1956,50 +1970,25 @@ def descargar_con_sesion(
 # MAIN
 # ============================================================
 
-def run(
+def ejecutar_descargas(
     playwright: Playwright,
-    solo_judicial: bool = False,
+    descargas: list[dict],
+    usuario: str,
+    clave: str,
+    buzon: str,
+    carpeta_zip: Path = CARPETA_ZIP,
 ) -> None:
 
-    if not solo_judicial:
-        validar_configuracion()
-
-    variables_judicial_faltantes = faltantes_judicial()
-
-    if solo_judicial and variables_judicial_faltantes:
-        raise RuntimeError(
-            "Faltan variables en .env: "
-            + ", ".join(variables_judicial_faltantes)
-        )
-
-    # ========================================================
-    # CARPETAS
-    # ========================================================
-
-    CARPETA_ZIP.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    # Login con un usuario, descarga, extraccion y resumen.
+    # La limpieza de la carpeta extraida la hace cada script antes de llamar.
 
     CARPETA_EXTRAIDA.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    if solo_judicial:
-
-        # Solo se reemplaza el bench judicial; los demas archivos se conservan.
-        for archivo in CARPETA_EXTRAIDA.glob(
-            "*BENCH JUDICIAL*"
-        ):
-            archivo.unlink()
-
-    else:
-
-        # Limpiar una sola vez al inicio
-        limpiar_carpeta_extraida()
-
-    limpiar_carpeta_zip()
+    # Cada usuario usa su propia carpeta de ZIP para poder correr en paralelo.
+    limpiar_carpeta_zip(carpeta_zip)
 
     # ========================================================
     # NAVEGADOR
@@ -2015,58 +2004,14 @@ def run(
 
     try:
 
-        zips_descargados = []
-        codigos_usados: set[str] = set()
-
-        # ====================================================
-        # USUARIO PRINCIPAL
-        # ====================================================
-
-        if not solo_judicial:
-
-            zips, codigo = descargar_con_sesion(
-                browser,
-                descargas_del_dia(DESCARGAS),
-            )
-
-            zips_descargados.extend(zips)
-
-            if codigo:
-                codigos_usados.add(codigo)
-
-        # ====================================================
-        # USUARIO JUDICIAL
-        # ====================================================
-
-        if variables_judicial_faltantes:
-
-            print()
-            print(
-                "ADVERTENCIA: se omite BENCH JUDICIAL. "
-                "Faltan variables en .env: "
-                + ", ".join(variables_judicial_faltantes)
-            )
-
-        else:
-
-            print()
-            print("=" * 70)
-            print("SESION JUDICIAL")
-            print("=" * 70)
-
-            zips, codigo = descargar_con_sesion(
-                browser,
-                DESCARGAS_JUDICIAL,
-                usuario=USUARIO_JUD,
-                clave=CLAVE_JUD,
-                buzon=VISOR_MAILBOX_JUD,
-                codigos_excluidos=codigos_usados,
-            )
-
-            zips_descargados.extend(zips)
-
-            if codigo:
-                codigos_usados.add(codigo)
+        zips_descargados = descargar_con_sesion(
+            browser,
+            descargas,
+            usuario=usuario,
+            clave=clave,
+            buzon=buzon,
+            carpeta_zip=carpeta_zip,
+        )
 
         # ====================================================
         # EXTRAER
@@ -2138,17 +2083,39 @@ def run(
             pass
 
 
+def run(
+    playwright: Playwright,
+) -> None:
+
+    # Usuario principal (USUARIO / CLAVE / VISOR_MAILBOX).
+    validar_variables(
+        {
+            "USUARIO": USUARIO,
+            "CLAVE": CLAVE,
+            "VISOR_MAILBOX": VISOR_MAILBOX,
+        }
+    )
+
+    # Se conserva el bench judicial: lo reemplaza descarga_SCT_judicial.py.
+    limpiar_carpeta_extraida(
+        conservar=(PATRON_ARCHIVOS_JUDICIAL,)
+    )
+
+    ejecutar_descargas(
+        playwright,
+        descargas_del_dia(DESCARGAS),
+        usuario=USUARIO,
+        clave=CLAVE,
+        buzon=VISOR_MAILBOX,
+    )
+
+
 # ============================================================
 # EJECUCION
 # ============================================================
 
 if __name__ == "__main__":
 
-    import sys
-
     with sync_playwright() as playwright:
 
-        run(
-            playwright,
-            solo_judicial="--solo-judicial" in sys.argv,
-        )
+        run(playwright)

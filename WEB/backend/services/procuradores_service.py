@@ -38,6 +38,18 @@ _GESTIONES_SQL = """
 SET NOCOUNT ON;
 DECLARE @desde DATE = ?, @hasta DATE = ?;
 
+-- Causas que volvieron de NOTIFICACION a DEMANDA PROVEIDA desde el inicio del mes (se calcula una vez: en
+-- un NOT EXISTS directo sobre la vista la consulta pasa de ~40 s a ~11 min).
+IF OBJECT_ID('tempdb..#revertidas') IS NOT NULL DROP TABLE #revertidas;
+SELECT r.[NUMERO OPERACION] AS op, r.MANDANTE AS mandante, MAX(r.[FECHA GESTIÓN]) AS ultima
+INTO #revertidas
+FROM vw_histo_juicio_Reporte r
+WHERE r.MANDANTE IN ('TANNER', 'SANTANDER CONSUMER')
+  AND r.ESTADO = 'DEMANDA PROVEIDA'
+  AND r.DETALLE LIKE 'ESTADO ANTERIOR NOTIFICACION%'
+  AND r.[FECHA GESTIÓN] >= @desde
+GROUP BY r.[NUMERO OPERACION], r.MANDANTE;
+
 SELECT
     'notificaciones' AS variable, h.MANDANTE AS cartera, h.[NUMERO OPERACION] AS op, h.[NOMBRE USUARIO] AS usuario,
     MIN(h.TRIBUNAL) AS tribunal, MIN(h.[FECHA GESTIÓN]) AS fecha
@@ -47,6 +59,40 @@ WHERE h.MANDANTE IN ('TANNER', 'SANTANDER CONSUMER')
   AND h.SUBESTADO IN ('NOTIFICACION ART 44 DEL CPC', 'NOTIFICACION PERSONAL')
   AND h.[FECHA GESTIÓN] >= @desde
   AND h.[FECHA GESTIÓN] < @hasta
+  -- Ya notificada antes del mes: no cuenta, salvo que despues se haya presentado una demanda nueva.
+  -- Si la causa se reactivo despues de esa notificacion, tampoco cuenta.
+  AND NOT EXISTS (
+        SELECT 1 FROM vw_histo_juicio_Reporte prev
+        WHERE prev.[NUMERO OPERACION] = h.[NUMERO OPERACION]
+          AND prev.MANDANTE = h.MANDANTE
+          AND prev.SUBESTADO IN ('NOTIFICACION ART 44 DEL CPC', 'NOTIFICACION PERSONAL')
+          AND prev.[FECHA GESTIÓN] < @desde
+          AND (
+                EXISTS (
+                    SELECT 1 FROM vw_histo_juicio_Reporte reac
+                    WHERE reac.[NUMERO OPERACION] = prev.[NUMERO OPERACION]
+                      AND reac.MANDANTE = prev.MANDANTE
+                      AND reac.ESTADO = 'REACTIVADO'
+                      AND reac.[FECHA GESTIÓN] >= prev.[FECHA GESTIÓN]
+                      AND reac.[FECHA GESTIÓN] <= h.[FECHA GESTIÓN]
+                )
+                OR NOT EXISTS (
+                    SELECT 1 FROM vw_histo_juicio_Reporte dem
+                    WHERE dem.[NUMERO OPERACION] = prev.[NUMERO OPERACION]
+                      AND dem.MANDANTE = prev.MANDANTE
+                      AND dem.ESTADO = 'DEMANDA PRESENTADA'
+                      AND dem.[FECHA GESTIÓN] > prev.[FECHA GESTIÓN]
+                      AND dem.[FECHA GESTIÓN] <= h.[FECHA GESTIÓN]
+                )
+          )
+  )
+  -- Notificacion revertida: si despues la causa vuelve de NOTIFICACION a DEMANDA PROVEIDA, no cuenta.
+  AND NOT EXISTS (
+        SELECT 1 FROM #revertidas rev
+        WHERE rev.op = h.[NUMERO OPERACION]
+          AND rev.mandante = h.MANDANTE
+          AND rev.ultima >= h.[FECHA GESTIÓN]
+  )
 GROUP BY h.MANDANTE, h.[NUMERO OPERACION], h.[NOMBRE USUARIO]
 
 UNION ALL
@@ -83,6 +129,20 @@ WHERE d.MANDANTE IN ('TANNER', 'SANTANDER CONSUMER')
   AND h.SUBESTADO = 'ENCARGA INCAUTACION RECEPTOR'
   AND h.[FECHA GESTIÓN] >= @desde
   AND h.[FECHA GESTIÓN] < @hasta
+  -- Causa reactivada: no cuenta si el encargo ya estaba registrado antes de la reactivacion.
+  AND NOT EXISTS (
+        SELECT 1 FROM vw_histo_juicio_Reporte prev
+        INNER JOIN vw_histo_juicio_Reporte reac
+            ON reac.[NUMERO OPERACION] = prev.[NUMERO OPERACION]
+           AND reac.MANDANTE = prev.MANDANTE
+           AND reac.ESTADO = 'REACTIVADO'
+           AND reac.[FECHA GESTIÓN] >= prev.[FECHA GESTIÓN]
+           AND reac.[FECHA GESTIÓN] <= h.[FECHA GESTIÓN]
+        WHERE prev.[NUMERO OPERACION] = d.OP
+          AND prev.MANDANTE = d.MANDANTE
+          AND prev.SUBESTADO = 'ENCARGA INCAUTACION RECEPTOR'
+          AND prev.[FECHA GESTIÓN] < @desde
+  )
 GROUP BY d.MANDANTE, d.OP, h.[NOMBRE USUARIO]
 
 UNION ALL

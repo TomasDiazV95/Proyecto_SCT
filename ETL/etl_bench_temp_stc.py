@@ -262,12 +262,14 @@ def insert_append(df: pd.DataFrame, source_file: str):
     print(f"OK: insertadas {inserted} filas")
 
 
-def should_skip_load(current_source_file: str, fecha_visor) -> bool:
+def should_skip_load(current_source_file: str, fecha_visor, fecha_foto=None) -> bool:
     # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
     # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
+    # La foto es la FECHA de los datos (fecha_foto), no la fecha del nombre del archivo.
     with connect() as cn:
         cargar = bench_recarga.debe_cargar(
-            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True
+            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True,
+            fecha_foto=fecha_foto,
         )
         cn.commit()
     return not cargar
@@ -330,10 +332,17 @@ def main():
 
     for source_file, excel_files in files:
         fecha_visor = fecha_visor_carga(excel_files)
-        if should_skip_load(source_file, fecha_visor):
+        leido: dict[str, pd.DataFrame] = {}
+
+        def leer(archivos=excel_files) -> pd.DataFrame:
+            if "df" not in leido:
+                leido["df"] = pd.concat([read_excel(str(p), SHEET_NAME) for p in archivos], ignore_index=True)
+            return leido["df"]
+
+        if should_skip_load(source_file, fecha_visor, lambda: bench_recarga.fecha_foto_df(leer())):
             continue
 
-        df = pd.concat([read_excel(str(p), SHEET_NAME) for p in excel_files], ignore_index=True)
+        df = leer()
         df = df.where(pd.notnull(df), None)
 
         print(f"Archivo: {source_file}")
