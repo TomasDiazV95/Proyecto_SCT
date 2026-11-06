@@ -388,10 +388,14 @@ def cargar(negocio: str, nombre_archivo: str, contenido: bytes, usuario: str) ->
             cur.execute(f"DELETE FROM {CARGAS} WHERE negocio = ? AND periodo = ?", (negocio, fecha))
             reemplazo = cur.rowcount > 0
             cur.execute(
+                # La tabla tiene trigger: OUTPUT debe ir con INTO (error 334).
                 f"""
+                SET NOCOUNT ON;
+                DECLARE @ids TABLE (id_carga INT);
                 INSERT INTO {CARGAS} (negocio, tipo, periodo, nombre_archivo, filas, cargado_por)
-                OUTPUT INSERTED.id_carga
-                VALUES (?, ?, ?, ?, ?, ?)
+                OUTPUT INSERTED.id_carga INTO @ids
+                VALUES (?, ?, ?, ?, ?, ?);
+                SELECT id_carga FROM @ids;
                 """,
                 (negocio, TIPO_CARGA, fecha, str(nombre_archivo)[:260], len(del_mes), usuario),
             )

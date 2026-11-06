@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { fetchItauCastigoFilters, fetchItauCastigoGeneral, fetchItauCastigoNuevosConvenios, fetchItauCastigoRecuperoCobrador } from "../../api";
+import { downloadItauCastigoExcel, fetchItauCastigoFilters, fetchItauCastigoGeneral, fetchItauCastigoNuevosConvenios, fetchItauCastigoRecuperoCobrador } from "../../api";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, EjecutivoDetalleFilter, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
@@ -93,7 +93,10 @@ export default function ItauCastigoPage() {
   const [recuperoCobLoading, setRecuperoCobLoading] = useState(false);
   const [ejecutivoDetalle, setEjecutivoDetalle] = useState("");
   const { user, logout } = useAuth();
-  
+  // Descargar el Excel con el detalle de todo lo medible: solo super admin.
+  const esSuperAdmin = user?.role === "super_admin";
+  const [descargando, setDescargando] = useState(false);
+
   useEffect(() => {
     async function loadFilters() {
       try {
@@ -182,6 +185,26 @@ export default function ItauCastigoPage() {
 
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function descargarExcel() {
+    setDescargando(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadItauCastigoExcel(filters.fecha_carga);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDescargando(false);
+    }
   }
 
   // Pestañas Phoenix / Phoenix MCV: cada ejecutivo va en el cobrador donde tiene mas RUT; el resto de los RUT
@@ -451,8 +474,8 @@ export default function ItauCastigoPage() {
         ) : (
           <>
             <p className="pd-small pd-muted px-3 pt-2 mb-0">
-              RUT Phoenix en la asignación de {mes} que pasan a Phoenix MCV en {mesSiguiente}. Abono inicial = recupero del{" "}
-              {formatDate(convenios.fecha_recupero) || "N/D"}.
+              RUT Phoenix en la asignación de {mes} que pasan a Phoenix MCV en {mesSiguiente}, sin convenio previo y con abono
+              inicial (recupero del {formatDate(convenios.fecha_recupero) || "N/D"}); sin abono no cuentan.
             </p>
             <div className="pd-table-scroll">
               <table className="pd-table">
@@ -501,7 +524,16 @@ export default function ItauCastigoPage() {
       />
 
       <FilterBar
-        actions={<MetasButton onClick={() => setMetasOpen(true)} />}
+        actions={
+          <>
+            {esSuperAdmin && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={descargarExcel} disabled={!filters.fecha_carga || descargando}>
+                <i className="bi bi-download" aria-hidden="true" /> {descargando ? "Descargando..." : "Descargar Excel"}
+              </button>
+            )}
+            <MetasButton onClick={() => setMetasOpen(true)} />
+          </>
+        }
         note={`Base: ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"} · Mes metas/carterizado: ${formatDate(metadata.periodo) || "N/D"} · Corte cobertura gestión: ${formatDate(metadata.corte_cobertura) || "N/D"}`}>
         <Field label="Fecha de carga">
           <select className="form-select" value={filters.fecha_carga} onChange={(e) => onFilter("fecha_carga", e.target.value)}>

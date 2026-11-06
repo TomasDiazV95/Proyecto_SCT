@@ -221,6 +221,7 @@ RUT_EJECUTIVO_CTE = f"""
         SELECT
             rc.RUT,
             rc.Cobrador,
+            rc.Ejecutivo_Cart,
             CASE WHEN h.Ejecutivo_Cart IS NOT NULL THEN rc.Ejecutivo_Cart ELSE '{DEFAULT_EXECUTIVE}' END AS Ejecutivo
         FROM rut_cart rc
         LEFT JOIN hogar h
@@ -233,7 +234,8 @@ RUT_EJECUTIVO_CTE = f"""
 @cached_view
 def get_recupero_detalle(filters: dict) -> list[dict]:
     """Recupero por RUT del ultimo archivo de recupero, con el ejecutivo y cobrador del resumen general (la suma
-    por ejecutivo y cobrador da el Recupero_Total del panel). El archivo del banco no trae numero de operacion."""
+    por ejecutivo y cobrador da el Recupero_Total del panel). Ejecutivo_Meta y Cobrador_Meta son la fila donde el
+    RUT suma al recupero de la meta (Recupero_Meta). El archivo del banco no trae numero de operacion."""
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
     source_file = _recup_source_file(fecha_carga)
@@ -243,6 +245,8 @@ def get_recupero_detalle(filters: dict) -> list[dict]:
         SELECT
             f.Ejecutivo,
             f.Cobrador,
+            COALESCE(hm.Ejecutivo_Cart, '{DEFAULT_EXECUTIVE}') AS Ejecutivo_Meta,
+            COALESCE(hm.Cobrador, f.Cobrador) AS Cobrador_Meta,
             base.RUT,
             MAX(base.DV) AS DV,
             MAX(LTRIM(RTRIM(CONCAT(base.NOMBRES, ' ', base.APELLIDO_PAT)))) AS Nombre,
@@ -252,10 +256,14 @@ def get_recupero_detalle(filters: dict) -> list[dict]:
         FROM dbo.recup_itau_castigo base
         INNER JOIN rut_ej f
             ON f.RUT = base.RUT
+        LEFT JOIN hogar hm
+            ON hm.Ejecutivo_Cart = f.Ejecutivo_Cart
+           AND hm.rn = 1
         WHERE base.fecha_carga = ?
           AND base.source_file = ?
-        GROUP BY f.Ejecutivo, f.Cobrador, base.RUT
+        GROUP BY f.Ejecutivo, f.Cobrador, COALESCE(hm.Ejecutivo_Cart, '{DEFAULT_EXECUTIVE}'), COALESCE(hm.Cobrador, f.Cobrador), base.RUT
         HAVING SUM(COALESCE(CAST(base.RECUPERO AS float), 0)) <> 0
+        OPTION (HASH JOIN)
         """,
         (periodo[:4] + periodo[5:7], fecha_carga, source_file, periodo, fecha_carga, source_file),
     )
@@ -263,11 +271,153 @@ def get_recupero_detalle(filters: dict) -> list[dict]:
         {
             "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
             "cobrador_vista": row.get("Cobrador") or "",
+            "ejecutivo_meta": row.get("Ejecutivo_Meta") or DEFAULT_EXECUTIVE,
+            "cobrador_meta": row.get("Cobrador_Meta") or "",
             "rut": f"{int(row['RUT'])}-{_clean_text(row.get('DV'))}" if row.get("RUT") is not None else "",
             "nombre": _clean_text(row.get("Nombre")),
             "deuda": float(row.get("Deuda") or 0),
             "recupero": float(row.get("Recupero") or 0),
             "fecha_recupero": _clean_text(row.get("Fecha_Recupero")),
+        }
+        for row in rows
+    ]
+
+
+@cached_view
+def get_asignacion_detalle(filters: dict) -> list[dict]:
+    """RUT asignados del mes con su ejecutivo y cobrador (los mismos del resumen general): monto asignado,
+    recupero del ultimo archivo y si tuvo gestion telefonica o en terreno hasta el corte de cobertura.
+    Es la base del % efectividad y del % cobertura."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    periodo_asignacion = periodo[:4] + periodo[5:7]
+    source_file = _recup_source_file(fecha_carga)
+    corte_cobertura = _dia_habil_del_mes(periodo, DIAS_HABILES_COBERTURA)
+    rows = run_query(
+        f"""
+        WITH {RUT_EJECUTIVO_CTE}, info AS (
+            SELECT
+                RUT,
+                MAX(DV) AS DV,
+                MAX(LTRIM(RTRIM(CONCAT(NOMBRES, ' ', APELLIDO_PAT, ' ', APELLIDO_MAT)))) AS Nombre
+            FROM dbo.tmp_itau_castigo_asignacion
+            WHERE PERIODO = ?
+            GROUP BY RUT
+        ), rec_rut AS (
+            SELECT RUT, SUM(COALESCE(CAST(RECUPERO AS float), 0)) AS Recupero
+            FROM dbo.recup_itau_castigo
+            WHERE fecha_carga = ?
+              AND source_file = ?
+            GROUP BY RUT
+        ), gest AS (
+            SELECT TRY_CAST(g.rut AS bigint) AS RUT, MIN(g.GestionFecha) AS Primera_Gestion
+            FROM dbo.tmp_GEST_CRM g
+            INNER JOIN dbo.kpi_accion_canal ac
+                ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
+               AND ac.canal IN ('LLAMADA', 'TERRENO')
+            WHERE g.cartera = {CRM_CARTERA}
+              AND g.GestionFecha >= ?
+              AND g.GestionFecha <= ?
+            GROUP BY TRY_CAST(g.rut AS bigint)
+        )
+        SELECT
+            f.Ejecutivo,
+            f.Cobrador,
+            a.RUT,
+            i.DV,
+            i.Nombre,
+            a.Monto_Asignado,
+            COALESCE(rr.Recupero, 0) AS Recupero,
+            ge.Primera_Gestion
+        FROM asig a
+        INNER JOIN rut_ej f
+            ON f.RUT = a.RUT
+        LEFT JOIN info i
+            ON i.RUT = a.RUT
+        LEFT JOIN rec_rut rr
+            ON rr.RUT = a.RUT
+        LEFT JOIN gest ge
+            ON ge.RUT = a.RUT
+        OPTION (HASH JOIN)
+        """,
+        (
+            periodo_asignacion, fecha_carga, source_file, periodo,
+            periodo_asignacion,
+            fecha_carga, source_file,
+            periodo, corte_cobertura,
+        ),
+    )
+    return [
+        {
+            "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
+            "cobrador_vista": row.get("Cobrador") or "",
+            "rut": f"{int(row['RUT'])}-{_clean_text(row.get('DV'))}" if row.get("RUT") is not None else "",
+            "nombre": _clean_text(row.get("Nombre")),
+            "monto_asignado": float(row.get("Monto_Asignado") or 0),
+            "recupero": float(row.get("Recupero") or 0),
+            "gestionado": row.get("Primera_Gestion") is not None,
+            "primera_gestion": row.get("Primera_Gestion"),
+        }
+        for row in rows
+    ]
+
+
+@cached_view
+def get_cruce_detalle(filters: dict) -> list[dict]:
+    """Operaciones de la contencion cruce vigente (Itau Vencida, gestor Phoenix) con el ejecutivo y cobrador del
+    resumen general: la suma por ejecutivo y cobrador da el % contencion cruce vigente del panel."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    contencion_fecha = _contencion_cruce_fecha(periodo, fecha_carga)
+    if not contencion_fecha:
+        return []
+    rows = run_query(
+        f"""
+        WITH {RUT_EJECUTIVO_CTE}, cruce_op AS (
+            SELECT
+                RUT,
+                OPER,
+                MAX(COALESCE(CAST(SALDO_INI AS float), 0)) AS Saldo_Ini,
+                MAX(COALESCE(CAST(SALDO_CONT AS float), 0)) AS Saldo_Cont
+            FROM dbo.contencion_itau_vencida
+            WHERE fecha_carga = ?
+              AND GESTOR = '{GESTOR_PHOENIX}'
+              AND UPPER(CANAL) LIKE '%CRUCE VIGENTE%'
+            GROUP BY RUT, OPER
+        )
+        SELECT
+            COALESCE(f.Ejecutivo, h.Ejecutivo_Cart, '{DEFAULT_EXECUTIVE}') AS Ejecutivo,
+            COALESCE(f.Cobrador, h.Cobrador, 'Phoenix MCV') AS Cobrador,
+            x.RUT,
+            x.OPER,
+            x.Saldo_Ini,
+            x.Saldo_Cont
+        FROM cruce_op x
+        LEFT JOIN rut_ej f
+            ON f.RUT = x.RUT
+        LEFT JOIN dbo.tmp_carterizado_ITAU_CASTIGO c
+            ON f.RUT IS NULL
+           AND c.rut = x.RUT
+           AND c.mes_carterizado = ?
+        LEFT JOIN hogar h
+            ON h.Ejecutivo_Cart = c.ejecutivo
+           AND h.rn = 1
+        OPTION (HASH JOIN)
+        """,
+        (
+            periodo[:4] + periodo[5:7], fecha_carga, _recup_source_file(fecha_carga), periodo,
+            contencion_fecha,
+            periodo,
+        ),
+    )
+    return [
+        {
+            "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
+            "cobrador_vista": row.get("Cobrador") or "",
+            "rut": _clean_text(row.get("RUT")),
+            "operacion": _clean_text(row.get("OPER")),
+            "saldo_ini": float(row.get("Saldo_Ini") or 0),
+            "saldo_cont": float(row.get("Saldo_Cont") or 0),
         }
         for row in rows
     ]
@@ -638,8 +788,8 @@ def get_producto(filters: dict) -> dict:
 def get_nuevos_convenios(filters: dict) -> dict:
     """Nuevos convenios del mes M: RUT que en la asignacion de M son Phoenix y en la de M+1 pasan a Phoenix MCV.
     Solo cuentan los que en el ultimo archivo de recupero de M tienen CONDICION_CONVENIO = 'SIN CONVENIO'
-    (si ya venian con convenio no es nuevo). El ejecutivo es el del carterizado de M (sin carterizar: PHOENIX)
-    y el abono inicial es el recupero del RUT en ese mismo archivo."""
+    (si ya venian con convenio no es nuevo) y con abono inicial: el recupero del RUT en ese mismo archivo debe
+    ser mayor a cero. El ejecutivo es el del carterizado de M (sin carterizar: PHOENIX)."""
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
     inicio = date.fromisoformat(periodo)
@@ -728,7 +878,10 @@ def get_nuevos_convenios(filters: dict) -> dict:
         INNER JOIN rec r
             ON r.RUT = n.RUT
            AND r.Condicion = 'SIN CONVENIO'
+           AND r.Recupero > 0
         {filter_sql}
+        -- Sin esto el optimizador usa nested loops sobre el recupero y la consulta pasa de <1s a ~110s.
+        OPTION (HASH JOIN)
         """,
         tuple(params),
     )

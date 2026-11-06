@@ -894,6 +894,27 @@ export async function downloadProcuradoresExcel(periodo) {
   );
 }
 
+export async function downloadBitExcel(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/bit/export`, { periodo }),
+    `BIT_Vigente_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadBitCastigoExcel(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/bit-castigo/export`, { periodo }),
+    `BIT_Castigo_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadItauCastigoExcel(fecha_carga) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/itau-castigo/export`, { fecha_carga }),
+    `Itau_Castigo_${fecha_carga || "fecha"}.xlsx`
+  );
+}
+
 export async function downloadRrhhConsolidado(periodo) {
   return downloadExcelFile(
     withQuery(`${API_BASE}/api/rrhh/export`, { periodo }),

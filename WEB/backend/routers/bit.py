@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
-from auth.dependencies import require_module
+from auth.dependencies import require_module, require_roles
+from excel_export import XLSX_MEDIA_TYPE
+from services.bit_excel import build_excel
 from services.bit_service import get_detalle, get_filter_values, get_general, get_negocios, get_negocios_detalle, get_tramos
 
 
@@ -76,3 +79,17 @@ def detalle(
         return get_detalle({"periodo": periodo, "ejecutivo": ejecutivo, "tramo": tramo})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# Descarga del detalle de todo lo medible del periodo (todos los ejecutivos): solo super admin.
+@router.get("/export")
+def export(periodo: str = Query(...), _user: dict = Depends(require_roles("super_admin"))) -> StreamingResponse:
+    try:
+        output, filename = build_excel(periodo)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return StreamingResponse(
+        output,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

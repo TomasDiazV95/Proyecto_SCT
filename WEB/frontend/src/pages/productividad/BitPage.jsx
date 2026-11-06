@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 
-import { fetchBitFilters, fetchBitGeneral, fetchBitNegocios, fetchBitTramos } from "../../api";
+import { downloadBitExcel, fetchBitFilters, fetchBitGeneral, fetchBitNegocios, fetchBitTramos } from "../../api";
+import { useAuth } from "../../auth/AuthContext";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
@@ -53,6 +54,10 @@ export default function BitPage() {
   const [metasOpen, setMetasOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Descargar el Excel con el detalle de todo lo medible: solo super admin.
+  const { user } = useAuth();
+  const esSuperAdmin = user?.role === "super_admin";
+  const [descargando, setDescargando] = useState(false);
 
   useEffect(() => {
     async function loadFilters() {
@@ -127,6 +132,26 @@ export default function BitPage() {
 
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
+  }
+
+  async function descargarExcel() {
+    setDescargando(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadBitExcel(filters.periodo);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDescargando(false);
+    }
   }
 
   const metaByTramo = useMemo(() => Object.fromEntries(general.metas.map((meta) => [meta.tramo, meta])), [general.metas]);
@@ -337,11 +362,18 @@ export default function BitPage() {
 
       <FilterBar
         actions={
-          view === "general" && (
-            <button type="button" className="pd-btn pd-btn-secondary" onClick={() => setMetasOpen(true)}>
-              <i className="bi bi-info-circle" aria-hidden="true" /> Metas
-            </button>
-          )
+          <>
+            {esSuperAdmin && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={descargarExcel} disabled={!filters.periodo || descargando}>
+                <i className="bi bi-download" aria-hidden="true" /> {descargando ? "Descargando..." : "Descargar Excel"}
+              </button>
+            )}
+            {view === "general" && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={() => setMetasOpen(true)}>
+                <i className="bi bi-info-circle" aria-hidden="true" /> Metas
+              </button>
+            )}
+          </>
         }
       >
         <Field label="Periodo">

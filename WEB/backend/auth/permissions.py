@@ -7,8 +7,10 @@ from repositories.users_repo import get_modules_for_user, list_modules
 ADMIN_ROLES = {"super_admin", "admin"}
 GLOBAL_MODULE = "global"
 ADMIN_MODULE = "admin"
+SUPER_ADMIN_ROLE = "super_admin"
 RRHH_MODULE = "rrhh"
-PRODUCTIVIDAD_PANEL = "productividad"
+# Modulos que solo abre el super admin.
+SOLO_SUPER_ADMIN = {RRHH_MODULE}
 
 # El arbol de modulos solo cambia con una migracion; se relee cada minuto.
 TREE_TTL = 60  # segundos
@@ -33,10 +35,12 @@ def effective_modules(role: str, assigned: list[str], tree: list[dict]) -> set[s
     - Administradores: todo.
     - Acceso global: todo menos el Panel Admin, que se asigna aparte.
     - Un panel asignado abre todos sus modulos (parent_code).
-    - Cumplimientos (rrhh) se abre tambien con cualquier negocio de productividad;
-      el router de rrhh limita a esos negocios.
+    - Panel RRHH: solo super admin, aunque se asigne a otro usuario.
     """
     todos = {m["code"] for m in tree}
+    if role == SUPER_ADMIN_ROLE:
+        return todos
+    todos -= SOLO_SUPER_ADMIN
     if role in ADMIN_ROLES:
         return todos
 
@@ -47,11 +51,7 @@ def effective_modules(role: str, assigned: list[str], tree: list[dict]) -> set[s
     for module in tree:
         if module.get("parent_code") in access:
             access.add(module["code"])
-
-    negocios = {m["code"] for m in tree if m.get("parent_code") == PRODUCTIVIDAD_PANEL}
-    if access & negocios and RRHH_MODULE in todos:
-        access.add(RRHH_MODULE)
-    return access
+    return access - SOLO_SUPER_ADMIN
 
 
 def user_access(user_id: int, role: str) -> tuple[list[str], list[str]]:
