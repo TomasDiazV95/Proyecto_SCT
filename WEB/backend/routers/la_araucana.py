@@ -3,7 +3,9 @@ from fastapi.responses import StreamingResponse
 from io import BytesIO
 
 from auth.dependencies import require_module, require_roles
+from excel_export import XLSX_MEDIA_TYPE
 from services.la_araucana_auditoria import build_auditoria_workbook
+from services.la_araucana_excel import build_excel
 from services.la_araucana_service import get_detalle, get_filtros, get_negocios, get_resumen, get_validacion
 
 
@@ -126,6 +128,22 @@ def export(
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/export/productividad")
+def export_productividad(
+    periodo: str = Query(...),
+    _user: dict = Depends(require_roles("super_admin")),
+) -> StreamingResponse:
+    try:
+        output, filename = build_excel(periodo)
+        return StreamingResponse(
+            output,
+            media_type=XLSX_MEDIA_TYPE,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as exc:

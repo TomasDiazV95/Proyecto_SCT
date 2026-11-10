@@ -26,6 +26,11 @@ const NEGOCIOS = [
     title: "General Motors",
     description: "Se cuentan en la productividad GM. Tipo de negocio: extensión.",
   },
+  {
+    negocio: "sth",
+    title: "Santander Hipotecario",
+    description: "Se cuentan en la productividad Santander Hipotecario (STH). El Excel lleva RUT en vez de OP.",
+  },
 ];
 
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -113,7 +118,7 @@ export default function NegociosAdministrativasPage() {
 
       <div className="alert alert-light border">
         Cada Excel lleva las columnas <strong>OP, TIPO NEGOCIO, EJECUTIVO y PERIODO</strong> (mes del negocio como mm-yyyy, por ejemplo
-        09-2026). Al subirlo, cada mes que trae el archivo reemplaza lo que ese negocio tenía cargado para ese mes.
+        09-2026). Santander Hipotecario lleva <strong>RUT</strong> en vez de OP. Al subirlo, cada mes que trae el archivo reemplaza lo que ese negocio tenía cargado para ese mes.
       </div>
 
       {error && <div className="alert alert-danger">{error}</div>}

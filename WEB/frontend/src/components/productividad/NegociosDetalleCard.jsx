@@ -3,9 +3,9 @@ import { fetchNegociosDetalle } from "../../api";
 import { EmptyRow, LoadingState, SectionCard, opcionesEjecutivoDetalle } from "./ui";
 import useDataVersion from "../../hooks/useDataVersion";
 
-// Pestaña Detalle negocios: una fila por operacion del mes (OP, ejecutivo, tipo de negocio),
+// Pestaña Detalle negocios: una fila por negocio del mes (OP o RUT, ejecutivo, tipo de negocio),
 // con filtros propios por tipo de negocio y ejecutivo.
-// modulo: "sc-tardia", "sc-temprana" o "gm".
+// modulo: "sc-tardia", "sc-temprana", "gm" o "sth".
 export default function NegociosDetalleCard({ modulo, periodo, ejecutivo, exportName }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);
@@ -31,6 +31,8 @@ export default function NegociosDetalleCard({ modulo, periodo, ejecutivo, export
   }, [modulo, periodo, ejecutivo, dataVersion]);
 
   const filas = data?.filas || [];
+  // Santander Hipotecario identifica cada negocio por RUT; el resto, por OP.
+  const porRut = data?.identificador === "RUT";
   const tipos = useMemo(() => {
     const vistos = new Map();
     filas.forEach((fila) => vistos.set(fila.producto, fila.producto_nombre));
@@ -62,7 +64,7 @@ export default function NegociosDetalleCard({ modulo, periodo, ejecutivo, export
   );
 
   return (
-    <SectionCard title="Detalle de negocios" description={`${visibles.length} de ${filas.length} operaciones`} actions={filtros} exportName={exportName} bodyClassName="">
+    <SectionCard title="Detalle de negocios" description={`${visibles.length} de ${filas.length} ${porRut ? "negocios" : "operaciones"}`} actions={filtros} exportName={exportName} bodyClassName="">
       {error && <div className="alert alert-danger m-3">{error}</div>}
       {loading ? (
         <LoadingState />
@@ -71,15 +73,15 @@ export default function NegociosDetalleCard({ modulo, periodo, ejecutivo, export
           <table className="pd-table">
             <thead>
               <tr>
-                <th>N° OP</th>
+                <th>{porRut ? "RUT" : "N° OP"}</th>
                 <th>Ejecutivo</th>
                 <th>Tipo de negocio</th>
               </tr>
             </thead>
             <tbody>
               {visibles.map((fila, idx) => (
-                <tr key={`${fila.operacion}-${fila.producto}-${idx}`}>
-                  <td>{fila.operacion}</td>
+                <tr key={`${fila.operacion || fila.rut}-${fila.producto}-${idx}`}>
+                  <td>{porRut ? fila.rut : fila.operacion}</td>
                   <td className="pd-cell-ejecutivo">{fila.ejecutivo}</td>
                   <td>{fila.producto_nombre}</td>
                 </tr>

@@ -31,7 +31,7 @@ SIN_TIPO = "SIN TIPO"
 # Valor de la columna tipo de las tablas: cada negocio sube un solo archivo.
 TIPO_CARGA = "negocios"
 
-NEGOCIOS = {"sc-terreno": "SC Terreno", "sc-telefonia": "SC Telefonia", "gm": "GM"}
+NEGOCIOS = {"sc-terreno": "SC Terreno", "sc-telefonia": "SC Telefonia", "gm": "GM", "sth": "Santander Hipotecario"}
 
 # Columnas de la plantilla, en orden. Los encabezados se comparan normalizados (mayusculas, sin
 # acentos ni simbolos) y se aceptan las variantes indicadas.
@@ -42,6 +42,20 @@ COLUMNAS = {
     "ejecutivo": ("EJECUTIVO",),
     "periodo": ("PERIODO",),
 }
+
+# Columna que identifica cada negocio: la OP, salvo Santander Hipotecario, que trae el RUT del cliente.
+POR_RUT = {"sth"}
+
+
+def _plantilla(negocio: str) -> list[str]:
+    return ["RUT", *PLANTILLA[1:]] if negocio in POR_RUT else PLANTILLA
+
+
+def _columnas(negocio: str) -> dict[str, tuple[str, ...]]:
+    if negocio not in POR_RUT:
+        return COLUMNAS
+    return {"rut": ("RUT", "RUT CLIENTE"), **{campo: v for campo, v in COLUMNAS.items() if campo != "operacion"}}
+
 
 PRODUCTO_ORDEN = ["RECONDUCCION", "REFINANCIAMIENTO", "NOVACION", "DACION", "EXTENSION"]
 PRODUCTO_NOMBRE = {
@@ -124,12 +138,12 @@ def plantilla(negocio: str) -> tuple[str, BytesIO]:
     wb = Workbook()
     ws = wb.active
     ws.title = "NEGOCIOS"
-    ws.append(PLANTILLA)
+    ws.append(_plantilla(negocio))
     for idx, cell in enumerate(ws[1], start=1):
         cell.font = Font(bold=True)
         columna = ws.column_dimensions[get_column_letter(idx)]
         columna.width = 22
-        # Como texto: Excel no convierte '09-2026' en fecha ni la OP en notacion cientifica.
+        # Como texto: Excel no convierte '09-2026' en fecha ni la OP o el RUT en numero.
         columna.number_format = "@"
     ws.freeze_panes = "A2"
     output = BytesIO()
@@ -184,7 +198,7 @@ def _mes_plantilla(value) -> str | None:
     return f"{anio}-{mes:02d}" if 1 <= mes <= 12 else None
 
 
-def _leer_hoja(wb) -> list[dict] | None:
+def _leer_hoja(wb, columnas: dict[str, tuple[str, ...]]) -> list[dict] | None:
     """Filas de la primera hoja que tenga las columnas de la plantilla, con su numero de fila;
     None si ninguna las tiene."""
     for ws in wb.worksheets:
@@ -199,7 +213,7 @@ def _leer_hoja(wb) -> list[dict] | None:
             encabezados = {_encabezado(valor): idx for idx, valor in enumerate(fila) if valor is not None}
             encontrados = {
                 campo: next((encabezados[v] for v in variantes if v in encabezados), None)
-                for campo, variantes in COLUMNAS.items()
+                for campo, variantes in columnas.items()
             }
             if all(idx is not None for idx in encontrados.values()):
                 indices = encontrados
@@ -238,6 +252,20 @@ def _ejecutivos_conocidos(negocio: str, mes: str) -> list[str]:
             """,
             (f"{mes}-01",),
         )
+    elif negocio == "sth":
+        # Carterizados del mes y los integrantes del grupal (sth_ejecutivos_ciclo); sin mes, todos los conocidos.
+        sql = """
+            SELECT LTRIM(RTRIM(ejecutivo)) AS ejecutivo FROM dbo.tmp_carterizado_STH
+            WHERE LTRIM(RTRIM(ISNULL(ejecutivo, ''))) NOT IN ('', 'Grupal') {mes_carterizado}
+            UNION
+            SELECT LTRIM(RTRIM(ejecutivo)) FROM dbo.sth_ejecutivos_ciclo
+            WHERE activo = 1 AND LTRIM(RTRIM(ISNULL(ejecutivo, ''))) NOT IN ('', 'Grupal') {periodo}
+        """
+        fecha = f"{mes}-01"
+        rows = run_query(
+            sql.format(mes_carterizado="AND CONVERT(date, mes_carterizado) = CAST(? AS date)", periodo="AND periodo = CAST(? AS date)"),
+            (fecha, fecha),
+        ) or run_query(sql.format(mes_carterizado="", periodo=""))
     else:
         # Si el mes aun no tiene carterizado, todos los conocidos.
         sql = """
@@ -287,12 +315,12 @@ def _leer_archivo(negocio: str, contenido: bytes) -> tuple[list[dict], dict]:
     except Exception as exc:
         raise ArchivoInvalido("No se pudo leer el archivo. Debe ser un Excel .xlsx") from exc
     try:
-        crudas = _leer_hoja(wb)
+        crudas = _leer_hoja(wb, _columnas(negocio))
     finally:
         wb.close()
     if crudas is None:
         raise ArchivoInvalido(
-            f"El archivo no corresponde a la plantilla: ninguna hoja tiene las columnas {', '.join(PLANTILLA)}"
+            f"El archivo no corresponde a la plantilla: ninguna hoja tiene las columnas {', '.join(_plantilla(negocio))}"
         )
     if not crudas:
         raise ArchivoInvalido("El archivo no trae negocios")
@@ -302,9 +330,11 @@ def _leer_archivo(negocio: str, contenido: bytes) -> tuple[list[dict], dict]:
         raise ArchivoInvalido(
             f"PERIODO vacío o inválido (se espera mm-yyyy, por ejemplo 09-2026) en las filas: {_filas_con_error(sin_periodo)}"
         )
-    sin_op = [f for f in crudas if not _texto(f["operacion"])]
-    if sin_op:
-        raise ArchivoInvalido(f"Falta la OP en las filas: {_filas_con_error(sin_op)}")
+    por_rut = negocio in POR_RUT
+    campo_id = "rut" if por_rut else "operacion"
+    sin_id = [f for f in crudas if not _texto(f[campo_id])]
+    if sin_id:
+        raise ArchivoInvalido(f"Falta {'el RUT' if por_rut else 'la OP'} en las filas: {_filas_con_error(sin_id)}")
 
     conocidos: dict[str, list[str]] = {}
     sin_cruce: set[str] = set()
@@ -321,7 +351,8 @@ def _leer_archivo(negocio: str, contenido: bytes) -> tuple[list[dict], dict]:
         filas.append(
             {
                 "periodo": mes,
-                "operacion": _texto(cruda["operacion"]),
+                "operacion": "" if por_rut else _texto(cruda["operacion"]),
+                "rut": _texto(cruda["rut"]).upper() if por_rut else "",
                 "producto": _producto(cruda["producto"]),
                 "ejecutivo": ejecutivo,
                 "ejecutivo_origen": origen,
@@ -403,8 +434,8 @@ def cargar(negocio: str, nombre_archivo: str, contenido: bytes, usuario: str) ->
             cur.executemany(
                 f"""
                 INSERT INTO {CIERRE}
-                    (id_carga, negocio, tipo, periodo, producto, operacion, ejecutivo, ejecutivo_origen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id_carga, negocio, tipo, periodo, producto, operacion, rut, ejecutivo, ejecutivo_origen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
@@ -413,7 +444,8 @@ def cargar(negocio: str, nombre_archivo: str, contenido: bytes, usuario: str) ->
                         TIPO_CARGA,
                         fecha,
                         f["producto"][:40],
-                        f["operacion"][:40],
+                        f["operacion"][:40] or None,
+                        f["rut"][:20] or None,
                         f["ejecutivo"][:120],
                         f["ejecutivo_origen"][:120] or None,
                     )
@@ -474,7 +506,7 @@ def _detalle_mes(negocio: str, mes: str) -> list[dict]:
     _ensure_tables()
     return run_query(
         f"""
-        SELECT operacion, ejecutivo, producto
+        SELECT operacion, rut, ejecutivo, producto
         FROM {CIERRE}
         WHERE negocio = ? AND periodo = CAST(? AS date)
         """,
@@ -483,7 +515,7 @@ def _detalle_mes(negocio: str, mes: str) -> list[dict]:
 
 
 def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None) -> dict:
-    """Una fila por operacion del mes (OP, ejecutivo y tipo de negocio), para la pestaña Detalle negocios."""
+    """Una fila por negocio del mes (OP o RUT, ejecutivo y tipo de negocio), para la pestaña Detalle negocios."""
     mes = _mes(periodo)
     rows = cache.cached(("negocios", "detalle", negocio, mes), lambda: _detalle_mes(negocio, mes))
     filtro = _norm(ejecutivo)
@@ -491,6 +523,7 @@ def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None)
     filas = [
         {
             "operacion": row["operacion"] or "",
+            "rut": row.get("rut") or "",
             # Sin ejecutivo en el archivo: se muestra como PHOENIX, igual que el resto de las productividades.
             "ejecutivo": "PHOENIX" if row["ejecutivo"] == SIN_EJECUTIVO else row["ejecutivo"],
             "producto": row["producto"],
@@ -499,8 +532,9 @@ def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None)
         for row in rows
         if not filtro or _norm(row["ejecutivo"]) == filtro
     ]
-    filas.sort(key=lambda f: (f["ejecutivo"] == "PHOENIX", f["ejecutivo"], _orden_producto(f["producto"]), f["operacion"]))
-    return {"periodo": mes, "filas": filas, "total": len(filas)}
+    filas.sort(key=lambda f: (f["ejecutivo"] == "PHOENIX", f["ejecutivo"], _orden_producto(f["producto"]), f["operacion"], f["rut"]))
+    # Columna que identifica cada fila en la pestaña Detalle negocios.
+    return {"periodo": mes, "identificador": "RUT" if negocio in POR_RUT else "OP", "filas": filas, "total": len(filas)}
 
 
 def get_conteo(negocio: str, periodo: str | None, ejecutivo: str | None = None) -> dict:

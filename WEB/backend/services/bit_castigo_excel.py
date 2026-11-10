@@ -2,7 +2,8 @@
 
 Hoja CUMPLIMIENTOS: una tabla por ejecutivo con META, AVANCE y %CUMPL del recupero, la base del % efectividad,
 los nuevos convenios con su abono inicial y la base del % cobertura. Los % son formulas, asi que se puede
-corregir un valor a mano. Luego una hoja por medible con su detalle por RUT. La fila grupal Phoenix no va.
+corregir un valor a mano. Luego una hoja por medible con su detalle por RUT. La fila grupal Phoenix no va, salvo en la hoja RECUPERO,
+que trae todo el recupero del mes (el de RUT sin ejecutiva como SIN EJECUTIVA).
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from services.excel_formato import (
 
 
 TOPE_CUMPLIMIENTO = 1.3
+SIN_EJECUTIVA = "SIN EJECUTIVA"
 
 
 def _grupos(meta: float, hay_cobertura: bool) -> list[tuple[str, list[dict]]]:
@@ -53,6 +55,11 @@ def _orden(fila: dict) -> tuple:
     return (fila["ejecutivo"], fila["rut"])
 
 
+def _ejecutiva_recupero(fila: dict) -> str:
+    """En la hoja RECUPERO va todo el recupero del mes: el de RUT sin ejecutiva (Phoenix) como SIN EJECUTIVA."""
+    return SIN_EJECUTIVA if str(fila["ejecutivo"] or "").strip().upper() == "PHOENIX" else fila["ejecutivo"]
+
+
 def build_excel(periodo: str | None) -> tuple:
     general = get_general({"periodo": periodo})
     filtros = {"periodo": general["periodo"]}
@@ -75,8 +82,11 @@ def build_excel(periodo: str | None) -> tuple:
         [("EJECUTIVO", 28, None), ("RUT", 13, None), ("DEUDA", 16, MONEDA), ("RECUPERO", 15, MONEDA),
          ("NUEVO CONVENIO", 15, None), ("ABONO INICIAL", 15, MONEDA)],
         [
-            [f["ejecutivo"], f["rut"], f["deuda"], f["recupero"], _si_no(f["nuevos_convenios"]), f["abono_inicial"]]
-            for f in sorted(sin_phoenix(detalle["recupero"]), key=_orden)
+            [_ejecutiva_recupero(f), f["rut"], f["deuda"], f["recupero"], _si_no(f["nuevos_convenios"]), f["abono_inicial"]]
+            for f in sorted(
+                detalle["recupero"],
+                key=lambda f: (_ejecutiva_recupero(f) == SIN_EJECUTIVA, _ejecutiva_recupero(f), f["rut"]),
+            )
         ],
     )
     hoja_detalle(

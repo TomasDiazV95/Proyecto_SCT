@@ -5,7 +5,7 @@ import useDataVersion from "../../hooks/useDataVersion";
 
 // Pestaña Negocios de una productividad: negocios cerrados del mes por ejecutivo y producto,
 // segun los archivos que suben las administrativas (Panel Administrativo > Negocios).
-// modulo: "sc-tardia", "sc-temprana" o "gm".
+// modulo: "sc-tardia", "sc-temprana", "gm" o "sth".
 export default function NegociosCard({ modulo, periodo, ejecutivo, exportName }) {
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);

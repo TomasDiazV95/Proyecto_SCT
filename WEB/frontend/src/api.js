@@ -921,3 +921,31 @@ export async function downloadRrhhConsolidado(periodo) {
     `Cumplimientos_Campanas_${periodo || "periodo"}.xlsx`
   );
 }
+
+export async function downloadLaAraucanaProductividadExcel(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/la-araucana/export/productividad`, { periodo }),
+    `La_Araucana_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadScTardiaExcel(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/sc-tardia/export`, { periodo }),
+    `SC_Tardia_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadScTempranaExcel(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/sc-temprana/export`, { periodo }),
+    `SC_Temprana_${periodo || "periodo"}.xlsx`
+  );
+}
+
+export async function downloadSthExcel(periodo) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/sth/export`, { periodo }),
+    `STH_${String(periodo || "periodo").slice(0, 7)}.xlsx`
+  );
+}

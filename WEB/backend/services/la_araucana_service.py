@@ -17,10 +17,23 @@ CARTERA_CRM = 531
 TIPOS_PAGO_VALIDOS = ["E-ACTSEGCES", "E-MANUAL", "E-INTER-CC", "E-CC"]
 # Los negocios (reprogramaciones) vienen en la misma tabla de pagos con este tipo de pago.
 TIPOS_PAGO_NEGOCIO = ["NE-REPRO"]
+# En los negocios manda la reprogramacion: si una ejecutiva registro en el mes una de estas respuestas, o una gestion
+# cuya observacion menciona "repro", el negocio es suyo aunque la gestion sea posterior a la fecha de pago (tambien
+# desde SOLO_GESTION_ANTES_DEL_PAGO_DESDE).
+RESPUESTA_REPRO_GRABADA = "REPROGRAMACION GRABADA"
+RESPUESTAS_REPRO_NEGOCIO = ["REPROGRAMACION GRABADA", "COMPROMISO REPROGRAMACION", "SEGUIMIENTO REPROGRAMACION"]
+# Desde este mes un negocio sin gestion de reprogramacion de una ejecutiva (ni por respuesta ni por observacion) va a
+# PHOENIX.
+NEGOCIO_SOLO_CON_REPRO_DESDE = "2026-10"
 # Los negocios se separan segun la deuda del folio: hasta este monto o sobre el.
 TRAMO_DEUDA_NEGOCIO = 1000000
+# Desde este mes los negocios no se separan por tramo de deuda: solo el total por ejecutivo.
+NEGOCIOS_SIN_TRAMO_DESDE = "2026-10"
 # Desde este mes el % aporte se calcula solo sobre el recupero de las ejecutivas (sin PHOENIX).
 APORTE_SOLO_EJECUTIVOS_DESDE = "2026-10"
+# Desde este mes solo cuentan las gestiones hasta la fecha de pago: un pago con gestiones solo posteriores
+# queda SIN GESTION (PHOENIX).
+SOLO_GESTION_ANTES_DEL_PAGO_DESDE = "2026-11"
 
 
 def _columns(table_name: str) -> set[str]:
@@ -217,6 +230,24 @@ def _tipo_cartera_expr(col: str) -> str:
             END"""
 
 
+def _respuesta_gestion_expr(c: dict, alias: str = "g") -> str:
+    """Respuesta de la gestion. Las llamadas del discador que la ejecutiva tipifica despues llegan sin respuesta y
+    con la respuesta escrita en la observacion (ej. "COMPROMISO REPROGRAMACION"): si la observacion es una respuesta
+    del ranking, se usa como respuesta."""
+    respuesta = f"CONVERT(varchar(300), {alias}.{c['resp_gest']})"
+    rank_resp = _pick_optional(_columns(RESPUESTA_RANK_TABLE), ["Respuesta", "respuesta", "RESPUESTA", "RespuestaGestion", "respuesta_gestion"])
+    if not c["obs_gest"] or not rank_resp:
+        return respuesta
+    obs = f"{alias}.{c['obs_gest']}"
+    return f"""COALESCE(
+            NULLIF(LTRIM(RTRIM({respuesta})), ''),
+            CASE WHEN EXISTS (
+                SELECT 1 FROM {RESPUESTA_RANK_TABLE} r0
+                WHERE {_norm_text_expr(f"r0.{rank_resp}")} = {_norm_text_expr(obs)}
+            ) THEN UPPER(LTRIM(RTRIM(CONVERT(varchar(300), {obs})))) END
+        )"""
+
+
 def _resolved_cols() -> dict:
     p = _columns(PAGOS_TABLE)
     g = _columns(GESTION_TABLE)
@@ -239,6 +270,7 @@ def _resolved_cols() -> dict:
         "hora_gest": _pick(g, ["GestionHora"], "hora gestion"),
         "id_gest": _pick_optional(g, ["id", "ID", "Id"]),
         "cartera_gest": _pick(g, ["Cartera", "cartera", "fld_CARTERA", "fld_cartera"], "cartera gestion"),
+        "obs_gest": _pick_optional(g, ["observaciones", "Observaciones"]),
     }
 
 
@@ -266,13 +298,14 @@ def _atribucion_sql(
     periodo: str,
     tipos_pago_validos: list[str] | None = None,
     solo_ruts_con_pago: bool = False,
+    prioriza_repro: bool = False,
 ) -> tuple[str, list, str]:
     """Lote SQL que deja en #base una fila por pago valido con la gestion que se lo lleva.
 
     Solo cuentan las gestiones del mes seleccionado (quedan en #gest). Regla: la mejor gestion del
     RUT hasta la fecha de pago (mejor ranking de respuesta segun tmp_LA_respuesta; a igualdad, mejor
     contacto y luego la mas cercana al pago). Si no hay gestion previa, la primera gestion posterior
-    al pago.
+    al pago; desde SOLO_GESTION_ANTES_DEL_PAGO_DESDE las posteriores no cuentan y el pago queda SIN GESTION.
 
     Tambien deja #gest_pago (gestiones de los RUT con pago, contra la que se hace el cruce) y
     #mejor_gestion_mes (la mejor gestion de cada RUT en el mes). Ambas salen de la variable de tabla
@@ -282,7 +315,8 @@ def _atribucion_sql(
     Con `solo_ruts_con_pago`, #gest solo guarda las gestiones de los RUT con pago; sirve cuando
     despues no se calcula la deuda por folio.
     """
-    ranking_parts = _ranking_sql_parts(f"g.{c['resp_gest']}")
+    respuesta_expr = _respuesta_gestion_expr(c)
+    ranking_parts = _ranking_sql_parts(respuesta_expr)
     asig = _asignacion_cols()
     ejecutivas = _ejecutivas(periodo)
     selected_mes_proceso = _to_mes_proceso(periodo)
@@ -290,6 +324,33 @@ def _atribucion_sql(
     tipos_pago = ", ".join(f"'{t}'" for t in (tipos_pago_validos or TIPOS_PAGO_VALIDOS))
     gestion_id_expr = f"g.{c['id_gest']}" if c["id_gest"] else "CAST(NULL AS bigint)"
     solo_ruts_sql = f"AND CONVERT(varchar(50), g.{c['rut_gest']}) IN (SELECT p.rut FROM #pagos p)" if solo_ruts_con_pago else ""
+    # Con `prioriza_repro` (negocios) gana primero la gestion de reprogramacion de una ejecutiva en el mes.
+    if prioriza_repro and ejecutivas:
+        respuestas_repro = ", ".join("'{}'".format(r.replace("'", "''")) for r in RESPUESTAS_REPRO_NEGOCIO)
+        es_repro_sql = (
+            f"CASE WHEN (UPPER(LTRIM(RTRIM(COALESCE(g.respuesta, '')))) IN ({respuestas_repro}) OR g.obs_repro = 1) "
+            f"AND {_ejecutivo_expr('g.usuario', ejecutivas)} <> 'PHOENIX' THEN 1 ELSE 0 END"
+        )
+        # Entre las de reprogramacion, la REPROGRAMACION GRABADA gana siempre (aunque sea posterior al pago).
+        es_grabada_sql = (
+            f"CASE WHEN {es_repro_sql} = 1 AND UPPER(LTRIM(RTRIM(COALESCE(g.respuesta, '')))) = "
+            f"'{RESPUESTA_REPRO_GRABADA}' THEN 1 ELSE 0 END"
+        )
+    else:
+        es_repro_sql = "0"
+        es_grabada_sql = "0"
+    # Negocio sin gestion de reprogramacion de una ejecutiva: va a PHOENIX.
+    sin_repro_phoenix_sql = (
+        "WHEN g.es_repro = 0 THEN 'PHOENIX'"
+        if prioriza_repro and period_month >= NEGOCIO_SOLO_CON_REPRO_DESDE else ""
+    )
+    obs_repro_expr = (
+        f"CASE WHEN UPPER(CONVERT(varchar(2000), g.{c['obs_gest']})) LIKE '%REPRO%' THEN 1 ELSE 0 END"
+        if c["obs_gest"] else "0"
+    )
+    solo_antes_sql = ""
+    if period_month >= SOLO_GESTION_ANTES_DEL_PAGO_DESDE:
+        solo_antes_sql = f"AND (g.fecha_gestion <= p.fecha_pago OR {es_repro_sql} = 1)"
     # Las tablas temporales evitan recalcular pagos y gestiones del mes en cada referencia.
     sql = f"""SET NOCOUNT ON;
     SELECT
@@ -314,12 +375,13 @@ def _atribucion_sql(
         CONVERT(varchar(50), g.{c['rut_gest']}) AS rut,
         CONVERT(varchar(200), g.{c['usuario_gest']}) AS usuario,
         CONVERT(varchar(200), g.{c['contacto_gest']}) AS contacto,
-        CONVERT(varchar(300), g.{c['resp_gest']}) AS respuesta,
+        CONVERT(varchar(300), {respuesta_expr}) AS respuesta,
         CAST(g.{c['fecha_gest']} AS date) AS fecha_gestion,
         CONVERT(varchar(8), g.{c['hora_gest']}) AS hora_gestion,
         {f"CONVERT(varchar(100), g.{c['tel_gest']})" if c['tel_gest'] else "CAST(NULL AS varchar(100))"} AS telefono,
         {gestion_id_expr} AS id_gestion,
-        {ranking_parts["select"]} AS respuesta_ranking
+        {ranking_parts["select"]} AS respuesta_ranking,
+        {obs_repro_expr} AS obs_repro
     INTO #gest
     FROM {GESTION_TABLE} g
     {ranking_parts["join"]}
@@ -338,10 +400,11 @@ def _atribucion_sql(
         hora_gestion varchar(8),
         telefono varchar(100),
         id_gestion bigint,
-        respuesta_ranking int
+        respuesta_ranking int,
+        obs_repro int
     );
-    INSERT INTO @gest (rut, usuario, contacto, respuesta, fecha_gestion, hora_gestion, telefono, id_gestion, respuesta_ranking)
-    SELECT rut, usuario, contacto, respuesta, fecha_gestion, hora_gestion, telefono, id_gestion, respuesta_ranking
+    INSERT INTO @gest (rut, usuario, contacto, respuesta, fecha_gestion, hora_gestion, telefono, id_gestion, respuesta_ranking, obs_repro)
+    SELECT rut, usuario, contacto, respuesta, fecha_gestion, hora_gestion, telefono, id_gestion, respuesta_ranking, obs_repro
     FROM #gest;
 
     SELECT g.*
@@ -378,9 +441,12 @@ def _atribucion_sql(
         SELECT
             p.pago_id,
             g.*,
-            CASE WHEN g.fecha_gestion <= p.fecha_pago THEN 0 ELSE 1 END AS es_posterior
+            CASE WHEN g.fecha_gestion <= p.fecha_pago THEN 0 ELSE 1 END AS es_posterior,
+            {es_repro_sql} AS es_repro,
+            {es_grabada_sql} AS es_grabada
         FROM #pagos p
         INNER JOIN #gest_pago g ON g.rut = p.rut AND p.fecha_pago IS NOT NULL
+        {solo_antes_sql}
     ),
     gestion_elegida AS (
         SELECT
@@ -388,6 +454,8 @@ def _atribucion_sql(
             ROW_NUMBER() OVER (
                 PARTITION BY g.pago_id
                 ORDER BY
+                    g.es_repro DESC,
+                    g.es_grabada DESC,
                     g.es_posterior ASC,
                     CASE WHEN g.es_posterior = 0 THEN g.respuesta_ranking ELSE 0 END ASC,
                     CASE WHEN g.es_posterior = 0 THEN {_contacto_gestion_order_expr("g.contacto")} ELSE 0 END ASC,
@@ -411,7 +479,7 @@ def _atribucion_sql(
         p.deuda,
         g.usuario,
         -- Pago sin gestion del RUT en el mes: se lo lleva PHOENIX (igual que un usuario sin ejecutiva).
-        CASE WHEN g.pago_id IS NULL THEN 'PHOENIX' ELSE {_ejecutivo_expr("g.usuario", ejecutivas)} END AS ejecutivo,
+        CASE WHEN g.pago_id IS NULL THEN 'PHOENIX' {sin_repro_phoenix_sql} ELSE {_ejecutivo_expr("g.usuario", ejecutivas)} END AS ejecutivo,
         g.contacto,
         g.respuesta,
         g.fecha_gestion,
@@ -696,7 +764,10 @@ def get_negocios(filters: dict) -> dict:
     """
     c = _resolved_cols()
     periodo = str(filters.get("periodo") or "")
-    base_sql, base_params, _period_month = _atribucion_sql(c, periodo, TIPOS_PAGO_NEGOCIO, solo_ruts_con_pago=True)
+    base_sql, base_params, period_month = _atribucion_sql(
+        c, periodo, TIPOS_PAGO_NEGOCIO, solo_ruts_con_pago=True, prioriza_repro=True
+    )
+    con_tramos = period_month < NEGOCIOS_SIN_TRAMO_DESDE
     where = ["1 = 1"]
     params: list = []
     if filters.get("ejecutivo"):
@@ -705,7 +776,13 @@ def get_negocios(filters: dict) -> dict:
     where_sql = " AND ".join(where)
 
     # Tramo segun la deuda asignada del folio; un folio sin asignacion cae en el tramo menor.
-    tramo = f"CASE WHEN COALESCE(b.deuda, 0) <= {TRAMO_DEUDA_NEGOCIO} THEN 'MENOR' ELSE 'MAYOR' END"
+    # Sin tramos (desde NEGOCIOS_SIN_TRAMO_DESDE) tramo_deuda viene NULL y solo cuenta el total.
+    if con_tramos:
+        tramo = f"CASE WHEN COALESCE(b.deuda, 0) <= {TRAMO_DEUDA_NEGOCIO} THEN 'MENOR' ELSE 'MAYOR' END"
+        group_tramo = f", {tramo}"
+    else:
+        tramo = "CAST(NULL AS VARCHAR(10))"
+        group_tramo = ""
     negocios = "(SELECT contrato, rut, tipo_cartera, fecha_pago, deuda, recupero, COALESCE(ejecutivo, 'PHOENIX') AS ejecutivo FROM #base)"
     sql = f"""{base_sql}
     SELECT
@@ -715,7 +792,7 @@ def get_negocios(filters: dict) -> dict:
         SUM(b.recupero) AS recupero
     FROM {negocios} b
     WHERE {where_sql}
-    GROUP BY b.ejecutivo, {tramo}
+    GROUP BY b.ejecutivo{group_tramo}
     ORDER BY CASE WHEN b.ejecutivo = 'PHOENIX' THEN 1 ELSE 0 END, b.ejecutivo;
 
     SELECT
@@ -741,6 +818,7 @@ def get_negocios(filters: dict) -> dict:
         "detalle": detalle,
         "sin_gestion": sin_gestion[0] if sin_gestion else {"q_negocios": 0, "monto": 0},
         "tipos_pago": TIPOS_PAGO_NEGOCIO,
+        "con_tramos": con_tramos,
     }
 
 
@@ -845,3 +923,41 @@ def get_validacion(periodo: str) -> dict:
     row = run_query_sets(sql, tuple(params))[-1][0]
     row["tipos_pago_validos"] = TIPOS_PAGO_VALIDOS
     return row
+
+
+def get_detalle_excel(periodo: str) -> dict:
+    """Detalle de lo que suma en el resumen: cada pago valido con la ejecutiva que se lo lleva y la
+    gestion que se lo da (canal y observacion incluidos). Solo los que tienen ejecutiva, como en el resumen."""
+    c = _resolved_cols()
+    base_sql, base_params, period_month = _atribucion_sql(c, periodo)
+    g = _columns(GESTION_TABLE)
+    accion_col = _pick_optional(g, ["AccionGestion"])
+    obs_col = _pick_optional(g, ["observaciones", "Observaciones"])
+    # La gestion elegida se busca por su id para no cargar texto largo en la atribucion.
+    gestion_join = f"LEFT JOIN {GESTION_TABLE} gg ON gg.{c['id_gest']} = b.id_gestion" if c["id_gest"] else ""
+    accion_expr = f"CONVERT(varchar(150), gg.{accion_col})" if gestion_join and accion_col else "CAST(NULL AS varchar(150))"
+    obs_expr = f"LTRIM(RTRIM(CONVERT(varchar(2000), gg.{obs_col})))" if gestion_join and obs_col else "CAST(NULL AS varchar(2000))"
+    sql = f"""{base_sql}
+    SELECT
+        b.ejecutivo,
+        b.contrato,
+        b.rut,
+        b.tipo_cartera,
+        b.fecha_pago,
+        b.tipo_pago,
+        b.recupero,
+        b.criterio,
+        b.usuario,
+        {accion_expr} AS accion,
+        b.contacto,
+        b.respuesta,
+        {obs_expr} AS observacion,
+        b.fecha_gestion,
+        b.hora_gestion
+    FROM #base b
+    {gestion_join}
+    WHERE b.ejecutivo IS NOT NULL
+    ORDER BY b.ejecutivo, b.tipo_cartera, b.fecha_pago, b.contrato, b.pago_id;
+    """
+    pagos = run_query_sets(sql, tuple(base_params))[-1]
+    return {"period_month": period_month, "pagos": pagos}
