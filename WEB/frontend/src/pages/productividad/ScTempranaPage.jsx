@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { downloadScTempranaExcel, fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters } from "../../api";
 import { useAuth } from "../../auth/AuthContext";
 import NegociosCard from "../../components/productividad/NegociosCard";
@@ -29,6 +29,11 @@ function formatMoney(value) {
 
 function yesNo(value) {
   return Number(value || 0) === 1 ? "Si" : "No";
+}
+
+// La ejecutiva trabaja el tramo en la foto si tiene deuda asignada o monto contenido; si no, se muestra "—".
+function tieneTramo(row, tramo) {
+  return Number(row[`${tramo}_deuda_asignada`] || 0) > 0 || Number(row[`${tramo}_monto_cont`] || 0) > 0;
 }
 
 function percentile(sortedValues, p) {
@@ -222,6 +227,15 @@ export default function ScTempranaPage() {
 
   const cycleDataRows = useMemo(() => cycleRows.filter((row) => row.ejecutivo !== "Total"), [cycleRows]);
   const cycleTotalRow = useMemo(() => cycleRows.find((row) => row.ejecutivo === "Total") || null, [cycleRows]);
+  // Las que ven C1 arriba: desde octubre 2026 los equipos C1 y C2-C3 trabajan separados.
+  const orderedRows = useMemo(
+    () =>
+      phoenixGrupalAlFinal([
+        ...cycleDataRows.filter((row) => tieneTramo(row, "c1")),
+        ...cycleDataRows.filter((row) => !tieneTramo(row, "c1")),
+      ]),
+    [cycleDataRows]
+  );
   const c3TotalCases = Number(cycleTotalRow?.c3_casos_base || 0);
   const hasC3 = c3TotalCases > 350;
 
@@ -233,6 +247,7 @@ export default function ScTempranaPage() {
 
   const c1Thresholds = useMemo(() => {
     const values = cycleDataRows
+      .filter((row) => tieneTramo(row, "c1"))
       .map((row) => Number(row.c1_porc_aporte || 0))
       .filter((v) => Number.isFinite(v))
       .sort((a, b) => a - b);
@@ -244,6 +259,7 @@ export default function ScTempranaPage() {
 
   const c2Thresholds = useMemo(() => {
     const values = cycleDataRows
+      .filter((row) => tieneTramo(row, "c2"))
       .map((row) => Number(row.c2_porc_aporte || 0))
       .filter((v) => Number.isFinite(v))
       .sort((a, b) => a - b);
@@ -255,7 +271,7 @@ export default function ScTempranaPage() {
 
   const c3Thresholds = useMemo(() => {
     const values = cycleDataRows
-      .filter((row) => Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0)
+      .filter((row) => tieneTramo(row, "c3"))
       .map((row) => Number(row.c3_porc_aporte || 0))
       .filter((v) => Number.isFinite(v))
       .sort((a, b) => a - b);
@@ -371,7 +387,7 @@ export default function ScTempranaPage() {
           onChange={setView}
           options={[
             { value: "general", label: "General", icon: "bi-grid" },
-            { value: "ejecutivos", label: "Ejecutivos", icon: "bi-people" },
+            { value: "ejecutivos", label: "Detalle por ciclo", icon: "bi-people" },
             { value: "detalle", label: "Detalle", icon: "bi-table" },
             { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
             { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
@@ -414,17 +430,25 @@ export default function ScTempranaPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {phoenixGrupalAlFinal(cycleDataRows).map((row) => (
+                  {orderedRows.map((row) => (
                     <tr key={`${row.ejecutivo}-general`}>
                       <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
                       <td className="pd-num pd-group-start">
-                        <span className={dotClassByThresholds(row.c1_porc_aporte, c1Thresholds)}>{formatPct(row.c1_porc_aporte)}</span>
+                        {tieneTramo(row, "c1") ? (
+                          <span className={dotClassByThresholds(row.c1_porc_aporte, c1Thresholds)}>{formatPct(row.c1_porc_aporte)}</span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="pd-num pd-group-start">
-                        <span className={dotClassByThresholds(row.c2_porc_aporte, c2Thresholds)}>{formatPct(row.c2_porc_aporte)}</span>
+                        {tieneTramo(row, "c2") ? (
+                          <span className={dotClassByThresholds(row.c2_porc_aporte, c2Thresholds)}>{formatPct(row.c2_porc_aporte)}</span>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="pd-num pd-group-start">
-                        {Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0 ? (
+                        {tieneTramo(row, "c3") ? (
                           <span className={dotClassByThresholds(row.c3_porc_aporte, c3Thresholds)}>{formatPct(row.c3_porc_aporte)}</span>
                         ) : (
                           "—"
@@ -482,8 +506,8 @@ export default function ScTempranaPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {phoenixGrupalAlFinal(cycleDataRows)
-                        .filter((row) => Number(row.c3_deuda_asignada || 0) > 0 || Number(row.c3_monto_cont || 0) > 0)
+                      {orderedRows
+                        .filter((row) => tieneTramo(row, "c3"))
                         .map((row) => (
                           <tr key={`${row.ejecutivo}-c3`}>
                             <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
@@ -532,21 +556,33 @@ export default function ScTempranaPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {phoenixGrupalAlFinal(cycleDataRows).map((row) => (
+                      {orderedRows.map((row) => (
                         <tr key={row.ejecutivo}>
                           <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
-                          <td className="pd-num pd-group-start">{formatMoney(row.c1_deuda_asignada)}</td>
-                          <td className="pd-num">{formatMoney(row.c1_monto_cont)}</td>
-                          <td className="pd-num">{formatPct(row.c1_porc_contenido)}</td>
-                          <td className="pd-num">
-                            <span className={dotClassByThresholds(row.c1_porc_aporte, c1Thresholds)}>{formatPct(row.c1_porc_aporte)}</span>
-                          </td>
-                          <td className="pd-num pd-group-start">{formatMoney(row.c2_deuda_asignada)}</td>
-                          <td className="pd-num">{formatMoney(row.c2_monto_cont)}</td>
-                          <td className="pd-num">{formatPct(row.c2_porc_contenido)}</td>
-                          <td className="pd-num">
-                            <span className={dotClassByThresholds(row.c2_porc_aporte, c2Thresholds)}>{formatPct(row.c2_porc_aporte)}</span>
-                          </td>
+                          {[
+                            ["c1", c1Thresholds],
+                            ["c2", c2Thresholds],
+                          ].map(([tramo, thresholds]) =>
+                            tieneTramo(row, tramo) ? (
+                              <Fragment key={tramo}>
+                                <td className="pd-num pd-group-start">{formatMoney(row[`${tramo}_deuda_asignada`])}</td>
+                                <td className="pd-num">{formatMoney(row[`${tramo}_monto_cont`])}</td>
+                                <td className="pd-num">{formatPct(row[`${tramo}_porc_contenido`])}</td>
+                                <td className="pd-num">
+                                  <span className={dotClassByThresholds(row[`${tramo}_porc_aporte`], thresholds)}>
+                                    {formatPct(row[`${tramo}_porc_aporte`])}
+                                  </span>
+                                </td>
+                              </Fragment>
+                            ) : (
+                              <Fragment key={tramo}>
+                                <td className="pd-num pd-group-start">—</td>
+                                <td className="pd-num">—</td>
+                                <td className="pd-num">—</td>
+                                <td className="pd-num">—</td>
+                              </Fragment>
+                            )
+                          )}
                         </tr>
                       ))}
                       {cycleTotalRow && (
