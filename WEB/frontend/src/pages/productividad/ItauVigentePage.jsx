@@ -89,6 +89,8 @@ export default function ItauVigentePage() {
   const [total, setTotal] = useState(null);
   const [metas, setMetas] = useState([]);
   const [castigo, setCastigo] = useState(null);
+  // Meses con meta grupal (octubre 2026): todos los ejecutivos llevan el cumplimiento de la suma de sus casos.
+  const [grupal, setGrupal] = useState(null);
   const [fotosCuotas, setFotosCuotas] = useState(null);
   const [metasOpen, setMetasOpen] = useState(false);
   const [view, setView] = useState("resumen");
@@ -141,6 +143,7 @@ export default function ItauVigentePage() {
         setTotal(data.total || null);
         setMetas(data.metas || []);
         setCastigo(data.castigo || null);
+        setGrupal(data.meta_grupal ? data.grupal || null : null);
         setFotosCuotas(data.recupero_no_medible || null);
         setMetadata({
           fecha_carga: data.fecha_carga || filters.fecha_carga,
@@ -196,7 +199,7 @@ export default function ItauVigentePage() {
           <thead>
             <tr>
               <th>Tramo</th>
-              <th className="pd-num">Meta individual</th>
+              <th className="pd-num">{grupal ? "Meta grupal" : "Meta individual"}</th>
             </tr>
           </thead>
           <tbody>
@@ -266,6 +269,7 @@ export default function ItauVigentePage() {
             )}
             <p className="pd-small pd-muted">
               El cumplimiento máximo es de 130% por variable. Cada caso se asigna al ejecutivo con la mejor gestión del mes.
+              {grupal && " Este mes la meta es grupal: todos los ejecutivos llevan el cumplimiento de la suma de sus casos (sin PHOENIX)."}
             </p>
           </div>
         </aside>
@@ -452,6 +456,8 @@ export default function ItauVigentePage() {
 
   function renderTable() {
     const detalle = view === "detalle";
+    // Resumen y detalle no muestran la fila PHOENIX (RUT sin gestión de los ejecutivos); el Total general tampoco la suma.
+    const filasEjecutivos = rows.filter((row) => row.ejecutivo !== "PHOENIX");
     const subHeaders = ["Saldo Inicial", "Contenido", "Meta $", "Cumplimiento"];
     return (
       <table className={`pd-table pd-table-wide${detalle ? " pd-table-static" : ""}`}>
@@ -473,7 +479,7 @@ export default function ItauVigentePage() {
                 </span>
               </th>
             )}
-            <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
+            <th rowSpan={2} className="pd-num pd-th-key pd-group-start">{grupal ? "Cumplimiento grupal" : "Cumplimiento Final"}</th>
             {conAporteCobertura && <th rowSpan={2} className="pd-num pd-group-start">% Aporte</th>}
             {conAporteCobertura && <th rowSpan={2} className="pd-num pd-group-start">Cobertura gestión</th>}
           </tr>
@@ -490,7 +496,7 @@ export default function ItauVigentePage() {
         </thead>
         {detalle ? (
           <>
-            {rows.map((row, idx) => (
+            {filasEjecutivos.map((row, idx) => (
               <tbody key={`ivg-detalle-${row.ejecutivo}-${idx}`} className="pd-tbody-group">
                 {renderDetalleBloque(row, `ivg-detalle-${idx}`)}
               </tbody>
@@ -499,7 +505,7 @@ export default function ItauVigentePage() {
           </>
         ) : (
           <tbody>
-            {rows.map((row, idx) => renderRow(row, `itau-vigente-${row.ejecutivo}-${idx}`))}
+            {filasEjecutivos.map((row, idx) => renderRow(row, `itau-vigente-${row.ejecutivo}-${idx}`))}
             {total && renderRow(total, "itau-vigente-total", true)}
           </tbody>
         )}

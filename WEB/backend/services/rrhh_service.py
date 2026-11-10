@@ -84,6 +84,8 @@ RESUMEN_HEADERS = ["CLIENTE", "CAMPAÑA", "CORTE", "N° COLABORADORES", "CUMPLIM
 
 NA = "N/A"
 VARIABLE_INDIVIDUAL = "Cumplimiento Individual"
+# Meses con meta grupal (Itau Vigente octubre 2026): el cumplimiento va en la columna de grupales.
+VARIABLE_GRUPAL = "Cumplimiento Grupal"
 # Filas de los paneles que no son colaboradores (cartera sin asignar, grupal o totales).
 NO_COLABORADORES = {"PHOENIX", "GRUPAL", "TOTAL", "TOTAL GENERAL", "SIN EJECUTIVO", "SIN GESTION"}
 MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
@@ -423,11 +425,15 @@ def _itau_castigo(p: _Planilla) -> None:
 
 
 def _itau_contencion(p: _Planilla, data: dict) -> None:
-    """Cumplimiento individual de Itau Vencida e Itau Vigente."""
+    """Cumplimiento de Itau Vencida e Itau Vigente: individual, o grupal en los meses con meta grupal de Vigente."""
+    grupal = bool(data.get("meta_grupal"))
     for row in data["rows"]:
         if not _es_colaborador(row["ejecutivo"]):
             continue
-        p.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=row.get("cumplimiento"))
+        if grupal:
+            p.add(VARIABLE_GRUPAL, row["ejecutivo"], grupal=row.get("cumplimiento"))
+        else:
+            p.add(VARIABLE_INDIVIDUAL, row["ejecutivo"], individual=row.get("cumplimiento"))
 
 
 def _itau_negocios(p: _Planilla, data: dict) -> None:
@@ -746,13 +752,18 @@ def get_planilla(periodo: str | None, codigo: str) -> dict:
 
 
 def _resumen(rows: list[dict], corte: str) -> list[dict]:
-    """Una linea por campaña: colaboradores y promedio del cumplimiento individual."""
+    """Una linea por campaña: colaboradores y promedio del cumplimiento individual (o grupal, si la campaña lo usa)."""
     campanas: dict[tuple[str, str], dict] = {}
     for row in rows:
         item = campanas.setdefault((row["CLIENTE"], row["CAMPAÑA"]), {"colaboradores": set(), "cumplimientos": []})
         item["colaboradores"].add(row["COLABORADOR"])
-        valor = row["CUMPLIMIENTO TOTAL INDIVIDUAL"]
-        if row["VARIABLE A EVALUAR"] == VARIABLE_INDIVIDUAL and isinstance(valor, (int, float)):
+        if row["VARIABLE A EVALUAR"] == VARIABLE_INDIVIDUAL:
+            valor = row["CUMPLIMIENTO TOTAL INDIVIDUAL"]
+        elif row["VARIABLE A EVALUAR"] == VARIABLE_GRUPAL:
+            valor = row["CUMPLIMIENTOS GRUPALES"]
+        else:
+            valor = None
+        if isinstance(valor, (int, float)):
             item["cumplimientos"].append(float(valor))
     return [
         {

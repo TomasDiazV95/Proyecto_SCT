@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
-from auth.dependencies import require_module
+from auth.dependencies import require_module, require_roles
+from excel_export import XLSX_MEDIA_TYPE
 
 from schemas import ApiEnvelope
 from services.negocios_service import get_conteo as get_negocios_conteo
 from services.negocios_service import get_detalle as get_negocios_detalle
+from services.sc_temprana_excel import build_excel
 from services.sc_temprana_service import get_cycle_view, get_detail_view, get_filter_values, get_general_view
 
 
@@ -92,5 +95,18 @@ def negocios_detalle(
 ) -> dict:
     try:
         return get_negocios_detalle("sc-telefonia", periodo, ejecutivo)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/export")
+def export(periodo: str = Query(...), _user: dict = Depends(require_roles("super_admin"))) -> StreamingResponse:
+    try:
+        output, filename = build_excel(periodo)
+        return StreamingResponse(
+            output,
+            media_type=XLSX_MEDIA_TYPE,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

@@ -165,7 +165,7 @@ export const modulePanels = [
       {
         code: "administrativas",
         title: "Negocios",
-        description: "Sube el Excel de negocios (reconducciones, refinanciamientos, novaciones, daciones, extensiones) de SC Terreno, SC Telefonía y GM.",
+        description: "Sube el Excel de negocios (reconducciones, refinanciamientos, novaciones, daciones, extensiones) de SC Terreno, SC Telefonía, GM y Santander Hipotecario.",
         path: "/administrativas/negocios",
         buttonLabel: "Abrir Negocios",
       },

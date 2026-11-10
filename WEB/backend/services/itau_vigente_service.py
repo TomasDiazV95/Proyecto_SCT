@@ -11,6 +11,7 @@ from services.itau_vencida_service import (
     _cap,
     _clean_text,
     _empty_acc,
+    _empty_productos,
     _fases_detalle,
     _load_filtros_medibles,
     _medibles_sql,
@@ -54,6 +55,45 @@ SIN_EFECTIVO_DESDE = "2026-10-01"
 
 def _con_efectivo(periodo: str) -> bool:
     return periodo < SIN_EFECTIVO_DESDE
+
+
+# Meses con meta grupal: el cumplimiento (por producto, por fase y final) es el de la suma de los casos de todos
+# los ejecutivos, sin PHOENIX, y todos llevan el mismo. Saldos, contenido y meta $ siguen siendo los de cada uno.
+META_GRUPAL_PERIODOS = {"2026-10-01"}
+
+
+def _meta_grupal(periodo: str) -> bool:
+    return periodo in META_GRUPAL_PERIODOS
+
+
+def _sumar_acc(destino: dict, origen: dict) -> None:
+    """Suma un acumulador de _empty_acc() en otro (casos, saldos, productos y fases)."""
+    destino["casos"] |= origen["casos"]
+    destino["operaciones"] += origen["operaciones"]
+    destino["saldo_ini"] += origen["saldo_ini"]
+    destino["saldo_cont"] += origen["saldo_cont"]
+    for producto in PRODUCTOS:
+        for key in ("saldo_ini", "saldo_cont", "meta_monto"):
+            destino[producto][key] += origen[producto][key]
+    for fase, datos in origen["fases"].items():
+        fase_destino = destino["fases"].setdefault(fase, _empty_productos())
+        for producto in PRODUCTOS:
+            for key in ("saldo_ini", "saldo_cont", "meta_monto"):
+                fase_destino[producto][key] += datos[producto][key]
+
+
+def _aplicar_grupal(row: dict, grupal: dict) -> None:
+    """Reemplaza los cumplimientos de la fila del ejecutivo por los del grupal."""
+    for producto in PRODUCTOS:
+        key = f"{producto.lower()}_cumplimiento"
+        row[key] = grupal[key]
+    row["cumplimiento"] = grupal["cumplimiento"]
+    fases_grupal = {fase["fase"]: fase for fase in grupal["fases"]}
+    for fase in row["fases"]:
+        origen = fases_grupal.get(fase["fase"])
+        for producto in PRODUCTOS:
+            key = f"{producto.lower()}_cumplimiento"
+            fase[key] = origen[key] if origen else None
 
 
 # Desde octubre 2026 el resumen lleva % aporte y cobertura gestion.
@@ -515,14 +555,16 @@ def get_general(filters: dict) -> dict:
     por_ejecutivo: dict[str, dict] = {
         nombre: _empty_acc() for nombre in ejecutivos if not ejecutivo or nombre.upper() == ejecutivo.upper()
     }
+    # El Total general es solo de los ejecutivos: los RUT sin gestion de ellos (PHOENIX) no suman.
     total = _empty_acc()
     for row in run_query(sql, tuple(params)):
         nombre = row.get("Ejecutivo") or DEFAULT_EXECUTIVE
         acc = por_ejecutivo.setdefault(nombre, _empty_acc())
         acc["casos"].add(row.get("RUT"))
-        total["casos"].add(row.get("RUT"))
         _add(acc, row, metas)
-        _add(total, row, metas)
+        if nombre != DEFAULT_EXECUTIVE:
+            total["casos"].add(row.get("RUT"))
+            _add(total, row, metas)
 
     # El recupero de castigo es la suma de todos los ejecutivos, aunque se filtre por uno.
     fecha_recupero, recupero_ejecutivo = _recupero_castigo(periodo, fecha_carga)
@@ -554,8 +596,26 @@ def get_general(filters: dict) -> dict:
     total_result = _result("Total general", len(total["casos"]), total, metas, castigo)
     if castigo:
         total_result["castigo_recupero"] = castigo["recupero"]
-    total_result["recupero_nm_cuotas"] = sum(cuotas for cuotas, _ in recupero_nm.values())
-    total_result["recupero_nm_efectivo"] = sum(efectivo for _, efectivo in recupero_nm.values())
+    recupero_nm_ejecutivos = [valor for nombre, valor in recupero_nm.items() if nombre != DEFAULT_EXECUTIVE]
+    total_result["recupero_nm_cuotas"] = sum(cuotas for cuotas, _ in recupero_nm_ejecutivos)
+    total_result["recupero_nm_efectivo"] = sum(efectivo for _, efectivo in recupero_nm_ejecutivos)
+
+    # Meta grupal: todos los ejecutivos llevan el cumplimiento de la suma de sus casos (sin PHOENIX). Filtrando
+    # por ejecutivo, el grupal sigue siendo el de todos. PHOENIX queda como esta.
+    meta_grupal = _meta_grupal(periodo)
+    grupal = None
+    if meta_grupal and ejecutivo:
+        grupal = get_general({"fecha_carga": fecha_carga})["grupal"]
+    elif meta_grupal:
+        acc_grupal = _empty_acc()
+        for nombre, acc in por_ejecutivo.items():
+            if nombre != DEFAULT_EXECUTIVE:
+                _sumar_acc(acc_grupal, acc)
+        grupal = _result("Grupal (ejecutivos)", len(acc_grupal["casos"]), acc_grupal, metas, castigo)
+    if grupal:
+        for row in rows:
+            if row["ejecutivo"] != DEFAULT_EXECUTIVE:
+                _aplicar_grupal(row, grupal)
 
     # % aporte (como La Araucana): lo contenido por cada ejecutivo sobre la bolsa de todo lo contenido por los
     # ejecutivos. PHOENIX (sin gestion) no entra a la bolsa ni lleva aporte. Filtrando por ejecutivo, la bolsa
@@ -603,6 +663,8 @@ def get_general(filters: dict) -> dict:
         "aporte_bolsa": bolsa,
         "cobertura_gestion": cobertura,
         "recupero_no_medible": fotos_cuotas,
+        "meta_grupal": meta_grupal,
+        "grupal": grupal,
         "rows": rows,
         "total": total_result,
     }

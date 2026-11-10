@@ -1,5 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { fetchSthDetail, fetchSthFilters, fetchSthGeneral, fetchSthMetas, fetchSthOperationsDetail } from "../../api";
+import { downloadSthExcel, fetchSthDetail, fetchSthFilters, fetchSthGeneral, fetchSthMetas, fetchSthOperationsDetail } from "../../api";
+import { useAuth } from "../../auth/AuthContext";
+import NegociosCard from "../../components/productividad/NegociosCard";
+import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
@@ -76,6 +79,33 @@ export default function SthPage() {
   const [error, setError] = useState("");
   const [metasOpen, setMetasOpen] = useState(false);
   const [metas, setMetas] = useState([]);
+  const { user } = useAuth();
+  const esSuperAdmin = user?.role === "super_admin";
+  const [descargando, setDescargando] = useState(false);
+
+  // Excel con los cumplimientos y el detalle de lo medible, solo para super admin.
+  async function descargarExcel() {
+    if (!filters.periodo) {
+      return;
+    }
+    setDescargando(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadSthExcel(filters.periodo);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDescargando(false);
+    }
+  }
 
   useEffect(() => {
     async function loadFilters() {
@@ -118,7 +148,8 @@ export default function SthPage() {
 
   useEffect(() => {
     async function loadData() {
-      if (!filters.periodo) {
+      // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
+      if (!filters.periodo || view === "negocios" || view === "negocios-detalle") {
         return;
       }
       setLoading(true);
@@ -246,6 +277,11 @@ export default function SthPage() {
                 <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
               </button>
             )}
+            {esSuperAdmin && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={descargarExcel} disabled={!filters.periodo || descargando}>
+                <i className="bi bi-download" aria-hidden="true" /> {descargando ? "Descargando..." : "Descargar Excel"}
+              </button>
+            )}
             <MetasButton onClick={() => setMetasOpen(true)} />
           </>
         }
@@ -327,8 +363,15 @@ export default function SthPage() {
             { value: "general", label: "Vista General", icon: "bi-grid" },
             { value: "desglosada", label: "Vista Desglosada", icon: "bi-layers" },
             { value: "detalle", label: "Detalle", icon: "bi-table" },
+            { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+            { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
           ]}
         />
+        {view === "negocios" ? (
+          <NegociosCard modulo="sth" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("STH", "negocios", formatPeriodo(filters.periodo))} />
+        ) : view === "negocios-detalle" ? (
+          <NegociosDetalleCard modulo="sth" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("STH", "negocios-detalle", formatPeriodo(filters.periodo))} />
+        ) : (
         <SectionCard
           exportName={exportFileName("STH", view, formatPeriodo(filters.periodo))}
           bodyClassName=""
@@ -515,6 +558,7 @@ export default function SthPage() {
             </div>
           )}
         </SectionCard>
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 
-import { downloadLaAraucanaExcel, fetchLaAraucanaDetalle, fetchLaAraucanaFilters, fetchLaAraucanaNegocios, fetchLaAraucanaResumen } from "../../api";
+import { downloadLaAraucanaExcel, downloadLaAraucanaProductividadExcel, fetchLaAraucanaDetalle, fetchLaAraucanaFilters, fetchLaAraucanaNegocios, fetchLaAraucanaResumen } from "../../api";
 import { EjecutivoDetalleFilter, EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
 
@@ -159,6 +159,8 @@ export default function LaAraucanaPage() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
   const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
+  const esSuperAdmin = user?.role === "super_admin";
+  const [descargando, setDescargando] = useState(false);
   const rows = porEjecutivo(allRows, selected.ejecutivo);
   const [ejecutivoDetalle, setEjecutivoDetalle] = useState("");
   const negocios = {
@@ -184,6 +186,8 @@ export default function LaAraucanaPage() {
     })
   );
   const { rows: negocioRows, total: negocioTotal } = pivotNegocios(negocios.rows);
+  // Desde octubre 2026 el backend no separa los negocios por tramo de deuda: solo se muestra el total.
+  const tramosNegocio = allNegocios.con_tramos === false ? [] : TRAMOS_DEUDA;
   const ejecutivoOptions = Array.from(new Set([...(filters.ejecutivos || []), "PHOENIX"]));
 
   useEffect(() => {
@@ -233,7 +237,12 @@ export default function LaAraucanaPage() {
     const key = `${vistaDatos}|${periodo}`;
     const mostrar = (data) => {
       if (vistaDatos === "negocios") {
-        setAllNegocios({ rows: data.rows || [], detalle: data.detalle || [], sin_gestion: data.sin_gestion || null });
+        setAllNegocios({
+          rows: data.rows || [],
+          detalle: data.detalle || [],
+          sin_gestion: data.sin_gestion || null,
+          con_tramos: data.con_tramos !== false,
+        });
       } else {
         setAllRows(data.rows || []);
       }
@@ -357,6 +366,30 @@ export default function LaAraucanaPage() {
     }
   }
 
+  // Excel de productividad (cumplimientos y detalle de lo medible), solo para super admin.
+  async function descargarExcel() {
+    if (!selected.periodo) {
+      return;
+    }
+    setDescargando(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadLaAraucanaProductividadExcel(selected.periodo);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDescargando(false);
+    }
+  }
+
   // Un ejecutivo sin datos en una cartera se muestra en cero.
   function renderCarteraCells(row, key, isTotal) {
     const data = row || { deuda: 0, recupero: 0, pct_aporte: 0 };
@@ -390,11 +423,18 @@ export default function LaAraucanaPage() {
         title="Caja La Araucana"
         subtitle="Productividad Caja La Araucana por tipo de cartera."
         actions={
-          canDownload && (
-            <button type="button" className="pd-btn pd-btn-secondary" onClick={onDownload} disabled={!selected.periodo || downloading}>
-              <i className="bi bi-download" aria-hidden="true" /> {downloading ? "Descargando..." : "Descargar Excel"}
-            </button>
-          )
+          <>
+            {esSuperAdmin && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={descargarExcel} disabled={!selected.periodo || descargando}>
+                <i className="bi bi-download" aria-hidden="true" /> {descargando ? "Descargando..." : "Descargar Excel"}
+              </button>
+            )}
+            {canDownload && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={onDownload} disabled={!selected.periodo || downloading}>
+                <i className="bi bi-file-earmark-spreadsheet" aria-hidden="true" /> {downloading ? "Descargando..." : "Excel auditoría"}
+              </button>
+            )}
+          </>
         }
       />
 
@@ -547,12 +587,12 @@ export default function LaAraucanaPage() {
               <thead>
                 <tr>
                   <th rowSpan={2}>Ejecutivo</th>
-                  {[...TRAMOS_DEUDA, { key: "TOTAL", label: "Total" }].map(({ key, label }, idx) => (
+                  {[...tramosNegocio, { key: "TOTAL", label: "Total" }].map(({ key, label }, idx) => (
                     <th key={key} colSpan={2} className={`pd-th-group-${(idx % 2) + 1} pd-group-start`}>{label}</th>
                   ))}
                 </tr>
                 <tr>
-                  {[...TRAMOS_DEUDA, { key: "TOTAL" }].map(({ key }, idx) =>
+                  {[...tramosNegocio, { key: "TOTAL" }].map(({ key }, idx) =>
                     ["Reprogramación", "Recupero"].map((label, subIdx) => (
                       <th key={`${key}-${label}`} className={`pd-num pd-th-sub-${(idx % 2) + 1}${subIdx === 0 ? " pd-group-start" : ""}`}>
                         {label}
@@ -565,15 +605,15 @@ export default function LaAraucanaPage() {
                 {phoenixGrupalAlFinal(negocioRows).map((row) => (
                   <tr key={row.ejecutivo}>
                     <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
-                    {TRAMOS_DEUDA.map(({ key }) => renderNegocioCells(row.tramos[key], key))}
+                    {tramosNegocio.map(({ key }) => renderNegocioCells(row.tramos[key], key))}
                     {renderNegocioCells(row.total, "TOTAL")}
                   </tr>
                 ))}
-                {!negocioRows.length && <EmptyRow colSpan={TRAMOS_DEUDA.length * 2 + 3} />}
+                {!negocioRows.length && <EmptyRow colSpan={tramosNegocio.length * 2 + 3} />}
                 {negocioRows.length > 0 && (
                   <tr className="pd-row-total">
                     <td>Total</td>
-                    {TRAMOS_DEUDA.map(({ key }) => renderNegocioCells(negocioTotal.tramos[key], key))}
+                    {tramosNegocio.map(({ key }) => renderNegocioCells(negocioTotal.tramos[key], key))}
                     {renderNegocioCells(negocioTotal.total, "TOTAL")}
                   </tr>
                 )}
@@ -661,7 +701,7 @@ export default function LaAraucanaPage() {
                   <th>Fecha negocio</th>
                   <th className="pd-num">Monto deuda</th>
                   <th className="pd-num">Recupero</th>
-                  <th>Tramo deuda</th>
+                  {tramosNegocio.length > 0 && <th>Tramo deuda</th>}
                 </tr>
               </thead>
               <tbody>
@@ -674,10 +714,10 @@ export default function LaAraucanaPage() {
                     <td>{formatFecha(row.fecha_pago)}</td>
                     <td className="pd-num">{row.deuda === null || row.deuda === undefined ? "" : formatRecovero(row.deuda)}</td>
                     <td className="pd-num">{formatRecovero(row.recupero)}</td>
-                    <td>{TRAMO_LABEL[row.tramo_deuda] || ""}</td>
+                    {tramosNegocio.length > 0 && <td>{TRAMO_LABEL[row.tramo_deuda] || ""}</td>}
                   </tr>
                 ))}
-                {!detalleVisible.length && <EmptyRow colSpan={8} />}
+                {!detalleVisible.length && <EmptyRow colSpan={tramosNegocio.length > 0 ? 8 : 7} />}
               </tbody>
             </table>
           </div>

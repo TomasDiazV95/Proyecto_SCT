@@ -161,9 +161,8 @@ def _base_zona_sql(version: str) -> str:
 """
 
 
-def _sc_tardia_sql(version: str = "CIERRE") -> str:
-    """Lote unico: la vista se lee una sola vez a #base_zona_original (la foto vigente de cada
-    origen) y de ahi salen los bloques activos, los ponderadores de nivel 1 y la tabla."""
+def _foto_sql(version: str) -> str:
+    """Encabezado comun: fecha consultada y la foto vigente de cada origen en #base_zona_original."""
     return f"""
     SET NOCOUNT ON;
 
@@ -179,26 +178,11 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
     WHERE v.fecha >= @periodo
       AND v.fecha <= @fecha_consulta
     GROUP BY v.origen;
-{_base_zona_sql(version)}
-    SELECT
-        LTRIM(RTRIM(ejecutivo)) AS ejecutivo,
-        LTRIM(RTRIM(bloque)) AS bloque
-    FROM dbo.stc_bloques_ejecutivos
-    WHERE periodo = @periodo
-      AND activo = 1
-    ORDER BY ejecutivo, bloque;
+{_base_zona_sql(version)}"""
 
-    SELECT
-        meta_tipo,
-        MAX(ponderador_nivel_1_pct) AS ponderador_nivel_1_pct
-    FROM dbo.stc_metas_mensuales
-    WHERE periodo = @periodo
-      AND activo = 1
-      AND meta_tipo IN ('PCT', 'STOCK')
-    GROUP BY meta_tipo;
 
-    WITH
-    -- Cada ejecutivo queda en una sola zona: la que concentra mas operaciones.
+# CTEs zona_principal_ejecutivo y base (operaciones con la zona principal del ejecutivo).
+_ZONA_PRINCIPAL_CTE = """    -- Cada ejecutivo queda en una sola zona: la que concentra mas operaciones.
     -- Asi una operacion suelta en otra zona no duplica al ejecutivo en la tabla.
     zona_principal_ejecutivo AS (
         SELECT ejecutivo, zona
@@ -234,7 +218,43 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
         FROM #base_zona_original b
         LEFT JOIN zona_principal_ejecutivo zp
             ON zp.ejecutivo = b.ejecutivo
-    ),
+    )"""
+
+# Bloque de mora tardia de una operacion STC (C1 y C2 se suman ademas en el consolidado 'C1 - C2').
+_BLOQUE_STC_SQL = """CASE
+                WHEN ciclo IN ('C6', 'C7', 'C8') AND apertura = 'SUSCEPTIBLE CASTIGO' THEN 'PRE CASTIGO'
+                WHEN ciclo = 'C6' AND ISNULL(apertura, '') <> 'SUSCEPTIBLE CASTIGO' THEN 'C6'
+                WHEN ciclo IN ('C1', 'C2') THEN ciclo
+                WHEN ciclo = 'C3' THEN 'C3'
+                WHEN apertura = 'SUSCEPTIBLE CV' THEN 'SUSCEPTIBLE CV'
+                WHEN ciclo = 'C5' THEN 'C5'
+                ELSE NULL
+            END"""
+
+
+def _sc_tardia_sql(version: str = "CIERRE") -> str:
+    """Lote unico: la vista se lee una sola vez a #base_zona_original (la foto vigente de cada
+    origen) y de ahi salen los bloques activos, los ponderadores de nivel 1 y la tabla."""
+    return f"""{_foto_sql(version)}
+    SELECT
+        LTRIM(RTRIM(ejecutivo)) AS ejecutivo,
+        LTRIM(RTRIM(bloque)) AS bloque
+    FROM dbo.stc_bloques_ejecutivos
+    WHERE periodo = @periodo
+      AND activo = 1
+    ORDER BY ejecutivo, bloque;
+
+    SELECT
+        meta_tipo,
+        MAX(ponderador_nivel_1_pct) AS ponderador_nivel_1_pct
+    FROM dbo.stc_metas_mensuales
+    WHERE periodo = @periodo
+      AND activo = 1
+      AND meta_tipo IN ('PCT', 'STOCK')
+    GROUP BY meta_tipo;
+
+    WITH
+{_ZONA_PRINCIPAL_CTE},
 
     stc_clasificado AS (
         SELECT
@@ -249,15 +269,7 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
             apertura,
             ejecutivo,
             origen,
-            CASE
-                WHEN ciclo IN ('C6', 'C7', 'C8') AND apertura = 'SUSCEPTIBLE CASTIGO' THEN 'PRE CASTIGO'
-                WHEN ciclo = 'C6' AND ISNULL(apertura, '') <> 'SUSCEPTIBLE CASTIGO' THEN 'C6'
-                WHEN ciclo IN ('C1', 'C2') THEN ciclo
-                WHEN ciclo = 'C3' THEN 'C3'
-                WHEN apertura = 'SUSCEPTIBLE CV' THEN 'SUSCEPTIBLE CV'
-                WHEN ciclo = 'C5' THEN 'C5'
-                ELSE NULL
-            END AS bloque
+            {_BLOQUE_STC_SQL} AS bloque
         FROM base
         WHERE origen = 'STC'
     ),
@@ -597,6 +609,90 @@ def _rows_from_query(filters: dict) -> list[dict]:
             rows = [row for row in rows if row[campo].strip().upper() == buscado]
 
     return [dict(row) for row in rows]
+
+
+def get_operaciones_excel(periodo_filtro: str | None) -> list[dict]:
+    """Operaciones de la foto consultada con su zona (la principal del ejecutivo) y su bloque: el de
+    mora tardia para STC y la fase (F1..F4) para castigo. Para el detalle del Excel de super admin."""
+    periodo = _period_date(periodo_filtro)
+    version = _period_version(periodo_filtro)
+    sql = f"""{_foto_sql(version)}
+    WITH
+{_ZONA_PRINCIPAL_CTE}
+
+    SELECT
+        ejecutivo,
+        zona,
+        rut,
+        operacion,
+        origen,
+        ciclo,
+        apertura,
+        CASE
+            WHEN origen = 'STC' THEN {_BLOQUE_STC_SQL}
+            WHEN origen = 'CASTIGO' AND ciclo IN ('F1', 'F2', 'F3', 'F4') THEN ciclo
+            ELSE NULL
+        END AS bloque,
+        CAST(ISNULL(deuda, 0) AS float) AS deuda,
+        CAST(ISNULL(contenido, 0) AS float) AS contenido,
+        CAST(ISNULL(normalizado, 0) AS float) AS normalizado
+    FROM base
+    WHERE ISNULL(ejecutivo, '') <> '';
+    """
+    return [
+        {
+            "ejecutivo": _clean_text(row.get("ejecutivo")),
+            "zona": _clean_text(row.get("zona")),
+            "rut": _clean_text(row.get("rut")),
+            "operacion": _clean_text(row.get("operacion")),
+            "origen": _clean_text(row.get("origen")),
+            "ciclo": _clean_text(row.get("ciclo")),
+            "apertura": _clean_text(row.get("apertura")),
+            "bloque": _clean_text(row.get("bloque")),
+            "deuda": float(row.get("deuda") or 0),
+            "contenido": float(row.get("contenido") or 0),
+            "normalizado": float(row.get("normalizado") or 0),
+        }
+        for row in run_query_sets(sql, (periodo,))[-1]
+    ]
+
+
+def _load_zonas_ejecutivos() -> dict[str, str]:
+    sql = f"""
+    SET NOCOUNT ON;
+
+    WITH ultima AS (
+        SELECT UPPER(LTRIM(RTRIM(ejecutivo))) AS ejecutivo, MAX(fecha) AS fecha
+        FROM dbo.vw_stc_sabana_avance
+        WHERE ISNULL(LTRIM(RTRIM(ejecutivo)), '') <> ''
+        GROUP BY UPPER(LTRIM(RTRIM(ejecutivo)))
+    ),
+    zonas AS (
+        SELECT
+            u.ejecutivo,
+            {_zona_sql("v.zona")} AS zona,
+            COUNT_BIG(1) AS operaciones
+        FROM dbo.vw_stc_sabana_avance v
+        INNER JOIN ultima u
+            ON UPPER(LTRIM(RTRIM(v.ejecutivo))) = u.ejecutivo
+           AND v.fecha = u.fecha
+        WHERE v.zona IS NOT NULL
+        GROUP BY u.ejecutivo, {_zona_sql("v.zona")}
+    )
+    SELECT ejecutivo, zona
+    FROM (
+        SELECT ejecutivo, zona, ROW_NUMBER() OVER (PARTITION BY ejecutivo ORDER BY operaciones DESC, zona) AS rn
+        FROM zonas
+    ) z
+    WHERE rn = 1 AND zona IS NOT NULL;
+    """
+    return {row["ejecutivo"]: row["zona"] for row in run_query_sets(sql)[-1]}
+
+
+def get_zonas_ejecutivos() -> dict[str, str]:
+    """Zona principal de cada ejecutivo (clave en mayusculas) en su ultima foto de la sabana. Sirve para ubicar
+    a quien no tiene cartera en la fecha consultada, p. ej. en los negocios del Excel."""
+    return cached(("sc_tardia", "zonas_ejecutivos"), _load_zonas_ejecutivos)
 
 
 def _num(value) -> float:

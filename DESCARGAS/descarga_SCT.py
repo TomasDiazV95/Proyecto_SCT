@@ -1713,14 +1713,63 @@ def autenticar_visor(
     # VALIDAR CODIGO
     # ========================================================
 
+    # Mientras se espera el correo el visor puede abrir el aviso "Mensaje",
+    # que queda encima del boton y bloquea el clic: se cierra antes.
+    def cerrar_aviso() -> str:
+
+        if not boton_cerrar.is_visible():
+
+            return ""
+
+        texto = page.get_by_label(
+            "Mensaje"
+        ).inner_text().strip()
+
+        print(
+            f"Aviso del visor: {texto}"
+        )
+
+        boton_cerrar.click()
+
+        boton_cerrar.wait_for(
+            state="hidden",
+            timeout=10000,
+        )
+
+        return texto
+
+    cerrar_aviso()
+
     campo_codigo.fill(
         codigo
     )
 
-    page.get_by_role(
+    boton_validar = page.get_by_role(
         "button",
         name="Validar código",
-    ).click()
+    )
+
+    for intento in range(5):
+
+        cerrar_aviso()
+
+        try:
+
+            boton_validar.click(
+                timeout=5000,
+            )
+
+            break
+
+        except PlaywrightTimeoutError:
+
+            if intento == 4:
+
+                raise
+
+            print(
+                "Algo tapa 'Validar código'; se reintenta."
+            )
 
     # ========================================================
     # ESPERAR HOME
@@ -1731,10 +1780,26 @@ def autenticar_visor(
         name=" explorador archivos",
     )
 
-    link_explorador.wait_for(
-        state="visible",
-        timeout=30000,
-    )
+    # Si el visor rechaza el codigo responde con el aviso: se cierra y,
+    # si el inicio no llega, el error lleva su texto.
+    ultimo_aviso = ""
+
+    for _ in range(60):
+
+        if link_explorador.is_visible():
+
+            break
+
+        ultimo_aviso = cerrar_aviso() or ultimo_aviso
+
+        page.wait_for_timeout(500)
+
+    else:
+
+        raise TimeoutError(
+            "Tras validar el código no apareció el inicio del visor."
+            + (f" Aviso del visor: {ultimo_aviso}" if ultimo_aviso else "")
+        )
 
     print(
         "Login completado."

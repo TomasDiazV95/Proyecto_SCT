@@ -1162,3 +1162,92 @@ def get_general_view(filters: dict) -> list[dict]:
         }
     )
     return rows
+
+
+def _bloque_operacion(row: dict, periodo: str, productos_con_ciclo: set[str], ciclos_ejecutivo: set[tuple]) -> tuple[str, int] | None:
+    """(producto, ciclo) del bloque de la vista desglosada en que suma la operacion, con las mismas reglas
+    que _build_detail_for_product y get_detail_view. None si no suma en ninguno."""
+    multiproducto = _reglas_multiproducto(periodo)
+    # SQL Server compara sin distinguir mayusculas ni espacios finales: aca igual.
+    norm = lambda value: str(value or "").strip().upper()
+    producto = next(
+        (key for key, cfg in PRODUCT_CONFIG.items()
+         if key != "multiproducto"
+         and norm(cfg["producto_cliente"]) == norm(row["producto_cliente"]) and norm(cfg["empresa"]) == norm(row["empresa"])),
+        None,
+    )
+    if producto is None or row["ciclo"] is None:
+        return None
+    ciclo = int(row["ciclo"])
+    grupal = row["ejecutivo"].strip().lower() == "grupal"
+    if multiproducto and grupal:
+        return ("multiproducto", 0) if MULTIPRODUCTO_CICLOS[0] <= ciclo <= MULTIPRODUCTO_CICLOS[1] else None
+    if grupal and (multiproducto or producto in ("hipotecario", "consumo")):
+        return None
+    if producto == "tarjeta":
+        if multiproducto:
+            return ("tarjeta", 99) if TARJETA_CICLOS_MULTIPRODUCTO[0] <= ciclo <= TARJETA_CICLOS_MULTIPRODUCTO[1] else None
+        if ciclo == 0:
+            return ("tarjeta", 0)
+        return ("tarjeta", 99) if 1 <= ciclo <= 6 else None
+    if ciclo not in PRODUCT_CONFIG[producto]["ciclos"]:
+        return None
+    if producto in productos_con_ciclo and not grupal and (row["ejecutivo"].strip().lower(), producto, ciclo) not in ciclos_ejecutivo:
+        return None
+    return producto, ciclo
+
+
+def get_operaciones_excel(filters: dict) -> list[dict]:
+    """Operaciones del primer bench del mes que suman en la vista desglosada, con su bloque (producto y ciclo)."""
+    periodo = _period_start(filters.get("periodo"))
+    sql = """
+    SELECT
+        b.fld_Rut AS rut,
+        ISNULL(NULLIF(LTRIM(RTRIM(c.ejecutivo)), ''), 'Grupal') AS ejecutivo,
+        b.fld_Operaciones AS operacion,
+        TRY_CAST(b.fld_Ciclo AS INT) AS ciclo,
+        CAST(b.fld_Contenido AS INT) AS contenido,
+        CAST(b.[fld_MM$ Monto] AS FLOAT) AS monto,
+        b.[fld_Producto cliente] AS producto_cliente,
+        b.fld_Empresa AS empresa
+    FROM dbo.tmp_bench_STH b
+    LEFT JOIN dbo.tmp_carterizado_STH c
+        ON b.fld_Rut = c.rut
+       AND CONVERT(date, c.mes_carterizado) = ?
+    WHERE b.fecha_carga = (
+        SELECT MIN(t.fecha_carga)
+        FROM dbo.tmp_bench_STH t
+        WHERE t.fecha_carga BETWEEN ? AND EOMONTH(?)
+    )
+    """
+    ciclos_ejecutivo = {
+        (str(r["ejecutivo"]).strip().lower(), str(r["producto"]).strip().lower(), int(r["ciclo"]))
+        for r in run_query(
+            "SELECT ejecutivo, producto, ciclo FROM dbo.sth_ejecutivos_ciclo WHERE periodo = ? AND activo = 1",
+            (periodo,),
+        )
+        if r.get("ejecutivo") and r.get("producto") and r.get("ciclo") is not None
+    }
+    productos_con_ciclo = _products_with_cycle_config(periodo)
+    filas: list[dict] = []
+    for row in run_query(sql, (periodo, periodo, periodo)):
+        bloque = _bloque_operacion(row, periodo, productos_con_ciclo, ciclos_ejecutivo)
+        if bloque is None:
+            continue
+        producto, ciclo = bloque
+        monto = float(row["monto"] or 0)
+        contenido = int(row["contenido"] or 0) == 1
+        filas.append({
+            "producto": producto,
+            "ciclo": ciclo,
+            "tramo": _tramo_meta(producto, ciclo, periodo),
+            "ejecutivo": row["ejecutivo"],
+            "rut": row["rut"],
+            "operacion": row["operacion"],
+            "ciclo_bench": row["ciclo"],
+            "producto_cliente": row["producto_cliente"],
+            "deuda": monto,
+            "contenido": contenido,
+            "saldo_contenido": monto if contenido else 0.0,
+        })
+    return filas

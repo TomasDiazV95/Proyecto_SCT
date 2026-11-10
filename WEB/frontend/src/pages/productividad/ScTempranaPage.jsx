@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters } from "../../api";
+import { downloadScTempranaExcel, fetchScTempranaCycle, fetchScTempranaDetail, fetchScTempranaFilters } from "../../api";
+import { useAuth } from "../../auth/AuthContext";
 import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
@@ -95,6 +96,9 @@ export default function ScTempranaPage() {
   const [operationSearch, setOperationSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { user } = useAuth();
+  const esSuperAdmin = user?.role === "super_admin";
+  const [descargando, setDescargando] = useState(false);
   const hasActiveFilters =
   filters.ejecutivo ||
   operationSearch ||
@@ -182,6 +186,30 @@ export default function ScTempranaPage() {
     loadData();
   }, [filters, detailFilters, detailPage, detailPageSize, view, dataVersion]);
 
+  // Excel con los cumplimientos y el detalle de lo medible, solo para super admin.
+  async function descargarExcel() {
+    if (!filters.periodo) {
+      return;
+    }
+    setDescargando(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadScTempranaExcel(filters.periodo);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDescargando(false);
+    }
+  }
+
   function onChange(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
     setDetailPage(1);
@@ -247,9 +275,16 @@ export default function ScTempranaPage() {
 
       <FilterBar
         actions={
-          <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
-            <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
-          </button>
+          <>
+            {esSuperAdmin && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={descargarExcel} disabled={!filters.periodo || descargando}>
+                <i className="bi bi-download" aria-hidden="true" /> {descargando ? "Descargando..." : "Descargar Excel"}
+              </button>
+            )}
+            <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
+              <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
+            </button>
+          </>
         }
       >
         <Field label="Periodo">

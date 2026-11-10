@@ -95,6 +95,21 @@ PESO_RESPUESTA = [
 ]
 
 
+# Equipos de octubre 2026: desde el 13-10 cada ejecutiva solo suma en su ambito (C1 o C2C3) y una gestion
+# fuera de el no cuenta. Sin fila para la fecha de la gestion, cuenta en cualquier tramo. Desde el 16-10
+# Marlexis trabaja la base FPD, que se calcula aparte: ninguna de sus gestiones cuenta.
+_EQUIPO_C1 = ("CVERA", "SDUARTE", "RCALDERON", "PALTAMIRANO", "MINOSTROZA")
+_EQUIPO_C2C3 = ("BMONCADA", "EMUNOZ", "SFUENTES", "LROJAS")
+EQUIPOS = [
+    *((user, "C1", "2026-10-13", "2026-10-31") for user in _EQUIPO_C1),
+    *((user, "C2C3", "2026-10-13", "2026-10-31") for user in _EQUIPO_C2C3),
+    ("MCOLMENARES", "C2C3", "2026-10-13", "2026-10-15"),
+    ("MCOLMENARES", "FPD", "2026-10-16", "2026-10-31"),
+]
+# Operaciones FPD del mes (ETL/carga_fpd_temprana.py): siguen en el bench y en el detalle con la marca fpd,
+# pero no suman al aporte (deuda asignada ni monto contenido) de nadie.
+FPD_TABLE = "dbo.tmp_sc_temprana_fpd"
+
 BENCH_TABLE = "dbo.tmp_bench_temp_STC"
 # El bench de fin de mes guarda dos cargas del mismo archivo (ETL/bench_recarga.py):
 # version_carga = 'PRECIERRE' en la primera y NULL en la vigente (cierre).
@@ -156,6 +171,17 @@ def _safe_div(num: float, den: float) -> float:
     return (num / den) * 100.0
 
 
+def _equipo_insert(periodo: str) -> str:
+    """INSERT de #equipo con las filas de EQUIPOS que tocan el mes de la foto (vacio en otros meses)."""
+    mes = "".join(ch for ch in periodo if ch.isdigit())[:6]
+    filas = [
+        f"('{user}', '{ambito}', '{desde}', '{hasta}')"
+        for user, ambito, desde, hasta in EQUIPOS
+        if desde.replace("-", "")[:6] <= mes <= hasta.replace("-", "")[:6]
+    ]
+    return f"INSERT INTO #equipo VALUES {', '.join(filas)};" if filas else ""
+
+
 def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     """Lote SQL que deja en #asig una fila por operacion del bench con la gestion que se la lleva.
 
@@ -164,6 +190,9 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     Gana la mejor gestion del RUT hasta la fecha de pago (peso de la respuesta y la mas reciente);
     si no hay, la primera gestion posterior. Asi el contenido no cambia de ejecutivo al llegar
     gestiones nuevas. Las operaciones no contenidas van a la mejor gestion del mes.
+
+    Solo cuentan las gestiones dentro del ambito de la ejecutiva en esa fecha (EQUIPOS). Las operaciones
+    FPD del mes quedan marcadas con fpd = 1.
     """
     bench = _bench_source(periodo, version)
     peso_case = "\n".join(
@@ -171,6 +200,19 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
         for peso, respuesta in enumerate(PESO_RESPUESTA, start=1)
     )
     sql = f"""SET NOCOUNT ON;
+    CREATE TABLE #equipo (
+        usuario varchar(30) COLLATE DATABASE_DEFAULT,
+        ambito varchar(10) COLLATE DATABASE_DEFAULT,
+        desde date,
+        hasta date
+    );
+    {_equipo_insert(periodo)}
+
+    CREATE TABLE #fpd (operacion nvarchar(60) COLLATE DATABASE_DEFAULT PRIMARY KEY);
+    IF OBJECT_ID('{FPD_TABLE}') IS NOT NULL
+        INSERT INTO #fpd (operacion)
+        SELECT DISTINCT LTRIM(RTRIM(operacion)) FROM {FPD_TABLE} WHERE periodo = LEFT(?, 6);
+
     SELECT
         g.rut,
         g.UsuarioGestion,
@@ -222,6 +264,7 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
         b.fld_OPERACION AS operacion,
         b.fld_RUT AS rut,
         LTRIM(RTRIM(b.fld_TRAMO_MORA)) AS tramo,
+        CASE WHEN f.operacion IS NOT NULL THEN 1 ELSE 0 END AS fpd,
         CAST(ISNULL(b.fld_DEUDA_INI, 0) AS float) AS deuda,
         CAST(ISNULL(b.fld_CONTENIDO, 0) AS float) AS monto_contenido,
         CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN 1 ELSE 0 END AS contenido,
@@ -230,6 +273,7 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     INTO #ops
     FROM {bench} b
     LEFT JOIN #pago p ON p.operacion = b.fld_OPERACION
+    LEFT JOIN #fpd f ON f.operacion = LTRIM(RTRIM(b.fld_OPERACION))
     WHERE b.fld_fecha = ?;
 
     WITH candidatas AS (
@@ -244,6 +288,12 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
             CASE WHEN o.fecha_pago IS NOT NULL AND g.GestionFecha > o.fecha_pago THEN 1 ELSE 0 END AS es_posterior
         FROM #ops o
         INNER JOIN #gest g ON g.rut = o.rut
+        WHERE NOT EXISTS (
+            SELECT 1 FROM #equipo e
+            WHERE e.usuario = g.UsuarioGestion
+              AND g.GestionFecha BETWEEN e.desde AND e.hasta
+              AND e.ambito <> CASE WHEN o.tramo = 'C1' THEN 'C1' ELSE 'C2C3' END
+        )
     ),
     elegida AS (
         SELECT
@@ -262,7 +312,9 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     )
     SELECT
         o.operacion,
+        o.rut,
         o.tramo,
+        o.fpd,
         o.deuda,
         o.monto_contenido,
         o.contenido,
@@ -275,7 +327,7 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     FROM #ops o
     LEFT JOIN elegida e ON e.fila = o.fila AND e.rn = 1;
     """
-    return sql, [periodo] * 8
+    return sql, [periodo] * 9
 
 
 @cached_view
@@ -346,18 +398,24 @@ def _cycle_data(periodo: str, version: str) -> tuple[list[dict], int]:
     FROM #asig a
     WHERE a.usuario_gestion IN ({usuarios})
       AND a.tramo IN ('C1', 'C2', 'C3')
+      AND a.fpd = 0
     GROUP BY a.usuario_gestion
     """
 
     raw_rows = run_query_sets(sql, tuple(params))[-1]
 
+    # Casos C3 del bench sin las operaciones FPD, que se calculan aparte.
     sql_c3_base = f"""
     SELECT COUNT_BIG(1) AS c3_casos_base
     FROM {_bench_source(periodo, version)} b
     WHERE fld_fecha = ?
       AND UPPER(LTRIM(RTRIM(fld_TRAMO_MORA))) = 'C3'
+      AND NOT EXISTS (
+          SELECT 1 FROM {FPD_TABLE} f
+          WHERE f.periodo = LEFT(?, 6) AND f.operacion = LTRIM(RTRIM(b.fld_OPERACION))
+      )
     """
-    c3_base_rows = run_query(sql_c3_base, (periodo,))
+    c3_base_rows = run_query(sql_c3_base, (periodo, periodo))
     c3_casos_base = int(c3_base_rows[0].get("c3_casos_base") or 0) if c3_base_rows else 0
     return raw_rows, c3_casos_base
 
@@ -524,3 +582,32 @@ def get_detail_view(filters: dict) -> dict:
         "page": page,
         "page_size": page_size,
     }
+
+
+def get_detalle_excel(periodo_filtro: str | None) -> list[dict]:
+    """Operaciones C1/C2/C3 de la foto que se lleva una ejecutiva. Las FPD (fpd = 1) van marcadas y no suman al aporte."""
+    periodo = _normalize_period(periodo_filtro)
+    asignacion_sql, params = _asignacion_sql(periodo, _period_version(periodo_filtro))
+    usuarios = ", ".join(f"'{user}'" for user in USER_ORDER)
+    sql = f"""{asignacion_sql}
+    SELECT
+        a.usuario_gestion,
+        a.operacion,
+        a.rut,
+        a.tramo,
+        a.fpd,
+        a.deuda,
+        a.monto_contenido,
+        a.contenido,
+        a.normalizado,
+        a.respuesta_gestion,
+        a.gestion_fecha,
+        a.telefono
+    FROM #asig a
+    WHERE a.usuario_gestion IN ({usuarios})
+      AND a.tramo IN ('C1', 'C2', 'C3')
+    """
+    rows = run_query_sets(sql, tuple(params))[-1]
+    for row in rows:
+        row["ejecutivo"] = USER_TO_NAME[str(row["usuario_gestion"]).strip().upper()]
+    return rows
