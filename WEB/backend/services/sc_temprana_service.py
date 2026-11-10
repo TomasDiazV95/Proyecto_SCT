@@ -17,7 +17,13 @@ USER_TO_NAME = {
     "MCOLMENARES": "Marlexis Colmenares",
     "PALTAMIRANO": "Paula Altamirano",
     "RCALDERON": "Rocio Calderon",
+    "RCHERNANDEZ": "Raiza Hernandez",
+    "MLOPEZ": "Margarita Lopez",
 }
+
+# Altas y bajas del equipo (YYYYMM): la ejecutiva se mide desde EQUIPO_DESDE y hasta EQUIPO_HASTA inclusive.
+EQUIPO_DESDE = {"RCHERNANDEZ": "202611", "MLOPEZ": "202611"}
+EQUIPO_HASTA = {"BMONCADA": "202610", "EMUNOZ": "202610", "MCOLMENARES": "202610"}
 
 USER_ORDER = [
     "EMUNOZ",
@@ -30,7 +36,15 @@ USER_ORDER = [
     "MCOLMENARES",
     "PALTAMIRANO",
     "RCALDERON",
+    "RCHERNANDEZ",
+    "MLOPEZ",
 ]
+
+
+def usuarios_del_mes(periodo: str) -> list[str]:
+    """Ejecutivas que se miden en el mes de la foto, en el orden de siempre."""
+    mes = "".join(ch for ch in str(periodo) if ch.isdigit())[:6]
+    return [u for u in USER_ORDER if EQUIPO_DESDE.get(u, "000000") <= mes <= EQUIPO_HASTA.get(u, "999999")]
 
 # Nombre con que el archivo de negocios (columna DERIVADO) identifica a cada ejecutiva.
 DERIVADO_TO_USER = {
@@ -44,6 +58,8 @@ DERIVADO_TO_USER = {
     "MARLEXIS": "MCOLMENARES",
     "PAULA": "PALTAMIRANO",
     "ROCIO": "RCALDERON",
+    "RAIZA": "RCHERNANDEZ",
+    "MARGARITA": "MLOPEZ",
 }
 
 # Peso de cada respuesta: 1 es la mejor. Las respuestas que no estan aca no cuentan.
@@ -95,15 +111,17 @@ PESO_RESPUESTA = [
 ]
 
 
-# Equipos de octubre 2026: desde el 13-10 cada ejecutiva solo suma en su ambito (C1 o C2C3) y una gestion
-# fuera de el no cuenta. Sin fila para la fecha de la gestion, cuenta en cualquier tramo. Desde el 16-10
-# Marlexis trabaja la base FPD, que se calcula aparte: ninguna de sus gestiones cuenta.
+# Equipos de octubre 2026: cada ejecutiva solo suma en su ambito (C1 o C2C3) y una gestion fuera de el no
+# cuenta. Los equipos se separaron el 13-10, pero se aplica todo el mes: los pagos de un ciclo que no es el
+# suyo pasan a la mejor gestion de alguien de ese ciclo. Sin fila para la fecha de la gestion, cuenta en
+# cualquier tramo. Desde el 16-10 Marlexis trabaja la base FPD, que se calcula aparte: ninguna de sus
+# gestiones cuenta.
 _EQUIPO_C1 = ("CVERA", "SDUARTE", "RCALDERON", "PALTAMIRANO", "MINOSTROZA")
 _EQUIPO_C2C3 = ("BMONCADA", "EMUNOZ", "SFUENTES", "LROJAS")
 EQUIPOS = [
-    *((user, "C1", "2026-10-13", "2026-10-31") for user in _EQUIPO_C1),
-    *((user, "C2C3", "2026-10-13", "2026-10-31") for user in _EQUIPO_C2C3),
-    ("MCOLMENARES", "C2C3", "2026-10-13", "2026-10-15"),
+    *((user, "C1", "2026-10-01", "2026-10-31") for user in _EQUIPO_C1),
+    *((user, "C2C3", "2026-10-01", "2026-10-31") for user in _EQUIPO_C2C3),
+    ("MCOLMENARES", "C2C3", "2026-10-01", "2026-10-15"),
     ("MCOLMENARES", "FPD", "2026-10-16", "2026-10-31"),
 ]
 # Operaciones FPD del mes (ETL/carga_fpd_temprana.py): siguen en el bench y en el detalle con la marca fpd,
@@ -384,7 +402,7 @@ def get_general_view(filters: dict) -> list[dict]:
 def _cycle_data(periodo: str, version: str) -> tuple[list[dict], int]:
     """Montos por usuario de gestion y casos C3 del bench para la foto consultada."""
     asignacion_sql, params = _asignacion_sql(periodo, version)
-    usuarios = ", ".join(f"'{user}'" for user in USER_ORDER)
+    usuarios = ", ".join(f"'{user}'" for user in usuarios_del_mes(periodo))
     sql = f"""{asignacion_sql}
     SELECT
         a.usuario_gestion,
@@ -433,7 +451,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
     c3_total_cont = sum(float(r.get("c3_monto_cont") or 0) for r in raw_rows)
 
     rows: list[dict] = []
-    for user in USER_ORDER:
+    for user in usuarios_del_mes(periodo):
         item = next((r for r in raw_rows if str(r.get("usuario_gestion") or "").strip().upper() == user), None)
         c1_deuda = float(item.get("c1_deuda_asignada") or 0) if item else 0.0
         c1_cont = float(item.get("c1_monto_cont") or 0) if item else 0.0
@@ -588,7 +606,7 @@ def get_detalle_excel(periodo_filtro: str | None) -> list[dict]:
     """Operaciones C1/C2/C3 de la foto que se lleva una ejecutiva. Las FPD (fpd = 1) van marcadas y no suman al aporte."""
     periodo = _normalize_period(periodo_filtro)
     asignacion_sql, params = _asignacion_sql(periodo, _period_version(periodo_filtro))
-    usuarios = ", ".join(f"'{user}'" for user in USER_ORDER)
+    usuarios = ", ".join(f"'{user}'" for user in usuarios_del_mes(periodo))
     sql = f"""{asignacion_sql}
     SELECT
         a.usuario_gestion,
