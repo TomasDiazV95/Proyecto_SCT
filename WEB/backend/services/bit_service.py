@@ -9,30 +9,58 @@ CONTENCION_ULTIMA = """(
     WHERE t.fecha_archivo = (SELECT MAX(u.fecha_archivo) FROM dbo.tmp_BIT_contencion u WHERE u.periodo = t.periodo)
 )"""
 
+def _rut_key(expr: str) -> str:
+    """RUT sin DV, puntos ni espacios; si es numerico, sin ceros a la izquierda."""
+    base = f"REPLACE(REPLACE(LTRIM(RTRIM(COALESCE({expr}, ''))), '.', ''), ' ', '')"
+    limpio = f"UPPER(CASE WHEN CHARINDEX('-', {base}) > 0 THEN LEFT({base}, CHARINDEX('-', {base}) - 1) ELSE {base} END)"
+    return (
+        f"CASE WHEN {limpio} <> '' AND {limpio} NOT LIKE '%[^0-9]%' "
+        f"THEN CAST(CAST({limpio} AS BIGINT) AS VARCHAR(50)) ELSE {limpio} END"
+    )
+
+
+def _op_key(expr: str) -> str:
+    """Numero de operacion sin ceros a la izquierda cuando es numerico."""
+    limpio = f"LTRIM(RTRIM(COALESCE({expr}, '')))"
+    return (
+        f"CASE WHEN {limpio} <> '' AND {limpio} NOT LIKE '%[^0-9]%' "
+        f"THEN CAST(CAST({limpio} AS BIGINT) AS VARCHAR(50)) ELSE UPPER({limpio}) END"
+    )
+
+
+# Desde este periodo el ejecutivo se asocia por RUT; antes, por numero de operacion.
+PERIODO_ASIGNACION_POR_RUT = "2026-11"
+
+
+def _match_key(periodo: str, rut: str, operacion: str) -> str:
+    return (
+        f"CASE WHEN {periodo} >= '{PERIODO_ASIGNACION_POR_RUT}' "
+        f"THEN {_rut_key(rut)} ELSE {_op_key(operacion)} END"
+    )
+
+
+# Ejecutivo de cada operacion: cruce contra el carterizado VIGENTE (por RUT u operacion, segun periodo).
 BIT_DATA_CTE = f"""
 WITH carterizado_unico AS (
+    -- Un ejecutivo por llave (RUT u operacion segun periodo): si viene con mas de uno, gana el primero cargado.
     SELECT
         periodo,
-        operation_key,
+        match_key,
         usuario,
         ROW_NUMBER() OVER (
-            PARTITION BY periodo, operation_key
+            PARTITION BY periodo, match_key
             ORDER BY id ASC
         ) AS rn
     FROM (
         SELECT
             periodo,
             usuario,
-            CASE
-                WHEN LTRIM(RTRIM(COALESCE(nro_operacion, ''))) <> ''
-                 AND LTRIM(RTRIM(COALESCE(nro_operacion, ''))) NOT LIKE '%[^0-9]%'
-                    THEN CAST(CAST(LTRIM(RTRIM(nro_operacion)) AS BIGINT) AS VARCHAR(50))
-                ELSE UPPER(LTRIM(RTRIM(COALESCE(nro_operacion, ''))))
-            END AS operation_key,
+            {_match_key("periodo", "rut", "nro_operacion")} AS match_key,
             id
         FROM dbo.tmp_BIT_carterizado
         WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) = 'VIGENTE'
     ) src
+    WHERE match_key <> ''
 ), metas AS (
     SELECT periodo, tramo, meta
     FROM (
@@ -72,12 +100,7 @@ WITH carterizado_unico AS (
     FROM {CONTENCION_ULTIMA} c
     LEFT JOIN carterizado_unico cu
         ON cu.periodo = c.periodo
-       AND cu.operation_key = CASE
-            WHEN LTRIM(RTRIM(COALESCE(c.con_no, ''))) <> ''
-             AND LTRIM(RTRIM(COALESCE(c.con_no, ''))) NOT LIKE '%[^0-9]%'
-                THEN CAST(CAST(LTRIM(RTRIM(c.con_no)) AS BIGINT) AS VARCHAR(50))
-            ELSE UPPER(LTRIM(RTRIM(COALESCE(c.con_no, ''))))
-        END
+       AND cu.match_key = {_match_key("c.periodo", "c.rut", "c.con_no")}
        AND cu.rn = 1
     LEFT JOIN metas m
         ON m.periodo = c.periodo
@@ -92,28 +115,25 @@ WITH carterizado_unico AS (
 
 BIT_DATA_CTE_TRAMOS = f"""
 WITH carterizado_unico AS (
+    -- Un ejecutivo por llave (RUT u operacion segun periodo): si viene con mas de uno, gana el primero cargado.
     SELECT
         periodo,
-        operation_key,
+        match_key,
         usuario,
         ROW_NUMBER() OVER (
-            PARTITION BY periodo, operation_key
+            PARTITION BY periodo, match_key
             ORDER BY id ASC
         ) AS rn
     FROM (
         SELECT
             periodo,
             usuario,
-            CASE
-                WHEN LTRIM(RTRIM(COALESCE(nro_operacion, ''))) <> ''
-                 AND LTRIM(RTRIM(COALESCE(nro_operacion, ''))) NOT LIKE '%[^0-9]%'
-                    THEN CAST(CAST(LTRIM(RTRIM(nro_operacion)) AS BIGINT) AS VARCHAR(50))
-                ELSE UPPER(LTRIM(RTRIM(COALESCE(nro_operacion, ''))))
-            END AS operation_key,
+            {_match_key("periodo", "rut", "nro_operacion")} AS match_key,
             id
         FROM dbo.tmp_BIT_carterizado
         WHERE UPPER(LTRIM(RTRIM(COALESCE(cartera, '')))) = 'VIGENTE'
     ) src
+    WHERE match_key <> ''
 ), metas AS (
     SELECT periodo, tramo, meta
     FROM (
@@ -153,12 +173,7 @@ WITH carterizado_unico AS (
     FROM {CONTENCION_ULTIMA} c
     LEFT JOIN carterizado_unico cu
         ON cu.periodo = c.periodo
-       AND cu.operation_key = CASE
-            WHEN LTRIM(RTRIM(COALESCE(c.con_no, ''))) <> ''
-             AND LTRIM(RTRIM(COALESCE(c.con_no, ''))) NOT LIKE '%[^0-9]%'
-                THEN CAST(CAST(LTRIM(RTRIM(c.con_no)) AS BIGINT) AS VARCHAR(50))
-            ELSE UPPER(LTRIM(RTRIM(COALESCE(c.con_no, ''))))
-        END
+       AND cu.match_key = {_match_key("c.periodo", "c.rut", "c.con_no")}
        AND cu.rn = 1
     LEFT JOIN metas m
         ON m.periodo = c.periodo
