@@ -15,7 +15,9 @@ from services.excel_formato import (
     anchos_cumplimiento, formula, guardar, hoja_detalle, ratio, sin_phoenix, tabla_cumplimiento, valor,
 )
 from services.negocios_service import SIN_EJECUTIVO, get_conteo, get_detalle as get_negocios_detalle
-from services.sc_temprana_service import _normalize_period, _period_version, get_cycle_view, get_detalle_excel
+from services.sc_temprana_service import (
+    _normalize_period, _period_version, get_cycle_view, get_detalle_excel, get_tramos_mes,
+)
 
 
 NEGOCIO = "sc-telefonia"
@@ -103,10 +105,14 @@ def build_excel(periodo: str | None) -> tuple:
             for r in operaciones if r["tramo"] in tramos
         ],
     )
+    # Tramo de cada negocio: el ultimo del mes en el bench hasta la foto ("-" si no esta).
+    negocios = _sin_ejecutivo(get_negocios_detalle(NEGOCIO, periodo)["filas"])
+    tramo_de = get_tramos_mes(periodo, [f["operacion"] for f in negocios])
     hoja_detalle(
         wb, "NEGOCIOS",
-        [("EJECUTIVO", 24, None), ("OPERACIÓN", 18, None), ("TIPO", 18, None)],
-        [[f["ejecutivo"], f["operacion"], f["producto_nombre"]] for f in _sin_ejecutivo(get_negocios_detalle(NEGOCIO, periodo)["filas"])],
+        [("EJECUTIVO", 24, None), ("OPERACIÓN", 18, None), ("CICLO / TRAMO", 14, None), ("TIPO", 18, None)],
+        [[f["ejecutivo"], f["operacion"], tramo_de.get(str(f["operacion"] or "").strip(), "-"), f["producto_nombre"]]
+         for f in negocios],
     )
 
     foto = _normalize_period(periodo).replace("-", "")

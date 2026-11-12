@@ -119,10 +119,11 @@ def _formula_ratio(spec: dict, inicio: int, r: int) -> str:
     return f"=IF(N({den})=0,{si_cero},{division})"
 
 
-def columnas_grupos(grupos: list[tuple[str, list[dict]]]):
-    """ref(titulo_grupo, sub) = letra de esa columna en la tabla (los grupos parten en la columna D)."""
+def columnas_grupos(grupos: list[tuple[str, list[dict]]], inicio: int = 4):
+    """ref(titulo_grupo, sub) = letra de esa columna en la tabla (los grupos parten en la columna D,
+    o en la E si la tabla lleva una columna antes de EJECUTIVO)."""
     posiciones: dict[tuple[str, str], int] = {}
-    c = 4
+    c = inicio
     for titulo_grupo, specs in grupos:
         for j, spec in enumerate(specs):
             posiciones[(titulo_grupo, spec["sub"])] = c + j
@@ -130,24 +131,32 @@ def columnas_grupos(grupos: list[tuple[str, list[dict]]]):
     return lambda titulo_grupo, sub_col: col(posiciones[(titulo_grupo, sub_col)])
 
 
-def tabla_cumplimiento(ws, top: int, titulo: str, etiqueta: str, filas: list[dict], grupos: list[tuple[str, list[dict]]]) -> int:
+def tabla_cumplimiento(ws, top: int, titulo: str, etiqueta: str, filas: list[dict], grupos: list[tuple[str, list[dict]]],
+                       previa: tuple[str, str] | None = None) -> int:
     """Tabla desde la fila top: columna B = titulo (p. ej. COBRADOR) con la etiqueta combinada, C = EJECUTIVO,
-    luego los grupos y una fila TOTAL. Devuelve la fila del total."""
+    luego los grupos y una fila TOTAL. Con previa = (encabezado, key), esa columna de texto va antes de
+    EJECUTIVO y todo lo demas se corre una columna. Devuelve la fila del total."""
     cab, sub, datos = top, top + 1, top + 2
     ultima = datos + len(filas) - 1
     total = ultima + 1
+    col_ejecutivo = 4 if previa else 3
 
     celda(ws, cab, 2, titulo, font=BLANCA, fill=AZUL, hasta_fila=sub)
-    celda(ws, cab, 3, "EJECUTIVO", font=BLANCA, fill=AZUL, hasta_fila=sub)
+    if previa:
+        celda(ws, cab, 3, previa[0], font=BLANCA, fill=AZUL, hasta_fila=sub)
+        for k, fila in enumerate(filas):
+            celda(ws, datos + k, 3, fila.get(previa[1]) or "-")
+        celda(ws, total, 3, None, fill=GRIS)
+    celda(ws, cab, col_ejecutivo, "EJECUTIVO", font=BLANCA, fill=AZUL, hasta_fila=sub)
     celda(ws, datos, 2, etiqueta, font=NEGRITA, hasta_fila=total)
     for k, fila in enumerate(filas):
-        celda(ws, datos + k, 3, fila["ejecutivo"], font=NEGRITA)
-    celda(ws, total, 3, "TOTAL", font=NEGRITA, fill=GRIS)
+        celda(ws, datos + k, col_ejecutivo, fila["ejecutivo"], font=NEGRITA)
+    celda(ws, total, col_ejecutivo, "TOTAL", font=NEGRITA, fill=GRIS)
 
     rango = lambda c: f"{col(c)}{datos}:{col(c)}{ultima}"
-    ref = columnas_grupos(grupos)
+    ref = columnas_grupos(grupos, col_ejecutivo + 1)
 
-    c = 4
+    c = col_ejecutivo + 1
     for titulo_grupo, specs in grupos:
         celda(ws, cab, c, titulo_grupo, font=BLANCA, fill=AZUL, hasta_col=c + len(specs) - 1)
         for j, spec in enumerate(specs):

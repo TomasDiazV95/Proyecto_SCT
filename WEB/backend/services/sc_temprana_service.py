@@ -602,6 +602,38 @@ def get_detail_view(filters: dict) -> dict:
     }
 
 
+def get_tramos_mes(periodo_filtro: str | None, operaciones: list[str]) -> dict[str, str]:
+    """Ultimo tramo de mora del mes (hasta la foto consultada) de cada operacion pedida, segun el bench."""
+    claves = sorted({str(op or "").strip() for op in operaciones if str(op or "").strip()})
+    if not claves:
+        return {}
+    periodo = _normalize_period(periodo_filtro)
+    bench = _bench_source(periodo, _period_version(periodo_filtro))
+    tramos: dict[str, str] = {}
+    for i in range(0, len(claves), 500):
+        lote = claves[i:i + 500]
+        filas = run_query(
+            f"""
+            SELECT operacion, tramo
+            FROM (
+                SELECT
+                    LTRIM(RTRIM(b.fld_OPERACION)) AS operacion,
+                    LTRIM(RTRIM(b.fld_TRAMO_MORA)) AS tramo,
+                    ROW_NUMBER() OVER (PARTITION BY LTRIM(RTRIM(b.fld_OPERACION)) ORDER BY b.fld_fecha DESC) AS rn
+                FROM {bench} b
+                WHERE LEFT(b.fld_fecha, 6) = LEFT(?, 6)
+                  AND b.fld_fecha <= ?
+                  AND ISNULL(b.fld_TRAMO_MORA, '') <> ''
+                  AND LTRIM(RTRIM(b.fld_OPERACION)) IN ({",".join("?" * len(lote))})
+            ) t
+            WHERE rn = 1
+            """,
+            (periodo, periodo, *lote),
+        )
+        tramos.update({f["operacion"]: f["tramo"] for f in filas})
+    return tramos
+
+
 def get_detalle_excel(periodo_filtro: str | None) -> list[dict]:
     """Operaciones C1/C2/C3 de la foto que se lleva una ejecutiva. Las FPD (fpd = 1) van marcadas y no suman al aporte."""
     periodo = _normalize_period(periodo_filtro)

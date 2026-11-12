@@ -21,7 +21,7 @@ from services.excel_formato import (
 from services.negocios_service import SIN_EJECUTIVO, get_conteo, get_detalle as get_negocios_detalle
 from services.sc_tardia_service import (
     ALTAS_CUANTIAS_BLOCK, CASTIGO_TOTAL_BLOCK, MORA_TARDIA_BLOCKS, _executive_key, _period_date, _period_version,
-    get_cycle_view, get_metas, get_operaciones_excel, get_zonas_ejecutivos,
+    get_ciclos_mes, get_cycle_view, get_metas, get_operaciones_excel, get_zonas_ejecutivos, operacion_key,
 )
 
 
@@ -267,6 +267,7 @@ def _hoja_zona(wb: Workbook, zona: str, nombre: str, ejecutivos: list[dict], neg
         pondera = mora and CASTIGO_TOTAL_BLOCK in detalle and ALTAS_CUANTIAS_BLOCK not in detalle
         filas.append({
             "ejecutivo": ej["ejecutivo"],
+            "ciclos": _ciclos_cumplimiento(detalle),
             "pondera_mora": pesos["mora"] if pondera else "-",
             "pondera_castigo": pesos["castigo"] if pondera else "-",
         })
@@ -296,6 +297,7 @@ def _hoja_zona(wb: Workbook, zona: str, nombre: str, ejecutivos: list[dict], neg
         tabla_cumplimiento(
             ws, principal, "ZONA", nombre, filas,
             _grupos_principal(celdas, totales, filas, principal + 2, principal_total, pesos),
+            previa=("CICLOS CUMPLIMIENTO", "ciclos"),
         )
     for bloque, titulo, top, filas_bloque, grupos in cuadros:
         ancho = 3 + sum(len(specs) for _, specs in grupos)
@@ -310,6 +312,19 @@ def _hoja_zona(wb: Workbook, zona: str, nombre: str, ejecutivos: list[dict], neg
             ]),
         ])
     anchos_cumplimiento(ws, 20)
+    # D es EJECUTIVO en la tabla principal (C lleva los ciclos).
+    ws.column_dimensions["D"].width = 26
+
+
+def _ciclos_cumplimiento(detalle: dict) -> str:
+    """Ciclos que entran al % FINAL, con la misma regla de la formula: altas cuantias va sola; si no,
+    los ciclos de mora tardia que tiene y castigo."""
+    if ALTAS_CUANTIAS_BLOCK in detalle:
+        return "C1 - C2"
+    ciclos = [ETIQUETA_MORA[b] for b in MORA_TARDIA_BLOCKS if b in detalle]
+    if CASTIGO_TOTAL_BLOCK in detalle:
+        ciclos.append("CASTIGO F1 - F4")
+    return ", ".join(ciclos)
 
 
 def _sin_ejecutivo(filas: list[dict]) -> list[dict]:
@@ -389,10 +404,17 @@ def build_excel(periodo: str | None) -> tuple:
         ),
         key=lambda x: (orden_zona[x[0]], x[1]["ejecutivo"], x[1]["producto_nombre"], x[1]["operacion"]),
     )
+    # Ciclo (C1..C8) o tramo de castigo (F1..F4) de cada negocio: el de la foto consultada; si la operacion
+    # no esta en ella, el de su ultima foto del mes.
+    ciclo_de = {operacion_key(op["operacion"]): op["ciclo"] for op in operaciones if op["ciclo"]}
+    faltan = [f["operacion"] for _, f in negocios if operacion_key(f["operacion"]) not in ciclo_de]
+    ciclo_de.update(get_ciclos_mes(periodo, faltan))
     hoja_detalle(
         wb, "NEGOCIOS",
-        [("ZONA", 20, None), ("EJECUTIVO", 24, None), ("OPERACIÓN", 18, None), ("TIPO", 18, None)],
-        [[zona, f["ejecutivo"], f["operacion"], f["producto_nombre"]] for zona, f in negocios],
+        [("ZONA", 20, None), ("EJECUTIVO", 24, None), ("OPERACIÓN", 18, None), ("CICLO / TRAMO", 14, None),
+         ("TIPO", 18, None)],
+        [[zona, f["ejecutivo"], f["operacion"], ciclo_de.get(operacion_key(f["operacion"]), "-"), f["producto_nombre"]]
+         for zona, f in negocios],
     )
 
     foto = _period_date(periodo).replace("-", "")

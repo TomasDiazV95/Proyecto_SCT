@@ -197,6 +197,22 @@ export const modulePanels = [
     ],
   },
   {
+    code: "simuladores",
+    title: "Simulador de Renegociaciones Itaú",
+    description: "Cuota estimada de renegociación Itaú en línea, para entregarle al cliente el monto a pagar.",
+    path: "/simuladores",
+    accent: "orange",
+    modules: [
+      {
+        code: "simulador-renegociacion",
+        title: "Cuota de renegociación",
+        description: "Cuota estimada de renegociación para Itaú Apoya y otras campañas, con calendario de pagos.",
+        path: "/simuladores/renegociacion-itau",
+        buttonLabel: "Abrir simulador",
+      },
+    ],
+  },
+  {
     code: "rrhh",
     title: "Panel RRHH",
     description: "Planillas de cumplimiento por negocio y consolidado del mes.",

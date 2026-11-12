@@ -1,6 +1,6 @@
 import React, { Fragment, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { downloadGmMonthlyExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters, fetchGmGeneral } from "../../api";
+import { downloadGmExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters, fetchGmGeneral } from "../../api";
 import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
@@ -53,7 +53,8 @@ export default function GmPage() {
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
   const [metasOpen, setMetasOpen] = useState(false);
-  const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
+  // Descargar el Excel con el detalle de todo lo medible: solo super admin.
+  const esSuperAdmin = user?.role === "super_admin";
   const hasActiveFilters =
     filters.ejecutivo ||
     detailFilters.op ||
@@ -198,7 +199,7 @@ export default function GmPage() {
     setDownloading(true);
     setError("");
     try {
-      const { blob, filename } = await downloadGmMonthlyExcel(filters.periodo);
+      const { blob, filename } = await downloadGmExcel(filters.periodo);
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -331,21 +332,16 @@ export default function GmPage() {
 
   return (
     <div className="pd-page">
-      <PageHeader
-        title="General Motors"
-        subtitle="Seguimiento y cumplimiento de GM por bucket de mora."
-        actions={
-          canDownload && view !== "detalle" && (
-            <button type="button" className="pd-btn pd-btn-secondary" onClick={onDownload} disabled={!filters.periodo || downloading}>
-              <i className="bi bi-download" aria-hidden="true" /> {downloading ? "Descargando..." : "Descargar Excel"}
-            </button>
-          )
-        }
-      />
+      <PageHeader title="General Motors" subtitle="Seguimiento y cumplimiento de GM por bucket de mora." />
 
       <FilterBar
         actions={
           <>
+            {esSuperAdmin && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={onDownload} disabled={!filters.periodo || downloading}>
+                <i className="bi bi-download" aria-hidden="true" /> {downloading ? "Descargando..." : "Descargar Excel"}
+              </button>
+            )}
             <button type="button" className="pd-btn pd-btn-ghost" onClick={clearFilters} disabled={!hasActiveFilters || loading}>
               <i className="bi bi-x-circle" aria-hidden="true" /> Limpiar filtros
             </button>

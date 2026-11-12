@@ -421,7 +421,17 @@ def extraer_codigo_visor(
         contenido
     ).upper()
 
-    # 8 caracteres alfanumericos,
+    # El codigo va justo antes de "Este codigo es valido...".
+    # Puede venir solo con letras (ej. ABCDEFGH), por eso se busca primero por posicion.
+    match = re.search(
+        r"\b([A-Z0-9]{8})\s+ESTE\s+C\S{0,3}DIGO\b",
+        texto,
+    )
+
+    if match:
+        return match.group(1)
+
+    # Respaldo: 8 caracteres alfanumericos,
     # con al menos una letra y un numero.
     patron = (
         r"\b"
@@ -803,6 +813,7 @@ def ciclo_bench(
 
     # Tramo (C1, C2, C3) de un archivo del bench partido por tramo:
     # 20261009_PHOENIX (TELEFONIA)_C1_BENCH_MORA_TEMPRANA.XLSX
+    # 20261111_PHOENIX (TELEFONIA)_C1_202611_BENCH_MORA_TEMPRANA.XLSX (desde nov-2026, con periodo)
     tokens = tokens_bench(nombre)
     extra = tokens - esperado
 
