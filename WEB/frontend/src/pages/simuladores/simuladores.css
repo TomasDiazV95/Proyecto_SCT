@@ -1,0 +1,721 @@
+/* Simulador de Renegociaciones Itaú: estilos propios (prefijo sim-) sobre la base pd-* de productividad.css.
+   Pensado para caber en una pantalla de notebook (1366x650) sin scroll. */
+.sim-page {
+  --sim-accent: #ea580c;
+  --sim-accent-dark: #c2410c;
+  --sim-accent-soft: #fff7ed;
+  --sim-accent-ring: rgba(234, 88, 12, 0.18);
+  --sim-ink: #0f172a;
+  --sim-capital: #0f766e;
+  gap: 12px;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+
+.sim-page .pd-title {
+  font-size: 1.25rem;
+}
+
+.sim-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* ---- Formulario ---- */
+.sim-form {
+  display: grid;
+  gap: 0;
+  padding: 12px 18px 6px;
+}
+
+.sim-form-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pd-border);
+}
+
+.sim-campanas {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--pd-head);
+}
+
+.sim-campana {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-small);
+  white-space: nowrap;
+  transition: background 120ms, color 120ms, box-shadow 120ms;
+}
+
+.sim-campana:hover {
+  color: var(--pd-text);
+}
+
+.sim-campana.is-active {
+  background: var(--pd-surface);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+  color: var(--pd-text);
+}
+
+.sim-campana.is-active i {
+  color: var(--sim-accent);
+}
+
+.sim-campana-titulo {
+  font-weight: 700;
+}
+
+.sim-campana-detalle {
+  padding: 1px 7px;
+  border-radius: var(--pd-radius-pill);
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 0.7rem;
+}
+
+.sim-campana.is-active .sim-campana-detalle {
+  background: var(--sim-accent-soft);
+  color: var(--sim-accent-dark);
+}
+
+.sim-btn-limpiar:not(:disabled):hover {
+  border-color: var(--pd-danger);
+  color: var(--pd-danger-text);
+}
+
+.sim-seccion {
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--pd-border);
+}
+
+.sim-seccion:last-child {
+  border-bottom: 0;
+}
+
+.sim-seccion-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.sim-num {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--sim-ink);
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.sim-seccion-titulo {
+  margin: 0;
+  color: var(--pd-text);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.sim-grid {
+  display: grid;
+  gap: 8px 12px;
+}
+
+.sim-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sim-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.sim-campo {
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  min-width: 0;
+}
+
+.sim-label {
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sim-input {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--pd-border-strong);
+  border-radius: var(--pd-radius-sm);
+  background: var(--pd-surface);
+  overflow: hidden;
+}
+
+.sim-input:focus-within {
+  border-color: var(--sim-accent);
+  box-shadow: 0 0 0 3px var(--sim-accent-ring);
+}
+
+.sim-input .form-control {
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-input .form-control:disabled {
+  background: var(--pd-surface-muted);
+}
+
+.sim-input-pre,
+.sim-input-suf {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--pd-surface-muted);
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-label);
+  white-space: nowrap;
+}
+
+.sim-hint {
+  color: var(--pd-text-muted);
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+.sim-campo.is-invalid .sim-input {
+  border-color: var(--pd-danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+.sim-error {
+  color: var(--pd-danger-text);
+  font-size: 0.7rem;
+  line-height: 1.2;
+}
+
+/* Reparto cuotas / cuoton */
+.sim-reparto {
+  display: flex;
+  height: 6px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: var(--pd-radius-pill);
+}
+
+.sim-reparto-cuotas {
+  background: var(--sim-capital);
+  transition: width 200ms ease;
+}
+
+.sim-reparto-resto {
+  flex: 1;
+  background: #fb923c;
+}
+
+.sim-reparto-montos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 18px;
+  margin-top: 5px;
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-label);
+}
+
+.sim-reparto-montos strong {
+  margin-left: 4px;
+  color: var(--pd-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.sim-dot-cuotas { background: var(--sim-capital); }
+.sim-dot-resto { background: #fb923c; }
+
+/* Meses de gracia (dropdown dentro de la grilla) */
+.sim-input .sim-gracia-select {
+  min-width: 0;
+  height: 34px;
+  padding-left: 8px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+
+/* Costos (plegable) */
+.sim-costos-toggle {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.sim-costos.is-open .sim-costos-toggle {
+  margin-bottom: 8px;
+}
+
+.sim-costos-resumen {
+  overflow: hidden;
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-costos-accion {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--sim-accent);
+  font-size: var(--pd-fs-label);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---- Ficha de pago ---- */
+.sim-ficha {
+  position: sticky;
+  top: 12px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--pd-surface);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.sim-ficha-top {
+  display: grid;
+  gap: 2px;
+  padding: 16px 20px;
+  background: radial-gradient(120% 140% at 100% 0%, #7c2d12 0%, var(--sim-ink) 55%);
+  color: #fff;
+}
+
+.sim-ficha-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sim-ficha-etiqueta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: var(--pd-radius-pill);
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sim-ficha-label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.sim-ficha-cuota {
+  font-size: clamp(2rem, 3.4vw, 2.5rem);
+  font-weight: 800;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  animation: sim-aparece 260ms ease-out;
+}
+
+.sim-ficha-cuota.is-empty {
+  opacity: 0.5;
+  animation: none;
+}
+
+@keyframes sim-aparece {
+  from { opacity: 0.35; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.sim-ficha-sub {
+  color: #fdba74;
+  font-size: var(--pd-fs-small);
+}
+
+.sim-ficha-sub.is-error {
+  color: #fca5a5;
+}
+
+.sim-cuoton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--pd-border);
+  background: var(--sim-accent-soft);
+}
+
+.sim-cuoton .sim-ficha-label {
+  color: #9a3412;
+  opacity: 1;
+}
+
+.sim-cuoton-valor {
+  display: block;
+  color: var(--sim-ink);
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-cuoton-fecha {
+  color: #9a3412;
+  font-size: var(--pd-fs-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-ficha-datos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0;
+}
+
+.sim-ficha-datos > div {
+  display: grid;
+  gap: 1px;
+  padding: 9px 20px;
+  border-bottom: 1px solid var(--pd-border);
+}
+
+.sim-ficha-datos > div:nth-child(even) {
+  border-left: 1px solid var(--pd-border);
+}
+
+.sim-ficha-datos dt {
+  color: var(--pd-text-muted);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.sim-ficha-datos dd {
+  margin: 0;
+  color: var(--pd-text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-ficha-datos small {
+  margin-left: 6px;
+  color: var(--pd-text-muted);
+  font-weight: 400;
+}
+
+.sim-ficha-acciones {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px 4px;
+}
+
+.sim-btn-copiar {
+  flex: 1;
+  justify-content: center;
+  border-color: var(--sim-accent) !important;
+  background: var(--sim-accent) !important;
+}
+
+.sim-btn-copiar:not(:disabled):hover {
+  background: var(--sim-accent-dark) !important;
+}
+
+.sim-aviso {
+  display: block;
+  min-height: 1.1em;
+  padding: 0 20px;
+  color: var(--pd-success-text);
+  font-size: var(--pd-fs-label);
+  opacity: 0;
+  transition: opacity 150ms;
+}
+
+.sim-aviso.is-visible {
+  opacity: 1;
+}
+
+.sim-nota {
+  margin: 0;
+  padding: 2px 20px 14px;
+  color: var(--pd-text-subtle);
+  font-size: 0.7rem;
+  line-height: 1.3;
+}
+
+/* ---- Interruptor de la tabla de amortizacion ---- */
+.sim-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--pd-border);
+  border-radius: var(--pd-radius-sm);
+  background: var(--pd-surface-muted);
+  color: var(--pd-text);
+  font-size: var(--pd-fs-small);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sim-switch > i {
+  color: var(--pd-text-muted);
+}
+
+.sim-switch:hover {
+  border-color: var(--pd-border-strong);
+}
+
+.sim-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sim-switch-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 18px;
+  border-radius: var(--pd-radius-pill);
+  background: var(--pd-border-strong);
+  transition: background 150ms;
+}
+
+.sim-switch-track span {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.3);
+  transition: transform 150ms;
+}
+
+.sim-switch input:checked + .sim-switch-track {
+  background: var(--sim-accent);
+}
+
+.sim-switch input:checked + .sim-switch-track span {
+  transform: translateX(12px);
+}
+
+.sim-switch input:focus-visible + .sim-switch-track {
+  box-shadow: 0 0 0 3px var(--sim-accent-ring);
+}
+
+.sim-switch-meta {
+  margin-left: auto;
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-label);
+  font-weight: 400;
+}
+
+/* ---- Tabla de amortizacion ---- */
+.sim-tabla-bloque {
+  scroll-margin-top: 12px;
+}
+
+.sim-tabla-wrap {
+  max-height: 70vh;
+}
+
+.sim-tabla td {
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-fila-gracia td {
+  background: var(--sim-accent-soft);
+  color: #9a3412;
+}
+
+.sim-fila-cuoton td {
+  background: #ffedd5;
+  color: #7c2d12;
+  font-weight: 700;
+}
+
+.sim-fila-nota {
+  color: #9a3412 !important;
+  font-weight: 400 !important;
+  font-style: italic;
+}
+
+.sim-vacio {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+  color: var(--pd-text-muted);
+  text-align: center;
+}
+
+.sim-vacio i {
+  color: var(--pd-text-subtle);
+  font-size: 1.6rem;
+}
+
+/* ---- Barra fija con la cuota (solo pantallas angostas) ---- */
+.sim-barra-movil {
+  display: none;
+}
+
+/* ---- Pantallas medianas y celulares ---- */
+@media (max-width: 1100px) {
+  .sim-campana-detalle {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .sim-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sim-ficha {
+    position: static;
+  }
+
+  .sim-barra-movil {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border: 0;
+    border-radius: 12px;
+    background: var(--sim-ink);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.3);
+    color: #fff;
+    text-align: left;
+  }
+
+  .sim-barra-movil > span:first-child {
+    display: grid;
+  }
+
+  .sim-barra-label {
+    font-size: var(--pd-fs-label);
+    opacity: 0.7;
+  }
+
+  .sim-barra-movil strong {
+    font-size: 1.2rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .sim-barra-extra {
+    color: #fdba74;
+    font-size: var(--pd-fs-small);
+  }
+
+  .sim-barra-movil i {
+    margin-left: auto;
+  }
+
+  .sim-page {
+    padding-bottom: 80px;
+  }
+}
+
+@media (max-width: 600px) {
+  .sim-grid-3,
+  .sim-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sim-form-top {
+    flex-wrap: wrap;
+  }
+
+  .sim-costos-resumen {
+    display: none;
+  }
+}
+
+/* ---- Impresion / PDF: la ficha y, si esta abierta, la tabla de amortizacion ---- */
+@media print {
+  .sim-no-print,
+  .pd-breadcrumb,
+  .pd-export-actions {
+    display: none !important;
+  }
+
+  .sim-tabla-bloque {
+    margin-top: 16px;
+  }
+
+  .sim-tabla-wrap {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .sim-fila-gracia td,
+  .sim-fila-cuoton td {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .sim-page {
+    padding: 0;
+  }
+
+  .sim-layout {
+    display: block;
+  }
+
+  .sim-ficha {
+    position: static;
+    max-width: 520px;
+    border: 1px solid var(--pd-border);
+    box-shadow: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

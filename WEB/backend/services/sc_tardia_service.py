@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 from cache import cached, cached_view
-from database import run_query_sets
+from database import run_query, run_query_sets
 
 
 # Altas cuantias: la meta mide C1 y C2 juntos (contencion y normalizacion, como C3);
@@ -609,6 +609,45 @@ def _rows_from_query(filters: dict) -> list[dict]:
             rows = [row for row in rows if row[campo].strip().upper() == buscado]
 
     return [dict(row) for row in rows]
+
+
+def operacion_key(value) -> str:
+    """Numero de operacion comparable: sin espacios, decimales ni ceros a la izquierda."""
+    texto = str(value or "").strip()
+    if texto.endswith(".0"):
+        texto = texto[:-2]
+    return texto.lstrip("0") or texto
+
+
+def get_ciclos_mes(periodo_filtro: str | None, operaciones: list[str]) -> dict[str, str]:
+    """Ultimo ciclo del mes (hasta la foto consultada) de cada operacion pedida, por operacion_key."""
+    claves = sorted({operacion_key(op) for op in operaciones if operacion_key(op)})
+    if not claves:
+        return {}
+    hasta = _period_date(periodo_filtro)
+    desde = hasta[:8] + "01"
+    ciclos: dict[str, str] = {}
+    for i in range(0, len(claves), 500):
+        lote = claves[i:i + 500]
+        filas = run_query(
+            f"""
+            SELECT operacion, ciclo
+            FROM (
+                SELECT
+                    CONVERT(VARCHAR(50), operacion) AS operacion,
+                    ciclo,
+                    ROW_NUMBER() OVER (PARTITION BY operacion ORDER BY fecha DESC) AS rn
+                FROM dbo.vw_stc_sabana_avance
+                WHERE fecha BETWEEN ? AND ?
+                  AND ISNULL(ciclo, '') <> ''
+                  AND CONVERT(VARCHAR(50), operacion) IN ({",".join("?" * len(lote))})
+            ) t
+            WHERE rn = 1
+            """,
+            (desde, hasta, *lote),
+        )
+        ciclos.update({operacion_key(f["operacion"]): str(f["ciclo"]).strip() for f in filas})
+    return ciclos
 
 
 def get_operaciones_excel(periodo_filtro: str | None) -> list[dict]:

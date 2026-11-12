@@ -52,6 +52,19 @@ export async function authMe(accessToken) {
   return res.json();
 }
 
+// Datos y accesos vigentes del usuario, sin cerrar la sesion si falla (token vencido, sin red):
+// quien llama decide; el resto de la app ya renueva el token por su cuenta.
+export async function authSessionUser(accessToken) {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function authLogout(accessToken) {
   await fetch(`${API_BASE}/api/auth/logout`, {
     method: "POST",

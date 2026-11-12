@@ -1,7 +1,6 @@
 """Excel de Santander Hipotecario con el formato del de procuradores.
 
-Hoja CUMPLIMIENTOS: tabla principal con el cumplimiento de cada ejecutivo por producto, el producto trabajado y el
-cumplimiento final. Debajo, un cuadro por producto con como se llega a ese cumplimiento: por ciclo DEUDA ASIG.,
+Hoja CUMPLIMIENTOS: tabla principal con EJECUTIVO, % CUMPLIMIENTO FINAL, PRODUCTO y TRAMO trabajados. Debajo, un cuadro por producto con como se llega a ese cumplimiento: por ciclo DEUDA ASIG.,
 SALDO CONT., %CONT., META %, %CUMPL. y PONDERA, y el % FINAL del producto. Los % son formulas que leen esos
 cuadros, asi que se puede corregir un valor, una meta o una ponderacion a mano. Al final, los negocios del mes
 por tipo. Luego el detalle por operacion y el de los negocios (por RUT).
@@ -119,22 +118,11 @@ def _bloque(block: dict, top: int, multiproducto: bool) -> dict:
         "grupos": grupos,
         "con_grupal": con_grupal,
         "celda_final": {f["ejecutivo"]: f"{columna_final}{datos + i}" for i, f in enumerate(filas)},
-        "celda_total": f"{columna_final}{total}",
     }
 
 
-def _grupos_principal(productos: list[str], bloques: dict, filas: list[dict], datos: int, total: int, total_general: dict):
-    def por_producto(producto: str):
-        def fn(_ref, r: int) -> str:
-            bloque = bloques.get(producto)
-            if not bloque:
-                return "-"
-            if r == total:
-                return f"={bloque['celda_total']}"
-            celda_final = bloque["celda_final"].get(filas[r - datos]["ejecutivo"])
-            return f"={celda_final}" if celda_final else "-"
-        return fn
-
+def _grupos_principal(bloques: dict, filas: list[dict], datos: int, total: int, total_general: dict):
+    """EJECUTIVO | % CUMPLIMIENTO FINAL | PRODUCTO | TRAMO (el producto y tramo que trabaja)."""
     def final(_ref, r: int):
         if r == total:
             return (total_general.get("cumplimiento_final") or 0) / 100
@@ -143,13 +131,11 @@ def _grupos_principal(productos: list[str], bloques: dict, filas: list[dict], da
         return f"={celda_final}" if celda_final else 0
 
     return [
-        ("CUMPLIMIENTO POR PRODUCTO", [formula(PRODUCTO_LABEL[p], PCT, por_producto(p)) for p in productos]),
+        ("% CUMPLIMIENTO", [formula("FINAL", PCT, final)]),
         ("PRODUCTO TRABAJADO", [
             valor("PRODUCTO", "producto_label", None, total=""),
             valor("TRAMO", "tramo_trabajado", None, total=""),
-            valor("DEUDA", "deuda_referencia", MONEDA, total=total_general.get("deuda_referencia") or 0),
         ]),
-        ("CUMPLIMIENTO", [formula("% FINAL", PCT, final)]),
     ]
 
 
@@ -165,7 +151,6 @@ def build_excel(periodo: str | None) -> tuple:
         if r["ejecutivo"] != "Total general" and not _es_grupal(r["ejecutivo"])
     ]
     detalle = get_detail_view(filtros)
-    productos = [b["producto"] for b in detalle]
 
     wb = Workbook()
     ws = wb.active
@@ -190,7 +175,7 @@ def build_excel(periodo: str | None) -> tuple:
     if filas:
         tabla_cumplimiento(
             ws, principal, "CARTERA", "STH", filas,
-            _grupos_principal(productos, bloques, filas, principal + 2, principal_total, total_general),
+            _grupos_principal(bloques, filas, principal + 2, principal_total, total_general),
         )
     for producto, bloque in bloques.items():
         ancho = 3 + sum(len(specs) for _, specs in bloque["grupos"])

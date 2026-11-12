@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { authLogin, authLogout, authRefresh } from "./apiAuth";
+import { authLogin, authLogout, authRefresh, authSessionUser } from "./apiAuth";
 
 const ACCESS_KEY = "auth_access_token";
 const USER_KEY = "auth_user";
@@ -60,11 +60,25 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // Una sesion guardada sin la lista de accesos (anterior a user.access) se renueva al cargar.
+  // Al cargar, los accesos se releen del backend: un panel o modulo recien asignado aparece sin
+  // volver a iniciar sesion. Una sesion guardada sin user.access (formato antiguo) se renueva entera.
   useEffect(() => {
-    if (accessToken && user && !Array.isArray(user.access)) {
-      refresh().catch(() => setSession("", null));
+    if (!accessToken || !user) {
+      return;
     }
+    if (!Array.isArray(user.access)) {
+      refresh().catch(() => setSession("", null));
+      return;
+    }
+    let vigente = true;
+    authSessionUser(accessToken).then((fresh) => {
+      if (vigente && fresh && Array.isArray(fresh.access)) {
+        setSession(accessToken, fresh);
+      }
+    });
+    return () => {
+      vigente = false;
+    };
   }, []);
 
   useEffect(() => {

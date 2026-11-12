@@ -1,20 +1,18 @@
-from io import BytesIO
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from openpyxl import Workbook
 
+from excel_export import XLSX_MEDIA_TYPE
 from auth.dependencies import require_module, require_roles
 from schemas import ApiEnvelope
 from services.negocios_service import get_conteo as get_negocios_conteo
 from services.negocios_service import get_detalle as get_negocios_detalle
+from services.gm_excel import build_excel
 from services.gm_service import (
     get_bucket_view,
     get_cycle_view,
     get_detail_view,
     get_filter_values,
     get_general_view,
-    get_monthly_export_rows,
 )
 
 
@@ -106,72 +104,18 @@ def detalle(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+# Descarga del detalle de todo lo medible del mes (todos los ejecutivos): solo super admin.
 @router.get("/export")
-def export_mensual(
-    periodo: str | None = Query(default=None),
-    _user: dict = Depends(require_roles("super_admin", "admin", "coordinador")),
-) -> StreamingResponse:
+def export(periodo: str | None = Query(default=None), _user: dict = Depends(require_roles("super_admin"))) -> StreamingResponse:
     try:
-        periodo_base, rows = get_monthly_export_rows(periodo)
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "GM Mes"
-
-        headers = [
-            "op",
-            "rut",
-            "nombre",
-            "bucket",
-            "dias_de_mora",
-            "deuda",
-            "cuota",
-            "ejecutivo",
-            "contenido",
-            "normalizado",
-            "UsuarioGestion",
-            "ContactoGestion",
-            "RespuestaGestion",
-            "GestionFecha",
-            "GestionHora",
-            "telefono_gestion",
-        ]
-        ws.append(headers)
-
-        for row in rows:
-            ws.append(
-                [
-                    row.get("op"),
-                    row.get("rut"),
-                    row.get("nombre"),
-                    row.get("bucket"),
-                    row.get("dias_de_mora"),
-                    row.get("deuda"),
-                    row.get("cuota"),
-                    row.get("ejecutivo"),
-                    row.get("contenido"),
-                    row.get("normalizado"),
-                    row.get("UsuarioGestion"),
-                    row.get("ContactoGestion"),
-                    row.get("RespuestaGestion"),
-                    row.get("GestionFecha"),
-                    row.get("GestionHora"),
-                    row.get("telefono_gestion"),
-                ]
-            )
-
-        output = BytesIO()
-        wb.save(output)
-        output.seek(0)
-
-        filename = f"gm_detalle_{periodo_base[:7]}.xlsx"
-        return StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        output, filename = build_excel(periodo)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return StreamingResponse(
+        output,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/negocios")

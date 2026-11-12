@@ -111,6 +111,7 @@ Rutas principales del frontend:
 - `/kpi/<modulo>`: `bench`, `avance-phoenix`, `operacional`.
 - `/administrativas/<modulo>`: `itau-vencida`, `gestiones-diarias-sct`.
 - `/contactabilidad/itau-vencida`, `/estrategia-asignacion/itau-castigo`, `/rrhh/cumplimientos`, `/admin/usuarios`.
+- `/simuladores/renegociacion-itau`: simulador de cuota de renegociacion (Itau Apoya y otras campanas); calcula en el navegador, sin API. Requiere `SQL\011_simuladores.sql`.
 
 Paneles, modulos y rutas se definen en `WEB/frontend/src/app/moduleCatalog.js`; la pagina de cada ruta, en `app/routes.jsx`. Las direcciones antiguas (`/sc-tardia`, `/bench`, ...) redirigen a las nuevas.
 

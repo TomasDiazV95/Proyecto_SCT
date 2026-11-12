@@ -41,6 +41,8 @@ SHEET_NAME = require_env("BENCH_TEMP_SHEET_NAME")
 TABLE = "dbo.tmp_bench_temp_STC"
 # Desde octubre 2026 el bench diario llega partido en un archivo por tramo de mora
 # (YYYYMMDD_PHOENIX (TELEFONIA)_C1_BENCH_MORA_TEMPRANA.XLSX, _C2_, _C3_), con las mismas columnas.
+# Desde nov-2026 el nombre trae ademas el periodo: YYYYMMDD_PHOENIX (TELEFONIA)_C1_YYYYMM_BENCH_MORA_TEMPRANA.
+# tokens_bench ignora los numeros de 6-8 digitos, asi que ambos nombres se reconocen igual.
 CICLOS = ("C1", "C2", "C3")
 NUMERIC_COLS = {"DEUDA_INI", "DEUDA_ACT", "CONTENIDO", "NORMALIZADO"}
 BATCH_SIZE = 10000
