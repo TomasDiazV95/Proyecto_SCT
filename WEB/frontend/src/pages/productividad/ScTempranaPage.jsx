@@ -11,6 +11,13 @@ const initialFilters = {
   ejecutivo: "",
 };
 
+// Gestiones asociadas al pago (usuario, respuesta, fecha y telefono) en el detalle: desactivadas por ahora.
+// Para volver a mostrarlas, cambiar a true (el Excel tiene su propio interruptor en sc_temprana_excel.py).
+const MOSTRAR_GESTIONES = false;
+// Montos por ejecutiva (deuda asignada, monto contenido, % contenido y % aporte) en General y Detalle por ciclo:
+// desactivados por ahora, esas vistas muestran un aviso de mantencion. Para volver a mostrarlos, cambiar a true.
+const MOSTRAR_MONTOS_EJECUTIVA = false;
+
 const initialDetailFilters = {
   operacion: "",
   contenido: "",
@@ -343,16 +350,18 @@ export default function ScTempranaPage() {
                 <option value="0">No</option>
               </select>
             </Field>
-            <Field label="Usuario Gestión">
-              <select className="form-select" value={detailFilters.usuario_gestion} onChange={(e) => onDetailChange("usuario_gestion", e.target.value)}>
-                <option value="">Todos</option>
-                {options.usuarios_gestion.map((item) => (
-                  <option key={item.usuario} value={item.usuario}>
-                    {item.usuario}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {MOSTRAR_GESTIONES && (
+              <Field label="Usuario Gestión">
+                <select className="form-select" value={detailFilters.usuario_gestion} onChange={(e) => onDetailChange("usuario_gestion", e.target.value)}>
+                  <option value="">Todos</option>
+                  {options.usuarios_gestion.map((item) => (
+                    <option key={item.usuario} value={item.usuario}>
+                      {item.usuario}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="Tramo">
               <select className="form-select" value={detailFilters.tramo} onChange={(e) => onDetailChange("tramo", e.target.value)}>
                 <option value="">Todos</option>
@@ -399,11 +408,11 @@ export default function ScTempranaPage() {
           <NegociosDetalleCard modulo="sc-temprana" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Temprana", "negocios-detalle", filters.periodo)} />
         ) : (
         <SectionCard
-          exportName={exportFileName("SC-Temprana", view === "ejecutivos" ? executiveSubview : view, filters.periodo)}
+          exportName={exportFileName("SC-Temprana", view === "ejecutivos" && MOSTRAR_MONTOS_EJECUTIVA ? executiveSubview : view, filters.periodo)}
           bodyClassName=""
           footer={
             loading ? null : view === "ejecutivos" || view === "general" ? (
-              <StatusLegend title="Aporte" items={aporteLegendItems} />
+              MOSTRAR_MONTOS_EJECUTIVA ? <StatusLegend title="Aporte" items={aporteLegendItems} /> : null
             ) : view === "detalle" ? (
               <Pagination
                 summary={`Mostrando ${detailFrom}-${detailTo} de ${detailTotal} operaciones. Página ${detailPage} de ${detailTotalPages}.`}
@@ -417,6 +426,12 @@ export default function ScTempranaPage() {
         >
           {loading ? (
             <LoadingState />
+          ) : !MOSTRAR_MONTOS_EJECUTIVA && (view === "general" || view === "ejecutivos") ? (
+            // Montos por ejecutiva desactivados: aviso de mantencion en vez de la tabla.
+            <div className="alert alert-warning m-3 mb-3 d-flex align-items-center gap-2" role="status">
+              <i className="bi bi-tools" aria-hidden="true" />
+              <span>Esta vista se encuentra en mantención. Pronto volverá a estar disponible.</span>
+            </div>
           ) : view === "general" ? (
             // Vista general: % aporte al contenido del tramo de cada ejecutiva en C1, C2 y C3.
             <div className="pd-table-scroll">
@@ -617,10 +632,14 @@ export default function ScTempranaPage() {
                     <th>Tramo</th>
                     <th>Contenido</th>
                     <th>Normalizado</th>
-                    <th>Usuario Gestión</th>
-                    <th>Respuesta Gestión</th>
-                    <th>Fecha Gestión</th>
-                    <th>Teléfono</th>
+                    {MOSTRAR_GESTIONES && (
+                      <>
+                        <th>Usuario Gestión</th>
+                        <th>Respuesta Gestión</th>
+                        <th>Fecha Gestión</th>
+                        <th>Teléfono</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -631,13 +650,17 @@ export default function ScTempranaPage() {
                       <td>{row.tramo}</td>
                       <td>{yesNo(row.contenido)}</td>
                       <td>{yesNo(row.normalizado)}</td>
-                      <td>{row.usuario_gestion || "SIN GESTION"}</td>
-                      <td>{row.respuesta_gestion || "-"}</td>
-                      <td>{String(row.gestion_fecha || "").slice(0, 10) || "-"}</td>
-                      <td>{row.telefono || "-"}</td>
+                      {MOSTRAR_GESTIONES && (
+                        <>
+                          <td>{row.usuario_gestion || "SIN GESTION"}</td>
+                          <td>{row.respuesta_gestion || "-"}</td>
+                          <td>{String(row.gestion_fecha || "").slice(0, 10) || "-"}</td>
+                          <td>{row.telefono || "-"}</td>
+                        </>
+                      )}
                     </tr>
                   ))}
-                  {!detailRows.length && <EmptyRow colSpan={9} />}
+                  {!detailRows.length && <EmptyRow colSpan={MOSTRAR_GESTIONES ? 9 : 5} />}
                 </tbody>
               </table>
             </div>
