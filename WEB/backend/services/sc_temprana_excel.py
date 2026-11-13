@@ -23,6 +23,12 @@ from services.sc_temprana_service import (
 NEGOCIO = "sc-telefonia"
 # Igual que la pagina: el tramo C3 solo se mide cuando tiene mas de 350 casos en el bench.
 MIN_CASOS_C3 = 350
+# Gestion asociada al pago (usuario, respuesta, fecha y telefono) en la hoja CONTENCION: desactivada por ahora.
+# Para volver a mostrarla, cambiar a True (la pagina tiene su propio interruptor en ScTempranaPage.jsx).
+MOSTRAR_GESTIONES = False
+# Montos por ejecutiva (deuda asig., monto cont., % cont. y % cumplimiento) en CUMPLIMIENTOS: desactivados por
+# ahora (la pagina muestra la vista en mantencion). Para volver a mostrarlos, cambiar a True.
+MOSTRAR_MONTOS_EJECUTIVA = False
 
 
 def _cumplimiento(tramo: str, fila_total: int):
@@ -70,7 +76,7 @@ def build_excel(periodo: str | None) -> tuple:
     ws.cell(row=1, column=2, value="SANTANDER CONSUMER TEMPRANA").font = TITULO
 
     fila = 3
-    if filas:
+    if filas and MOSTRAR_MONTOS_EJECUTIVA:
         fila_total = fila + 2 + len(filas)
         fila = tabla_cumplimiento(ws, fila, "CARTERA", "TEMPRANA", filas, _grupos(tramos, fila_total)) + 3
 
@@ -92,16 +98,19 @@ def build_excel(periodo: str | None) -> tuple:
         get_detalle_excel(periodo),
         key=lambda r: (r["ejecutivo"], r["tramo"], -float(r["deuda"] or 0), str(r["operacion"])),
     )
+    gestion_cols = [("USUARIO GESTIÓN", 17, None), ("RESPUESTA GESTIÓN", 34, None), ("FECHA GESTIÓN", 14, FECHA),
+                    ("TELÉFONO", 13, None)] if MOSTRAR_GESTIONES else []
+    gestion = (lambda r: [r["usuario_gestion"], r["respuesta_gestion"], r["gestion_fecha"], r["telefono"]]) \
+        if MOSTRAR_GESTIONES else (lambda r: [])
     hoja_detalle(
         wb, "CONTENCION",
         [("EJECUTIVO", 24, None), ("OPERACIÓN", 16, None), ("RUT", 12, None), ("TRAMO", 8, None),
          ("DEUDA ASIG.", 15, MONEDA), ("MONTO CONT.", 15, MONEDA), ("CONTENIDO", 11, None), ("NORMALIZADO", 13, None),
-         ("USUARIO GESTIÓN", 17, None), ("RESPUESTA GESTIÓN", 34, None), ("FECHA GESTIÓN", 14, FECHA),
-         ("TELÉFONO", 13, None), ("FPD", 7, None)],
+         *gestion_cols, ("FPD", 7, None)],
         [
             [r["ejecutivo"], r["operacion"], r["rut"], r["tramo"], r["deuda"], r["monto_contenido"],
-             "SI" if r["contenido"] else "NO", "SI" if r["normalizado"] else "NO", r["usuario_gestion"],
-             r["respuesta_gestion"], r["gestion_fecha"], r["telefono"], "SI" if r["fpd"] else "NO"]
+             "SI" if r["contenido"] else "NO", "SI" if r["normalizado"] else "NO", *gestion(r),
+             "SI" if r["fpd"] else "NO"]
             for r in operaciones if r["tramo"] in tramos
         ],
     )
