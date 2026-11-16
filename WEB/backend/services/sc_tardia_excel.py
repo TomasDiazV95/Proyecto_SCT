@@ -6,6 +6,9 @@ cumplimiento final. Debajo, un cuadro por bloque con como se llega a ese cumplim
 %CONT., META % y %CUMPL. (con normalizacion y PONDERA en C1 - C2 y C3; por fase en castigo). Luego los
 negocios de la zona. Quien no tiene zona no va. Los % son formulas que leen esos cuadros, asi que se puede corregir un valor, una meta o
 una ponderacion a mano. Al final el detalle por operacion y de los negocios.
+
+SC Piloto (fuente 'piloto', ejecutivos de telefonia) usa el mismo formato en una sola hoja PILOTO, sin altas
+cuantias ni C3; sus negocios son los del archivo de SC Terreno de los ejecutivos de su carterizado.
 """
 from __future__ import annotations
 
@@ -21,7 +24,8 @@ from services.excel_formato import (
 from services.negocios_service import SIN_EJECUTIVO, get_conteo, get_detalle as get_negocios_detalle
 from services.sc_tardia_service import (
     ALTAS_CUANTIAS_BLOCK, CASTIGO_TOTAL_BLOCK, MORA_TARDIA_BLOCKS, _executive_key, _period_date, _period_version,
-    get_ciclos_mes, get_cycle_view, get_metas, get_operaciones_excel, get_zonas_ejecutivos, operacion_key,
+    get_ciclos_mes, get_cycle_view, get_ejecutivos_piloto, get_metas, get_operaciones_excel, get_zonas_ejecutivos,
+    operacion_key,
 )
 
 
@@ -52,6 +56,16 @@ META_VARIABLE = {
 }
 FASES = ("F1", "F2", "F3", "F4")
 FASES_CON_META = ("F1", "F2", "F3")
+# Por fuente: titulo de las hojas, nombre del archivo, si lleva altas cuantias y negocios, y las hojas
+# (zona de la productividad, nombre). Piloto va en una sola hoja: sus ejecutivos son de telefonia.
+PILOTO = "PILOTO"
+EXCEL_FUENTES = {
+    "terreno": {"titulo": "SANTANDER CONSUMER TARDÍA", "archivo": "SC_Tardia", "altas": True, "negocios": True,
+                "hojas": ZONAS, "mora": MORA_TARDIA_BLOCKS},
+    # El piloto no tiene C3 (es SC Telefonia). Sus negocios vienen en el archivo de SC Terreno.
+    "piloto": {"titulo": "SC PILOTO", "archivo": "SC_Piloto", "altas": False, "negocios": True,
+               "hojas": ((PILOTO, PILOTO),), "mora": [b for b in MORA_TARDIA_BLOCKS if b != "C3"]},
+}
 
 
 def _clave(texto) -> str:
@@ -59,12 +73,12 @@ def _clave(texto) -> str:
     return " ".join(sin_acentos.upper().split())
 
 
-def _metas(periodo: str) -> dict[str, dict]:
+def _metas(periodo: str, fuente: str = "terreno") -> dict[str, dict]:
     """Meta (fraccion) y ponderador nivel 3 (fraccion) por variable; castigo F1/F2 con la meta antigua 'F1 y F2'."""
     metas = {
         _clave(m["variable"]): {"meta": (m["meta_valor"] or 0) / 100, "pondera": (m["ponderador_nivel_3_pct"] or 0) / 100,
                                 "nivel_1": m["ponderador_nivel_1_pct"], "tipo": m["meta_tipo"]}
-        for m in get_metas({"periodo": periodo})
+        for m in get_metas({"periodo": periodo}, fuente)
     }
     for fase in ("F1", "F2"):
         metas.setdefault(f"RECUPERO CASTIGO {fase}", metas.get("RECUPERO CASTIGO F1 Y F2", {"meta": 0}))
@@ -212,7 +226,7 @@ def _ejecutivos(rows: list[dict], operaciones: list[dict], metas: dict) -> dict[
 
 
 def _grupos_principal(celdas: dict[str, dict], totales: dict[str, str], filas: list[dict], datos: int, total: int,
-                      pesos: dict[str, float]):
+                      pesos: dict[str, float], con_altas: bool = True, mora_blocks: list[str] = MORA_TARDIA_BLOCKS):
     def bloque_ref(bloque: str):
         def fn(_ref, r: int) -> str:
             if r == total:
@@ -222,7 +236,7 @@ def _grupos_principal(celdas: dict[str, dict], totales: dict[str, str], filas: l
         return fn
 
     def promedio(ref, r: int) -> str:
-        desde, hasta = ref("MORA TARDÍA", ETIQUETA_MORA[MORA_TARDIA_BLOCKS[0]]), ref("MORA TARDÍA", ETIQUETA_MORA[MORA_TARDIA_BLOCKS[-1]])
+        desde, hasta = ref("MORA TARDÍA", ETIQUETA_MORA[mora_blocks[0]]), ref("MORA TARDÍA", ETIQUETA_MORA[mora_blocks[-1]])
         return f'=IFERROR(AVERAGE({desde}{r}:{hasta}{r}),"-")'
 
     def final(ref, r: int) -> str:
@@ -231,17 +245,20 @@ def _grupos_principal(celdas: dict[str, dict], totales: dict[str, str], filas: l
         if r == total:
             columna = ref("CUMPLIMIENTO", "% FINAL")
             return f"=IFERROR(AVERAGE({columna}{datos}:{columna}{total - 1}),0)"
-        altas = f"{ref('ALTAS CUANTÍAS', 'C1 - C2')}{r}"
         mora, pm = f"{ref('MORA TARDÍA', 'PROMEDIO')}{r}", f"{ref('MORA TARDÍA', 'PONDERA')}{r}"
         cast, pc = f"{ref('CASTIGO', 'TOTAL F1 - F3')}{r}", f"{ref('CASTIGO', 'PONDERA')}{r}"
-        expr = (f"IF(ISNUMBER({altas}),{altas},IF(AND(ISNUMBER({mora}),ISNUMBER({cast})),{mora}*{pm}+{cast}*{pc},"
-                f"IF(ISNUMBER({mora}),{mora},IF(ISNUMBER({cast}),{cast},0))))")
+        expr = (f"IF(AND(ISNUMBER({mora}),ISNUMBER({cast})),{mora}*{pm}+{cast}*{pc},"
+                f"IF(ISNUMBER({mora}),{mora},IF(ISNUMBER({cast}),{cast},0)))")
+        if con_altas:
+            altas = f"{ref('ALTAS CUANTÍAS', 'C1 - C2')}{r}"
+            expr = f"IF(ISNUMBER({altas}),{altas},{expr})"
         return f"=MAX(0,MIN({expr},{TOPE_CUMPLIMIENTO}))"
 
+    altas_grupo = [("ALTAS CUANTÍAS", [formula("C1 - C2", PCT, bloque_ref(ALTAS_CUANTIAS_BLOCK))])] if con_altas else []
     return [
-        ("ALTAS CUANTÍAS", [formula("C1 - C2", PCT, bloque_ref(ALTAS_CUANTIAS_BLOCK))]),
+        *altas_grupo,
         ("MORA TARDÍA", [
-            *(formula(ETIQUETA_MORA[b], PCT, bloque_ref(b)) for b in MORA_TARDIA_BLOCKS),
+            *(formula(ETIQUETA_MORA[b], PCT, bloque_ref(b)) for b in mora_blocks),
             formula("PROMEDIO", PCT, promedio),
             valor("PONDERA", "pondera_mora", PCT, CELESTE, total=pesos["mora"]),
         ]),
@@ -254,10 +271,11 @@ def _grupos_principal(celdas: dict[str, dict], totales: dict[str, str], filas: l
 
 
 def _hoja_zona(wb: Workbook, zona: str, nombre: str, ejecutivos: list[dict], negocios: list[dict], productos: list[dict],
-               metas: dict, pesos: dict[str, float]) -> None:
+               metas: dict, pesos: dict[str, float], config: dict = EXCEL_FUENTES["terreno"]) -> None:
     ws = wb.create_sheet(nombre)
     ws.sheet_view.showGridLines = False
-    ws.cell(row=1, column=2, value=f"SANTANDER CONSUMER TARDÍA · {zona}").font = TITULO
+    titulo = config["titulo"] if zona == PILOTO else f"{config['titulo']} · {zona}"
+    ws.cell(row=1, column=2, value=titulo).font = TITULO
 
     filas = []
     for ej in sorted(ejecutivos, key=lambda e: e["ejecutivo"]):
@@ -296,7 +314,7 @@ def _hoja_zona(wb: Workbook, zona: str, nombre: str, ejecutivos: list[dict], neg
     if filas:
         tabla_cumplimiento(
             ws, principal, "ZONA", nombre, filas,
-            _grupos_principal(celdas, totales, filas, principal + 2, principal_total, pesos),
+            _grupos_principal(celdas, totales, filas, principal + 2, principal_total, pesos, config["altas"], config["mora"]),
             previa=("CICLOS CUMPLIMIENTO", "ciclos"),
         )
     for bloque, titulo, top, filas_bloque, grupos in cuadros:
@@ -331,25 +349,38 @@ def _sin_ejecutivo(filas: list[dict]) -> list[dict]:
     return [f for f in sin_phoenix(filas) if f["ejecutivo"] != SIN_EJECUTIVO]
 
 
-def build_excel(periodo: str | None) -> tuple:
+def build_excel(periodo: str | None, fuente: str = "terreno") -> tuple:
     periodo = str(periodo or "").strip()
     if not periodo:
         raise RuntimeError("Falta el periodo")
+    config = EXCEL_FUENTES[fuente]
     filtros = {"periodo": periodo}
-    rows = get_cycle_view(filtros)
-    operaciones = get_operaciones_excel(periodo)
-    metas = _metas(periodo)
+    rows = get_cycle_view(filtros, fuente)
+    operaciones = get_operaciones_excel(periodo, fuente)
+    metas = _metas(periodo, fuente)
     nivel_1 = (rows[0]["ponderadores_nivel_1"] if rows else {}) or {}
     pesos = {"mora": (nivel_1.get("PTC") or 0) / 100, "castigo": (nivel_1.get("STOCK") or 0) / 100}
     ejecutivos = _ejecutivos(rows, operaciones, metas)
+    if not config["altas"]:
+        # Sin altas cuantias no hay bloque C1 - C2 (ni sus operaciones en el detalle).
+        for ej in ejecutivos.values():
+            ej["detalle"].pop(ALTAS_CUANTIAS_BLOCK, None)
+    if fuente == "piloto":
+        # Una sola hoja: los ejecutivos de telefonia no se reparten por zona.
+        for ej in ejecutivos.values():
+            ej["zona"] = PILOTO
 
     # Zona de cada ejecutivo: la de la productividad; para los que solo tienen negocios, la de la foto consultada
     # o, si no tienen cartera en ella, la de su ultima foto en la sabana.
-    zona_de = dict(get_zonas_ejecutivos())
+    zona_de = dict(get_zonas_ejecutivos(fuente))
     zona_de.update({_executive_key(op["ejecutivo"]): op["zona"] or SIN_ZONA for op in operaciones})
     zona_de.update({clave: ej["zona"] for clave, ej in ejecutivos.items()})
 
-    conteo = get_conteo(NEGOCIO, periodo)
+    # Piloto: negocios del archivo de SC Terreno solo de los ejecutivos de su carterizado, todos en la hoja PILOTO.
+    solo_ejecutivos = get_ejecutivos_piloto(periodo) if fuente == "piloto" else None
+    if solo_ejecutivos is not None:
+        zona_de = {_executive_key(e): PILOTO for e in solo_ejecutivos}
+    conteo = get_conteo(NEGOCIO, periodo, ejecutivos=solo_ejecutivos) if config["negocios"] else {"filas": [], "productos": []}
     negocios_por_zona: dict[str, list[dict]] = {}
     for f in _sin_ejecutivo(conteo["filas"]):
         zona = zona_de.get(_executive_key(f["ejecutivo"]), SIN_ZONA)
@@ -357,15 +388,15 @@ def build_excel(periodo: str | None) -> tuple:
 
     wb = Workbook()
     wb.remove(wb.active)
-    for zona, nombre in ZONAS:
+    for zona, nombre in config["hojas"]:
         _hoja_zona(
             wb, zona, nombre, [ej for ej in ejecutivos.values() if ej["zona"] == zona],
-            negocios_por_zona.get(zona, []), conteo["productos"], metas, pesos,
+            negocios_por_zona.get(zona, []), conteo["productos"], metas, pesos, config,
         )
 
     # Operaciones de los bloques que entran al cumplimiento de cada ejecutivo.
     # Quien no tiene zona (Norte, Sur o Metropolitana) no va en el Excel.
-    orden_zona = {zona: i for i, (zona, _) in enumerate(ZONAS)}
+    orden_zona = {zona: i for i, (zona, _) in enumerate(config["hojas"])}
     orden_bloque = {b: i for i, b in enumerate(BLOQUES)}
     detalle = []
     for op in operaciones:
@@ -394,29 +425,30 @@ def build_excel(periodo: str | None) -> tuple:
             for ej, bloque, op in detalle
         ],
     )
-    negocios = sorted(
-        (
-            (zona, f) for zona, f in (
-                (zona_de.get(_executive_key(f["ejecutivo"]), SIN_ZONA), f)
-                for f in _sin_ejecutivo(get_negocios_detalle(NEGOCIO, periodo)["filas"])
-            )
-            if zona in orden_zona
-        ),
-        key=lambda x: (orden_zona[x[0]], x[1]["ejecutivo"], x[1]["producto_nombre"], x[1]["operacion"]),
-    )
-    # Ciclo (C1..C8) o tramo de castigo (F1..F4) de cada negocio: el de la foto consultada; si la operacion
-    # no esta en ella, el de su ultima foto del mes.
-    ciclo_de = {operacion_key(op["operacion"]): op["ciclo"] for op in operaciones if op["ciclo"]}
-    faltan = [f["operacion"] for _, f in negocios if operacion_key(f["operacion"]) not in ciclo_de]
-    ciclo_de.update(get_ciclos_mes(periodo, faltan))
-    hoja_detalle(
-        wb, "NEGOCIOS",
-        [("ZONA", 20, None), ("EJECUTIVO", 24, None), ("OPERACIÓN", 18, None), ("CICLO / TRAMO", 14, None),
-         ("TIPO", 18, None)],
-        [[zona, f["ejecutivo"], f["operacion"], ciclo_de.get(operacion_key(f["operacion"]), "-"), f["producto_nombre"]]
-         for zona, f in negocios],
-    )
+    if config["negocios"]:
+        negocios = sorted(
+            (
+                (zona, f) for zona, f in (
+                    (zona_de.get(_executive_key(f["ejecutivo"]), SIN_ZONA), f)
+                    for f in _sin_ejecutivo(get_negocios_detalle(NEGOCIO, periodo, ejecutivos=solo_ejecutivos)["filas"])
+                )
+                if zona in orden_zona
+            ),
+            key=lambda x: (orden_zona[x[0]], x[1]["ejecutivo"], x[1]["producto_nombre"], x[1]["operacion"]),
+        )
+        # Ciclo (C1..C8) o tramo de castigo (F1..F4) de cada negocio: el de la foto consultada; si la operacion
+        # no esta en ella, el de su ultima foto del mes.
+        ciclo_de = {operacion_key(op["operacion"]): op["ciclo"] for op in operaciones if op["ciclo"]}
+        faltan = [f["operacion"] for _, f in negocios if operacion_key(f["operacion"]) not in ciclo_de]
+        ciclo_de.update(get_ciclos_mes(periodo, faltan, fuente))
+        hoja_detalle(
+            wb, "NEGOCIOS",
+            [("ZONA", 20, None), ("EJECUTIVO", 24, None), ("OPERACIÓN", 18, None), ("CICLO / TRAMO", 14, None),
+             ("TIPO", 18, None)],
+            [[zona, f["ejecutivo"], f["operacion"], ciclo_de.get(operacion_key(f["operacion"]), "-"), f["producto_nombre"]]
+             for zona, f in negocios],
+        )
 
-    foto = _period_date(periodo).replace("-", "")
+    foto = _period_date(periodo, fuente).replace("-", "")
     sufijo = "_precierre" if _period_version(periodo) == "PRECIERRE" else ""
-    return guardar(wb), f"SC_Tardia_{foto}{sufijo}.xlsx"
+    return guardar(wb), f"{config['archivo']}_{foto}{sufijo}.xlsx"

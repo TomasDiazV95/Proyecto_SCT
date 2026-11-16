@@ -87,13 +87,41 @@ function formatMoneyShort(value) {
   return formatMoney(amount);
 }
 
+// Variantes de la pagina: SC Terreno (sc-tardia) y SC Piloto (ejecutivos de telefonia con mora tardia y
+// castigo; sin altas cuantias ni C3). La productividad se calcula igual en el backend.
+const VARIANTES = {
+  terreno: {
+    apiBase: "sc-tardia",
+    titulo: "Santander Consumer Tardía",
+    exportPrefix: "SC-Tardia",
+    altasCuantias: true,
+    negocios: true,
+    moraBlocks: generalMoraBlocks,
+    blocks: blockOrder,
+  },
+  piloto: {
+    apiBase: "sc-piloto",
+    titulo: "SC Piloto",
+    exportPrefix: "SC-Piloto",
+    altasCuantias: false,
+    // Sus negocios vienen en el archivo de SC Terreno, filtrados a sus ejecutivos (backend).
+    negocios: true,
+    moraBlocks: generalMoraBlocks.filter(({ block }) => block !== "C3"),
+    blocks: blockOrder.filter((block) => !["C1", "C2", altasCuantiasBlock, "C3"].includes(block)),
+  },
+};
+
 function sortBlocks(a, b) {
   const ai = blockOrder.indexOf(a);
   const bi = blockOrder.indexOf(b);
   return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi) || a.localeCompare(b);
 }
 
-export default function ScTardiaPage() {
+export default function ScTardiaPage({ variante = "terreno" }) {
+  const config = VARIANTES[variante] || VARIANTES.terreno;
+  const { apiBase, exportPrefix } = config;
+  const moraBlocks = config.moraBlocks;
+  const pageBlocks = config.blocks;
   const dataVersion = useDataVersion();
   const { user } = useAuth();
   const esSuperAdmin = user?.role === "super_admin";
@@ -103,7 +131,7 @@ export default function ScTardiaPage() {
   const [options, setOptions] = useState({ periodos: [], zonas: [], ejecutivos: [] });
   // Cada vista trae filas distintas (por ejecutivo / por bloque): se guardan junto a la vista que las pidio.
   const [result, setResult] = useState({ view: "general", rows: [] });
-  const [selectedBlock, setSelectedBlock] = useState("C3");
+  const [selectedBlock, setSelectedBlock] = useState(pageBlocks[0]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [metasOpen, setMetasOpen] = useState(false);
@@ -112,7 +140,7 @@ export default function ScTardiaPage() {
   useEffect(() => {
     async function loadFilters() {
       try {
-        const data = await fetchFilters();
+        const data = await fetchFilters("", "", apiBase);
         setOptions({
           periodos: data.periodos || [],
           zonas: data.zonas || [],
@@ -131,7 +159,7 @@ export default function ScTardiaPage() {
     if (!filters.periodo) {
       return;
     }
-    fetchFilters(filters.periodo, filters.zona)
+    fetchFilters(filters.periodo, filters.zona, apiBase)
       .then((data) => {
         const disponibles = data.ejecutivos || [];
         setOptions((prev) => ({ ...prev, ejecutivos: disponibles }));
@@ -147,7 +175,7 @@ export default function ScTardiaPage() {
       setLoading(true);
       setError("");
       try {
-        const data = view === "general" ? await fetchGeneral(filters) : await fetchCycle(filters);
+        const data = view === "general" ? await fetchGeneral(filters, apiBase) : await fetchCycle(filters, apiBase);
         setResult({ view, rows: data || [] });
       } catch (err) {
         setError(err.message);
@@ -161,7 +189,7 @@ export default function ScTardiaPage() {
   // Las metas se cargan al abrir el panel, para el mes de la fecha consultada.
   useEffect(() => {
     if (!metasOpen || !filters.periodo) return;
-    fetchScTardiaMetas(filters)
+    fetchScTardiaMetas(filters, apiBase)
       .then(setMetas)
       .catch((err) => setError(err.message));
   }, [metasOpen, filters.periodo, dataVersion]);
@@ -221,7 +249,7 @@ export default function ScTardiaPage() {
     setDescargando(true);
     setError("");
     try {
-      const { blob, filename } = await downloadScTardiaExcel(filters.periodo);
+      const { blob, filename } = await downloadScTardiaExcel(filters.periodo, apiBase);
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -251,8 +279,8 @@ export default function ScTardiaPage() {
   const rowsWithMetrics = result.view === "ciclo" ? allRows : NO_ROWS;
   const availableBlocks = useMemo(() => {
     const blocks = Array.from(new Set(rowsWithMetrics.map((row) => row.bloque).filter(Boolean))).sort(sortBlocks);
-    return blocks.length ? blocks : blockOrder;
-  }, [rowsWithMetrics]);
+    return blocks.length ? blocks : pageBlocks;
+  }, [rowsWithMetrics, pageBlocks]);
 
   useEffect(() => {
     if (availableBlocks.length && !availableBlocks.includes(selectedBlock)) {
@@ -312,8 +340,12 @@ export default function ScTardiaPage() {
       options={[
         { value: "general", label: "Vista general", icon: "bi-grid" },
         { value: "ciclo", label: "Por ciclo", icon: "bi-layers" },
-        { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
-        { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
+        ...(config.negocios
+          ? [
+              { value: "negocios", label: "Negocios", icon: "bi-briefcase" },
+              { value: "negocios-detalle", label: "Detalle negocios", icon: "bi-list-ul" },
+            ]
+          : []),
       ]}
     />
   );
@@ -324,8 +356,8 @@ export default function ScTardiaPage() {
         <thead>
           <tr>
             <th rowSpan={2}>Ejecutivo</th>
-            <th className="pd-th-group-2 pd-group-start">Altas Cuantías</th>
-            <th colSpan={generalMoraBlocks.length} className="pd-th-group-1 pd-group-start">
+            {config.altasCuantias && <th className="pd-th-group-2 pd-group-start">Altas Cuantías</th>}
+            <th colSpan={moraBlocks.length} className="pd-th-group-1 pd-group-start">
               Mora Tardía <span className="pd-th-note">{pesoMoraLabel}</span>
             </th>
             <th className="pd-th-group-2 pd-group-start">
@@ -334,8 +366,8 @@ export default function ScTardiaPage() {
             <th rowSpan={2} className="pd-num pd-th-key pd-group-start">Cumplimiento Final</th>
           </tr>
           <tr>
-            <th className="pd-num pd-th-sub-2 pd-group-start">C1 - C2</th>
-            {generalMoraBlocks.map(({ block, label }, idx) => (
+            {config.altasCuantias && <th className="pd-num pd-th-sub-2 pd-group-start">C1 - C2</th>}
+            {moraBlocks.map(({ block, label }, idx) => (
               <th key={block} className={`pd-num pd-th-sub-1${idx === 0 ? " pd-group-start" : ""}`}>{label}</th>
             ))}
             <th className="pd-num pd-th-sub-2 pd-group-start">Total F1 - F3</th>
@@ -345,14 +377,16 @@ export default function ScTardiaPage() {
           {phoenixGrupalAlFinal(executiveRows).map((row) => (
             <tr key={row.ejecutivo}>
               <td className="pd-cell-ejecutivo">{row.ejecutivo}</td>
-              <td className="pd-num pd-group-start">
-                {row.bloques[altasCuantiasBlock] === undefined ? (
-                  <span className="pd-cell-muted">—</span>
-                ) : (
-                  <span className={metricClass(row.bloques[altasCuantiasBlock])}>{formatPct(row.bloques[altasCuantiasBlock], 0)}</span>
-                )}
-              </td>
-              {generalMoraBlocks.map(({ block }, idx) => (
+              {config.altasCuantias && (
+                <td className="pd-num pd-group-start">
+                  {row.bloques[altasCuantiasBlock] === undefined ? (
+                    <span className="pd-cell-muted">—</span>
+                  ) : (
+                    <span className={metricClass(row.bloques[altasCuantiasBlock])}>{formatPct(row.bloques[altasCuantiasBlock], 0)}</span>
+                  )}
+                </td>
+              )}
+              {moraBlocks.map(({ block }, idx) => (
                 <td key={`${row.ejecutivo}-${block}`} className={`pd-num${idx === 0 ? " pd-group-start" : ""}`}>
                   {row.bloques[block] === undefined ? (
                     <span className="pd-cell-muted">—</span>
@@ -373,7 +407,7 @@ export default function ScTardiaPage() {
               </td>
             </tr>
           ))}
-          {!executiveRows.length && <EmptyRow colSpan={generalMoraBlocks.length + 4} />}
+          {!executiveRows.length && <EmptyRow colSpan={moraBlocks.length + (config.altasCuantias ? 4 : 3)} />}
         </tbody>
       </table>
     );
@@ -383,7 +417,7 @@ export default function ScTardiaPage() {
 
   return (
     <div className="pd-page">
-      <PageHeader title="Santander Consumer Tardía" subtitle="Seguimiento de metas y cumplimiento operativo por ejecutivo, ciclo y reporte." />
+      <PageHeader title={config.titulo} subtitle="Seguimiento de metas y cumplimiento operativo por ejecutivo, ciclo y reporte." />
 
       <FilterBar
         actions={
@@ -426,19 +460,19 @@ export default function ScTardiaPage() {
       {view === "general" ? (
         <div className="pd-tabbed">
           {viewTabs}
-          <SectionCard exportName={exportFileName("SC-Tardia", "general", filters.periodo)} bodyClassName="" footer={<StatusLegend items={cumplimientoLegendItems} />}>
+          <SectionCard exportName={exportFileName(exportPrefix, "general", filters.periodo)} bodyClassName="" footer={<StatusLegend items={cumplimientoLegendItems} />}>
             {loading ? <LoadingState /> : <div className="pd-table-scroll">{renderGeneralTable()}</div>}
           </SectionCard>
         </div>
       ) : view === "negocios" ? (
         <div className="pd-tabbed">
           {viewTabs}
-          <NegociosCard modulo="sc-tardia" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Tardia", "negocios", filters.periodo)} />
+          <NegociosCard modulo={apiBase} periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName(exportPrefix, "negocios", filters.periodo)} />
         </div>
       ) : view === "negocios-detalle" ? (
         <div className="pd-tabbed">
           {viewTabs}
-          <NegociosDetalleCard modulo="sc-tardia" periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName("SC-Tardia", "negocios-detalle", filters.periodo)} />
+          <NegociosDetalleCard modulo={apiBase} periodo={filters.periodo} ejecutivo={filters.ejecutivo} exportName={exportFileName(exportPrefix, "negocios-detalle", filters.periodo)} />
         </div>
       ) : loading ? (
         <>
@@ -449,7 +483,7 @@ export default function ScTardiaPage() {
         <>
           {viewTabs}
           <div className="pd-select-grid">
-            {blockOrder.map((block) => {
+            {pageBlocks.map((block) => {
               const summary = blockSummary.find((item) => item.block === block) || { block, cumplimiento: 0, deuda: 0, rows: 0, status: statusOf(0) };
               const meta = blockMeta[block] || { title: block, subtitle: "Detalle", icon: "bi-layers" };
               return (
@@ -466,7 +500,7 @@ export default function ScTardiaPage() {
           </div>
 
           <SectionCard
-            exportName={exportFileName("SC-Tardia", selectedBlock, filters.periodo)}
+            exportName={exportFileName(exportPrefix, selectedBlock, filters.periodo)}
             title={selectedMeta.title}
             description={`${view === "general" ? "Resumen general" : "Detalle del ciclo"} · ${selectedMeta.subtitle}`}
             bodyClassName=""

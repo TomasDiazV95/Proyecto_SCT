@@ -94,6 +94,9 @@ SEGMENTACION: dict[str, dict] = {
         # Sin saldo asignado ni pagos: solo casos y gestiones (CRM 574).
         "carteras": ["VIGENTE", "CASTIGO"],
     },
+    # Cartera castigo sin filtros adicionales (asignacion ETL/etl_asignacion_veritus.py); gestiones CRM 575,
+    # sin pagos por ahora.
+    "VERITUS": {},
 }
 
 TIPO_KPI = {

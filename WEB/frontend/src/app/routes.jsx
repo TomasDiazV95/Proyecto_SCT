@@ -17,6 +17,7 @@ import LaAraucanaPage from "../pages/productividad/LaAraucanaPage";
 import NegociosAdministrativasPage from "../pages/administrativas/NegociosAdministrativasPage";
 import ProcuradoresPage from "../pages/productividad/ProcuradoresPage";
 import RrhhPage from "../pages/rrhh/RrhhPage";
+import ScPilotoPage from "../pages/productividad/ScPilotoPage";
 import ScTardiaPage from "../pages/productividad/ScTardiaPage";
 import ScTempranaPage from "../pages/productividad/ScTempranaPage";
 import SimuladorRenegociacionPage from "../pages/simuladores/SimuladorRenegociacionPage";
@@ -25,6 +26,7 @@ import SthPage from "../pages/productividad/SthPage";
 // Pagina de cada modulo del catalogo (moduleCatalog.js), por su path.
 export const modulePages = {
   "/productividad/sc-tardia": <ScTardiaPage />,
+  "/productividad/sc-piloto": <ScPilotoPage />,
   "/productividad/sc-temprana": <ScTempranaPage />,
   "/productividad/gm": <GmPage />,
   "/productividad/itau-castigo": <ItauCastigoPage />,

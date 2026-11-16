@@ -8,7 +8,8 @@ function formatPesos(value) {
 
 const PRODUCTO_LABEL = { CONSUMO: "Consumo", HIPOTECARIO: "Hipotecario" };
 
-// Pestaña Negocios de Itaú Vencida / Vigente: operaciones renegociadas en el mes (RENE_MES = 1 en la contención),
+// Pestaña Negocios de Itaú Vencida / Vigente: operaciones renegociadas en el mes (RENE_MES = 1 en la contención;
+// desde octubre 2026 solo las que tienen saldo contenido),
 // asignadas al mismo ejecutivo que el resumen. fetcher: fetchItauVencidaNegocios o fetchItauVigenteNegocios.
 // compacto: el resumen muestra solo Ejecutivo y Renegociados (PHOENIX incluido).
 // Dentro de la tarjeta, sub-pestañas Resumen (por ejecutivo) y Detalle (por operación).

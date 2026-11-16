@@ -33,6 +33,31 @@ CASTIGO_TOTAL_BLOCK = "TOTAL F1 - F4"
 BLOQUES_CON_NORMALIZACION = ("C1", "C2", ALTAS_CUANTIAS_BLOCK, "C3")
 CUMPLIMIENTO_MAX = 130.0
 
+# Origen de los datos. 'terreno' es SC Tardia (Santander Consumer Terreno); 'piloto' es SC Piloto
+# (ejecutivos de telefonia con mora tardia y castigo, cartera en dbo.tmp_carterizado_SC_MT_TELEFONIA,
+# ver SQL/012_sc_piloto.sql). Sin tabla de bloques, cada ejecutivo ve los bloques que trae su cartera.
+FUENTES = {
+    "terreno": {
+        "vista": "dbo.vw_stc_sabana_avance",
+        "vista_precierre": "dbo.vw_stc_sabana_avance_precierre",
+        "metas": "dbo.stc_metas_mensuales",
+        "bloques": "dbo.stc_bloques_ejecutivos",
+    },
+    "piloto": {
+        "vista": "dbo.vw_sc_piloto_sabana_avance",
+        "vista_precierre": "dbo.vw_sc_piloto_sabana_avance_precierre",
+        "metas": "dbo.sc_piloto_metas_mensuales",
+        "bloques": None,
+    },
+}
+
+
+def _fuente(fuente: str) -> dict:
+    try:
+        return FUENTES[fuente]
+    except KeyError as exc:
+        raise ValueError(f"Fuente desconocida: {fuente}") from exc
+
 
 METAS_ORDER = [
     "Contención C1_C2",
@@ -65,14 +90,14 @@ def _clean_text(value) -> str:
     return str(value).strip()
 
 
-def _period_date(periodo: str | None) -> str:
+def _period_date(periodo: str | None, fuente: str = "terreno") -> str:
     if periodo:
         text = str(periodo).strip()
         if len(text) >= 10:
             return text[:10]
         return text
 
-    periodos = _filter_lists()["periodos"]
+    periodos = _filter_lists(fuente)["periodos"]
     return periodos[0][:10] if periodos else date.today().isoformat()
 
 
@@ -123,7 +148,7 @@ def _level_1_weights(rows: list[dict]) -> dict[str, float]:
     return weights
 
 
-def _base_zona_sql(version: str) -> str:
+def _base_zona_sql(version: str, fuente: str = "terreno") -> str:
     """Foto vigente de cada origen en #base_zona_original. Para el pre-cierre, el origen que
     tenga carga de pre-cierre en la fecha consultada sale de ahi; el resto, de la carga vigente."""
     columnas = f"""
@@ -138,8 +163,9 @@ def _base_zona_sql(version: str) -> str:
         LTRIM(RTRIM(v.apertura)) AS apertura,
         LTRIM(RTRIM(v.ejecutivo)) AS ejecutivo,
         v.origen"""
-    vigente = """
-    FROM dbo.vw_stc_sabana_avance v
+    cfg = _fuente(fuente)
+    vigente = f"""
+    FROM {cfg["vista"]} v
     INNER JOIN #ultimas_fechas uf
         ON v.origen = uf.origen
        AND v.fecha = uf.fecha_utilizada"""
@@ -152,7 +178,7 @@ def _base_zona_sql(version: str) -> str:
     return f"""
     SELECT{columnas}
     INTO #base_zona_original
-    FROM dbo.vw_stc_sabana_avance_precierre v
+    FROM {cfg["vista_precierre"]} v
     WHERE v.fecha = @fecha_consulta;
 
     INSERT INTO #base_zona_original
@@ -161,7 +187,7 @@ def _base_zona_sql(version: str) -> str:
 """
 
 
-def _foto_sql(version: str) -> str:
+def _foto_sql(version: str, fuente: str = "terreno") -> str:
     """Encabezado comun: fecha consultada y la foto vigente de cada origen en #base_zona_original."""
     return f"""
     SET NOCOUNT ON;
@@ -173,12 +199,12 @@ def _foto_sql(version: str) -> str:
         v.origen,
         MAX(v.fecha) AS fecha_utilizada
     INTO #ultimas_fechas
-    FROM dbo.vw_stc_sabana_avance v
+    FROM {_fuente(fuente)["vista"]} v
     -- Solo cargas del mes consultado: un origen sin carga en el mes no arrastra el cierre anterior.
     WHERE v.fecha >= @periodo
       AND v.fecha <= @fecha_consulta
     GROUP BY v.origen;
-{_base_zona_sql(version)}"""
+{_base_zona_sql(version, fuente)}"""
 
 
 # CTEs zona_principal_ejecutivo y base (operaciones con la zona principal del ejecutivo).
@@ -232,22 +258,51 @@ _BLOQUE_STC_SQL = """CASE
             END"""
 
 
-def _sc_tardia_sql(version: str = "CIERRE") -> str:
-    """Lote unico: la vista se lee una sola vez a #base_zona_original (la foto vigente de cada
-    origen) y de ahi salen los bloques activos, los ponderadores de nivel 1 y la tabla."""
-    return f"""{_foto_sql(version)}
-    SELECT
+def _bloques_sql(fuente: str) -> tuple[str, str]:
+    """(consulta de bloques asignados, filtro de resultado_filtrado). Sin tabla de bloques (piloto)
+    no hay asignacion por bloque: el carterizado ya define la cartera de cada ejecutivo."""
+    tabla = _fuente(fuente)["bloques"]
+    if not tabla:
+        return (
+            "SELECT CAST(NULL AS NVARCHAR(150)) AS ejecutivo, CAST(NULL AS NVARCHAR(50)) AS bloque WHERE 1 = 0;",
+            "1 = 1",
+        )
+    consulta = f"""SELECT
         LTRIM(RTRIM(ejecutivo)) AS ejecutivo,
         LTRIM(RTRIM(bloque)) AS bloque
-    FROM dbo.stc_bloques_ejecutivos
+    FROM {tabla}
     WHERE periodo = @periodo
       AND activo = 1
-    ORDER BY ejecutivo, bloque;
+    ORDER BY ejecutivo, bloque;"""
+    filtro = f"""EXISTS (
+            SELECT 1
+            FROM {tabla} be
+            WHERE LTRIM(RTRIM(be.ejecutivo)) = rf.ejecutivo
+              AND be.periodo = @periodo
+              AND be.activo = 1
+              AND (
+                    LTRIM(RTRIM(be.bloque)) = rf.bloque
+                    -- La asignacion historica 'F1 - F2' habilita F1 y F2 por separado.
+                 OR (LTRIM(RTRIM(be.bloque)) = 'F1 - F2' AND rf.bloque IN ('F1', 'F2'))
+                    -- Altas cuantias habilita tambien C1 y C2 por separado.
+                 OR (LTRIM(RTRIM(be.bloque)) = 'C1 - C2' AND rf.bloque IN ('C1', 'C2'))
+              )
+        )"""
+    return consulta, filtro
+
+
+def _sc_tardia_sql(version: str = "CIERRE", fuente: str = "terreno") -> str:
+    """Lote unico: la vista se lee una sola vez a #base_zona_original (la foto vigente de cada
+    origen) y de ahi salen los bloques activos, los ponderadores de nivel 1 y la tabla."""
+    metas = _fuente(fuente)["metas"]
+    bloques_sql, filtro_bloques = _bloques_sql(fuente)
+    return f"""{_foto_sql(version, fuente)}
+    {bloques_sql}
 
     SELECT
         meta_tipo,
         MAX(ponderador_nivel_1_pct) AS ponderador_nivel_1_pct
-    FROM dbo.stc_metas_mensuales
+    FROM {metas}
     WHERE periodo = @periodo
       AND activo = 1
       AND meta_tipo IN ('PCT', 'STOCK')
@@ -317,7 +372,7 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
             m.ponderador_nivel_1_pct,
             m.ponderador_nivel_2_pct,
             m.ponderador_nivel_3_pct
-        FROM dbo.stc_metas_mensuales m
+        FROM {metas} m
         WHERE m.periodo = @periodo
           AND m.activo = 1
     ),
@@ -500,20 +555,7 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
             rf.pond_n3_cont,
             rf.pond_n3_norm
         FROM resultado_final rf
-        WHERE EXISTS (
-            SELECT 1
-            FROM dbo.stc_bloques_ejecutivos be
-            WHERE LTRIM(RTRIM(be.ejecutivo)) = rf.ejecutivo
-              AND be.periodo = @periodo
-              AND be.activo = 1
-              AND (
-                    LTRIM(RTRIM(be.bloque)) = rf.bloque
-                    -- La asignacion historica 'F1 - F2' habilita F1 y F2 por separado.
-                 OR (LTRIM(RTRIM(be.bloque)) = 'F1 - F2' AND rf.bloque IN ('F1', 'F2'))
-                    -- Altas cuantias habilita tambien C1 y C2 por separado.
-                 OR (LTRIM(RTRIM(be.bloque)) = 'C1 - C2' AND rf.bloque IN ('C1', 'C2'))
-              )
-        )
+        WHERE {filtro_bloques}
     )
 
     SELECT
@@ -559,9 +601,9 @@ def _sc_tardia_sql(version: str = "CIERRE") -> str:
     """
 
 
-def _load_rows(periodo: str, version: str) -> list[dict]:
+def _load_rows(periodo: str, version: str, fuente: str = "terreno") -> list[dict]:
     """Todas las filas de la fecha, sin filtros de zona / ejecutivo / bloque."""
-    bloques, ponderadores, rows = run_query_sets(_sc_tardia_sql(version), (periodo,))[-3:]
+    bloques, ponderadores, rows = run_query_sets(_sc_tardia_sql(version, fuente), (periodo,))[-3:]
     active_blocks = _active_blocks_by_executive(bloques)
     level_1_weights = _level_1_weights(ponderadores)
 
@@ -592,10 +634,10 @@ def _load_rows(periodo: str, version: str) -> list[dict]:
     return response
 
 
-def _rows_from_query(filters: dict) -> list[dict]:
-    periodo = _period_date(filters.get("periodo"))
+def _rows_from_query(filters: dict, fuente: str = "terreno") -> list[dict]:
+    periodo = _period_date(filters.get("periodo"), fuente)
     version = _period_version(filters.get("periodo"))
-    rows = cached(("sc_tardia", "rows", periodo, version), lambda: _load_rows(periodo, version))
+    rows = cached(("sc_tardia", fuente, "rows", periodo, version), lambda: _load_rows(periodo, version, fuente))
 
     # Los filtros actuan sobre el resultado ya agregado, asi que se aplican en memoria
     # (sin distinguir mayusculas, igual que el collation de la base).
@@ -619,13 +661,14 @@ def operacion_key(value) -> str:
     return texto.lstrip("0") or texto
 
 
-def get_ciclos_mes(periodo_filtro: str | None, operaciones: list[str]) -> dict[str, str]:
+def get_ciclos_mes(periodo_filtro: str | None, operaciones: list[str], fuente: str = "terreno") -> dict[str, str]:
     """Ultimo ciclo del mes (hasta la foto consultada) de cada operacion pedida, por operacion_key."""
     claves = sorted({operacion_key(op) for op in operaciones if operacion_key(op)})
     if not claves:
         return {}
-    hasta = _period_date(periodo_filtro)
+    hasta = _period_date(periodo_filtro, fuente)
     desde = hasta[:8] + "01"
+    vista = _fuente(fuente)["vista"]
     ciclos: dict[str, str] = {}
     for i in range(0, len(claves), 500):
         lote = claves[i:i + 500]
@@ -637,7 +680,7 @@ def get_ciclos_mes(periodo_filtro: str | None, operaciones: list[str]) -> dict[s
                     CONVERT(VARCHAR(50), operacion) AS operacion,
                     ciclo,
                     ROW_NUMBER() OVER (PARTITION BY operacion ORDER BY fecha DESC) AS rn
-                FROM dbo.vw_stc_sabana_avance
+                FROM {vista}
                 WHERE fecha BETWEEN ? AND ?
                   AND ISNULL(ciclo, '') <> ''
                   AND CONVERT(VARCHAR(50), operacion) IN ({",".join("?" * len(lote))})
@@ -650,12 +693,12 @@ def get_ciclos_mes(periodo_filtro: str | None, operaciones: list[str]) -> dict[s
     return ciclos
 
 
-def get_operaciones_excel(periodo_filtro: str | None) -> list[dict]:
+def get_operaciones_excel(periodo_filtro: str | None, fuente: str = "terreno") -> list[dict]:
     """Operaciones de la foto consultada con su zona (la principal del ejecutivo) y su bloque: el de
     mora tardia para STC y la fase (F1..F4) para castigo. Para el detalle del Excel de super admin."""
-    periodo = _period_date(periodo_filtro)
+    periodo = _period_date(periodo_filtro, fuente)
     version = _period_version(periodo_filtro)
-    sql = f"""{_foto_sql(version)}
+    sql = f"""{_foto_sql(version, fuente)}
     WITH
 {_ZONA_PRINCIPAL_CTE}
 
@@ -696,13 +739,14 @@ def get_operaciones_excel(periodo_filtro: str | None) -> list[dict]:
     ]
 
 
-def _load_zonas_ejecutivos() -> dict[str, str]:
+def _load_zonas_ejecutivos(fuente: str = "terreno") -> dict[str, str]:
+    vista = _fuente(fuente)["vista"]
     sql = f"""
     SET NOCOUNT ON;
 
     WITH ultima AS (
         SELECT UPPER(LTRIM(RTRIM(ejecutivo))) AS ejecutivo, MAX(fecha) AS fecha
-        FROM dbo.vw_stc_sabana_avance
+        FROM {vista}
         WHERE ISNULL(LTRIM(RTRIM(ejecutivo)), '') <> ''
         GROUP BY UPPER(LTRIM(RTRIM(ejecutivo)))
     ),
@@ -711,7 +755,7 @@ def _load_zonas_ejecutivos() -> dict[str, str]:
             u.ejecutivo,
             {_zona_sql("v.zona")} AS zona,
             COUNT_BIG(1) AS operaciones
-        FROM dbo.vw_stc_sabana_avance v
+        FROM {vista} v
         INNER JOIN ultima u
             ON UPPER(LTRIM(RTRIM(v.ejecutivo))) = u.ejecutivo
            AND v.fecha = u.fecha
@@ -728,10 +772,29 @@ def _load_zonas_ejecutivos() -> dict[str, str]:
     return {row["ejecutivo"]: row["zona"] for row in run_query_sets(sql)[-1]}
 
 
-def get_zonas_ejecutivos() -> dict[str, str]:
+def get_zonas_ejecutivos(fuente: str = "terreno") -> dict[str, str]:
     """Zona principal de cada ejecutivo (clave en mayusculas) en su ultima foto de la sabana. Sirve para ubicar
     a quien no tiene cartera en la fecha consultada, p. ej. en los negocios del Excel."""
-    return cached(("sc_tardia", "zonas_ejecutivos"), _load_zonas_ejecutivos)
+    return cached(("sc_tardia", fuente, "zonas_ejecutivos"), lambda: _load_zonas_ejecutivos(fuente))
+
+
+def _load_ejecutivos_carterizado_piloto(mes: str) -> set[str]:
+    rows = run_query(
+        """
+        SELECT DISTINCT UPPER(LTRIM(RTRIM(ejecutivo))) AS ejecutivo
+        FROM dbo.tmp_carterizado_SC_MT_TELEFONIA
+        WHERE mes_carterizado = CAST(? AS date) AND ISNULL(LTRIM(RTRIM(ejecutivo)), '') <> ''
+        """,
+        (f"{mes}-01",),
+    )
+    return {row["ejecutivo"] for row in rows}
+
+
+def get_ejecutivos_piloto(periodo: str | None) -> set[str]:
+    """Ejecutivos del carterizado SC Piloto del mes de la fecha consultada. Sus negocios vienen en el
+    archivo de SC Terreno (Panel Administrativo > Negocios) y se filtran a estos nombres."""
+    mes = _period_date(periodo, "piloto")[:7]
+    return cached(("sc_tardia", "piloto", "ejecutivos", mes), lambda: _load_ejecutivos_carterizado_piloto(mes))
 
 
 def _num(value) -> float:
@@ -761,8 +824,8 @@ def _row_compliance(row: dict) -> float:
     return cont
 
 
-def get_cycle_view(filters: dict) -> list[dict]:
-    rows = _rows_from_query(filters)
+def get_cycle_view(filters: dict, fuente: str = "terreno") -> list[dict]:
+    rows = _rows_from_query(filters, fuente)
     for row in rows:
         row["pct_contencion"] = _capped_pct(row["contenido"], row["monto_meta_cont"])
         row["pct_normalizacion"] = _capped_pct(row["normalizado"], row["monto_meta_norm"])
@@ -770,9 +833,9 @@ def get_cycle_view(filters: dict) -> list[dict]:
     return rows
 
 
-def get_general_view(filters: dict) -> list[dict]:
+def get_general_view(filters: dict, fuente: str = "terreno") -> list[dict]:
     """Una fila por ejecutivo con el cumplimiento de cada bloque y el cumplimiento final."""
-    rows = _rows_from_query(filters)
+    rows = _rows_from_query(filters, fuente)
 
     grouped: dict[str, dict] = {}
     for row in rows:
@@ -858,10 +921,10 @@ def get_general_view(filters: dict) -> list[dict]:
 
 
 @cached_view
-def get_metas(filters: dict) -> list[dict]:
-    """Metas activas del mes de la fecha consultada (dbo.stc_metas_mensuales), para el panel de metas."""
-    periodo = _period_date(filters.get("periodo"))
-    sql = """
+def get_metas(filters: dict, fuente: str = "terreno") -> list[dict]:
+    """Metas activas del mes de la fecha consultada (tabla de metas de la fuente), para el panel de metas."""
+    periodo = _period_date(filters.get("periodo"), fuente)
+    sql = f"""
     SELECT
         LTRIM(RTRIM(variable)) AS variable,
         CAST(meta_valor AS float) AS meta_valor,
@@ -869,7 +932,7 @@ def get_metas(filters: dict) -> list[dict]:
         CAST(ponderador_nivel_1_pct AS float) AS ponderador_nivel_1_pct,
         CAST(ponderador_nivel_2_pct AS float) AS ponderador_nivel_2_pct,
         CAST(ponderador_nivel_3_pct AS float) AS ponderador_nivel_3_pct
-    FROM dbo.stc_metas_mensuales
+    FROM {_fuente(fuente)["metas"]}
     WHERE periodo = DATEFROMPARTS(YEAR(CAST(? AS DATE)), MONTH(CAST(? AS DATE)), 1)
       AND activo = 1
     """
@@ -891,15 +954,18 @@ def get_metas(filters: dict) -> list[dict]:
     return rows
 
 
-def _load_filter_lists() -> dict:
+def _load_filter_lists(fuente: str = "terreno") -> dict:
     """Fechas, zonas y ejecutivos de toda la sabana, en un solo viaje a la base."""
+    cfg = _fuente(fuente)
+    vista = cfg["vista"]
+    vista_precierre = cfg["vista_precierre"]
     sql = f"""
     SET NOCOUNT ON;
 
     -- Meses anteriores: solo su ultima fecha; mes actual: todas las fechas cargadas.
     WITH f AS (
         SELECT DISTINCT CAST(fecha AS date) AS fecha
-        FROM dbo.vw_stc_sabana_avance
+        FROM {vista}
         WHERE fecha IS NOT NULL
     )
     SELECT CONVERT(char(10), fecha, 126) AS valor
@@ -909,19 +975,19 @@ def _load_filter_lists() -> dict:
     ORDER BY valor DESC;
 
     SELECT DISTINCT {_zona_sql("zona")} AS valor
-    FROM dbo.vw_stc_sabana_avance
+    FROM {vista}
     WHERE zona IS NOT NULL AND LTRIM(RTRIM(zona)) <> ''
     ORDER BY valor;
 
     SELECT DISTINCT LTRIM(RTRIM(ejecutivo)) AS valor
-    FROM dbo.vw_stc_sabana_avance
+    FROM {vista}
     WHERE ejecutivo IS NOT NULL AND LTRIM(RTRIM(ejecutivo)) <> ''
     ORDER BY valor;
 
-    -- Fechas con carga de pre-cierre (la vista existe desde SQL/sct_precierre.sql).
-    IF OBJECT_ID('dbo.vw_stc_sabana_avance_precierre', 'V') IS NOT NULL
+    -- Fechas con carga de pre-cierre (la vista de terreno existe desde SQL/sct_precierre.sql).
+    IF OBJECT_ID('{vista_precierre}', 'V') IS NOT NULL
         SELECT DISTINCT CONVERT(char(10), fecha, 126) AS valor
-        FROM dbo.vw_stc_sabana_avance_precierre
+        FROM {vista_precierre}
         WHERE fecha IS NOT NULL;
     ELSE
         SELECT CAST(NULL AS char(10)) AS valor WHERE 1 = 0;
@@ -941,15 +1007,15 @@ def _load_filter_lists() -> dict:
     }
 
 
-def _filter_lists() -> dict:
-    return cached(("sc_tardia", "filtros"), _load_filter_lists)
+def _filter_lists(fuente: str = "terreno") -> dict:
+    return cached(("sc_tardia", fuente, "filtros"), lambda: _load_filter_lists(fuente))
 
 
-def get_filter_values(periodo: str | None = None, zona: str | None = None) -> dict:
-    listas = _filter_lists()
+def get_filter_values(periodo: str | None = None, zona: str | None = None, fuente: str = "terreno") -> dict:
+    listas = _filter_lists(fuente)
     if periodo:
         # Con fecha de consulta: exactamente los ejecutivos que aparecen en la tabla (misma fecha y zona).
-        rows = _rows_from_query({"periodo": periodo, "zona": zona})
+        rows = _rows_from_query({"periodo": periodo, "zona": zona}, fuente)
         ejecutivos = sorted({row["ejecutivo"] for row in rows if row.get("ejecutivo")})
     else:
         ejecutivos = list(listas["ejecutivos"])

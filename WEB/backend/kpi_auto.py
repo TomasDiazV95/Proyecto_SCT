@@ -35,6 +35,7 @@ GRUPOS = {
     "SC_TERRENO": ["tmp_bench_STC"],
     "LA_ARAUCANA": ["tmp_LA_asignacion", "tmp_LA_pagos"],
     "FORUM": ["tmp_asignacion_forum"],
+    "VERITUS": ["tmp_asignacion_veritus"],
     "CRM": ["tmp_GEST_CRM", "tmp_FECHA_COMPROMISO_CRM", "kpi_crm_cartera", "kpi_tipo_contacto", "kpi_accion_canal"],
 }
 FUENTES = [tabla for tablas in GRUPOS.values() for tabla in tablas]

@@ -317,6 +317,59 @@ def _cobertura_terreno(periodo: str, fecha_carga: str, ejecutivo: str = "") -> d
     """{ejecutivo: (ruts, ruts_cubiertos)} sobre todos los RUT Terreno Prejudicial de la contencion, cualquier fase.
     Un RUT esta cubierto si tuvo una gestion TERRENO en el mes antes de pagar. La fecha de pago es la primera carga
     de contencion del mes en que el RUT aparece con saldo contenido; si aun no paga, vale cualquier visita hasta la fecha."""
+    sql, params = _cobertura_terreno_sql(
+        periodo,
+        fecha_carga,
+        ejecutivo,
+        f"""SELECT
+        u.Ejecutivo,
+        COUNT(*) AS Ruts,
+        SUM({CUBIERTO_SQL}) AS Cubiertos""",
+        "GROUP BY u.Ejecutivo",
+    )
+    return {
+        (row.get("Ejecutivo") or DEFAULT_EXECUTIVE): (int(row.get("Ruts") or 0), int(row.get("Cubiertos") or 0))
+        for row in run_query(sql, tuple(params))
+    }
+
+
+# RUT cubierto: visita en terreno en el mes antes del pago (o, si aun no paga, hasta la fecha consultada).
+CUBIERTO_SQL = "CASE WHEN t.RUT IS NOT NULL AND (p.fecha_pago IS NULL OR t.primera_visita < p.fecha_pago) THEN 1 ELSE 0 END"
+
+
+@cached_view
+def get_cobertura_detalle(filters: dict) -> list[dict]:
+    """Una fila por ejecutivo y RUT de Terreno Prejudicial con su fecha de pago, primera visita y si quedo cubierto
+    (la cuenta por ejecutivo da la cobertura terreno del resumen)."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    sql, params = _cobertura_terreno_sql(
+        _periodo_from_fecha(fecha_carga),
+        fecha_carga,
+        "",
+        f"""SELECT
+        u.Ejecutivo,
+        u.RUT,
+        CONVERT(char(10), p.fecha_pago, 126) AS fecha_pago,
+        CONVERT(char(10), t.primera_visita, 126) AS primera_visita,
+        {CUBIERTO_SQL} AS Cubierto""",
+        "",
+    )
+    filas = [
+        {
+            "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
+            "rut": str(int(row["RUT"])) if row.get("RUT") is not None else "",
+            "fecha_pago": _clean_text(row.get("fecha_pago")) or None,
+            "primera_visita": _clean_text(row.get("primera_visita")) or None,
+            "cubierto": bool(row.get("Cubierto")),
+        }
+        for row in run_query(sql, tuple(params))
+    ]
+    filas.sort(key=lambda f: (f["ejecutivo"] == DEFAULT_EXECUTIVE, f["ejecutivo"], f["rut"]))
+    return filas
+
+
+def _cobertura_terreno_sql(periodo: str, fecha_carga: str, ejecutivo: str, select_sql: str, group_sql: str) -> tuple[str, list]:
+    """Consulta de la cobertura terreno; select_sql/group_sql definen el nivel (ejecutivo o RUT)."""
     cte_sql = BASE_CTE.replace("/*MEDIBLES*/", f"AND UPPER(LTRIM(RTRIM(b.CANAL))) IN ({_in_list(CANALES_NEGOCIOS)})")
     params: list = [periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga]
     filter_sql = ""
@@ -352,25 +405,19 @@ def _cobertura_terreno(periodo: str, fecha_carga: str, ejecutivo: str = "") -> d
           AND g.GestionFecha <= ?
         GROUP BY TRY_CAST(g.rut AS bigint)
     )
-    SELECT
-        u.Ejecutivo,
-        COUNT(*) AS Ruts,
-        SUM(CASE WHEN t.RUT IS NOT NULL AND (p.fecha_pago IS NULL OR t.primera_visita < p.fecha_pago) THEN 1 ELSE 0 END) AS Cubiertos
+    {select_sql}
     FROM univ u
     LEFT JOIN pago p
         ON p.RUT = u.RUT
     LEFT JOIN terreno t
         ON t.RUT = u.RUT
     {filter_sql}
-    GROUP BY u.Ejecutivo
+    {group_sql}
     -- Sin el hint SQL Server cruza las gestiones del CRM con nested loops y la consulta pasa de 4 s a mas de 10 min.
     OPTION (HASH JOIN)
     """
     )
-    return {
-        (row.get("Ejecutivo") or DEFAULT_EXECUTIVE): (int(row.get("Ruts") or 0), int(row.get("Cubiertos") or 0))
-        for row in run_query(sql, tuple(params))
-    }
+    return sql, params
 
 
 def _cobertura_values(ruts: int, cubiertos: int) -> dict:
@@ -414,29 +461,8 @@ def _general(fecha_carga: str) -> dict:
     # primera carga de contencion del mes en que el RUT aparece con saldo contenido.
     sql = (
         cte_sql
-        + f""", pago AS (
-        SELECT RUT, MIN(fecha_carga) AS fecha_pago
-        FROM (
-            SELECT RUT, fecha_carga
-            FROM dbo.contencion_itau_vencida
-            WHERE fecha_carga >= ?
-              AND fecha_carga <= ?
-              AND GESTOR = ?
-            GROUP BY RUT, fecha_carga
-            HAVING SUM(COALESCE(CAST(SALDO_CONT AS float), 0)) > 0
-        ) x
-        GROUP BY RUT
-    ), gestion AS (
-        SELECT TRY_CAST(g.rut AS bigint) AS RUT, MIN(CAST(g.GestionFecha AS date)) AS primera_gestion
-        FROM dbo.tmp_GEST_CRM g
-        INNER JOIN dbo.kpi_accion_canal ac
-            ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
-           AND ac.canal IN ({_in_list(CANALES_GESTION_CONTENCION)})
-        WHERE g.cartera = {CRM_CARTERA}
-          AND g.GestionFecha >= ?
-          AND g.GestionFecha <= ?
-        GROUP BY TRY_CAST(g.rut AS bigint)
-    )
+        + _pago_gestion_cte()
+        + f"""
     SELECT
         b.Ejecutivo,
         b.Producto,
@@ -444,10 +470,7 @@ def _general(fecha_carga: str) -> dict:
         b.RUT,
         COUNT(*) AS Operaciones,
         SUM(b.SALDO_INI) AS Saldo_Ini,
-        SUM(CASE
-            WHEN ge.primera_gestion IS NOT NULL AND (p.fecha_pago IS NULL OR ge.primera_gestion < p.fecha_pago)
-            THEN b.SALDO_CONT ELSE 0
-        END) AS Saldo_Cont
+        SUM(CASE WHEN {CONTENIDO_VALIDO_SQL} THEN b.SALDO_CONT ELSE 0 END) AS Saldo_Cont
     FROM base b
     LEFT JOIN pago p
         ON p.RUT = b.RUT
@@ -507,6 +530,89 @@ def _general(fecha_carga: str) -> dict:
     }
 
 
+def _pago_gestion_cte() -> str:
+    """CTE pago (primera carga del mes con saldo contenido del RUT) y gestion (primera gestion telefonica o en terreno
+    del mes). Parametros: periodo, fecha_carga, GESTOR, periodo, fecha_carga."""
+    return f""", pago AS (
+        SELECT RUT, MIN(fecha_carga) AS fecha_pago
+        FROM (
+            SELECT RUT, fecha_carga
+            FROM dbo.contencion_itau_vencida
+            WHERE fecha_carga >= ?
+              AND fecha_carga <= ?
+              AND GESTOR = ?
+            GROUP BY RUT, fecha_carga
+            HAVING SUM(COALESCE(CAST(SALDO_CONT AS float), 0)) > 0
+        ) x
+        GROUP BY RUT
+    ), gestion AS (
+        SELECT TRY_CAST(g.rut AS bigint) AS RUT, MIN(CAST(g.GestionFecha AS date)) AS primera_gestion
+        FROM dbo.tmp_GEST_CRM g
+        INNER JOIN dbo.kpi_accion_canal ac
+            ON ac.valor = UPPER(LTRIM(RTRIM(g.AccionGestion)))
+           AND ac.canal IN ({_in_list(CANALES_GESTION_CONTENCION)})
+        WHERE g.cartera = {CRM_CARTERA}
+          AND g.GestionFecha >= ?
+          AND g.GestionFecha <= ?
+        GROUP BY TRY_CAST(g.rut AS bigint)
+    )
+    """
+
+
+# Lo contenido solo cuenta si el RUT tuvo una gestion antes de pagar (o, si aun no paga, hasta la fecha).
+CONTENIDO_VALIDO_SQL = "ge.primera_gestion IS NOT NULL AND (p.fecha_pago IS NULL OR ge.primera_gestion < p.fecha_pago)"
+
+
+@cached_view
+def get_contencion_detalle(filters: dict) -> list[dict]:
+    """Una fila por operacion medible con el ejecutivo del carterizado, igual que get_general: saldo_cont es el
+    contenido valido (con gestion antes del pago) y la suma por ejecutivo, producto y fase con meta da el resumen.
+    meta_pct = meta de contencion de su producto y fase (None: no entra al cumplimiento)."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    metas = _load_metas(periodo)
+    cte_sql, params = _base_cte(periodo, fecha_carga, _load_filtros_medibles(periodo))
+    params += [periodo, fecha_carga, GESTOR_PHOENIX, periodo, fecha_carga]
+    rows = run_query(
+        cte_sql
+        + _pago_gestion_cte()
+        + f"""
+    SELECT
+        b.Ejecutivo, b.RUT, b.NOMBRE, b.OPER, b.Producto, b.Fase, b.SALDO_INI,
+        b.SALDO_CONT AS Saldo_Cont_Banco,
+        CASE WHEN {CONTENIDO_VALIDO_SQL} THEN b.SALDO_CONT ELSE 0 END AS Saldo_Cont,
+        CONVERT(char(10), p.fecha_pago, 126) AS fecha_pago,
+        CONVERT(char(10), ge.primera_gestion, 126) AS primera_gestion
+    FROM base b
+    LEFT JOIN pago p
+        ON p.RUT = b.RUT
+    LEFT JOIN gestion ge
+        ON ge.RUT = b.RUT
+    OPTION (HASH JOIN)
+    """,
+        tuple(params),
+    )
+    filas = [
+        {
+            "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
+            "rut": str(int(row["RUT"])) if row.get("RUT") is not None else "",
+            "nombre": _clean_text(row.get("NOMBRE")),
+            "operacion": _clean_text(row.get("OPER")),
+            "producto": row.get("Producto"),
+            "fase": row.get("Fase"),
+            "saldo_ini": float(row.get("SALDO_INI") or 0),
+            "saldo_cont_banco": float(row.get("Saldo_Cont_Banco") or 0),
+            "saldo_cont": float(row.get("Saldo_Cont") or 0),
+            "fecha_pago": _clean_text(row.get("fecha_pago")) or None,
+            "primera_gestion": _clean_text(row.get("primera_gestion")) or None,
+            "meta_pct": metas.get(row.get("Producto"), {}).get("fases", {}).get(row.get("Fase")),
+        }
+        for row in rows
+    ]
+    filas.sort(key=lambda f: (f["ejecutivo"] == DEFAULT_EXECUTIVE, f["ejecutivo"], f["rut"], f["operacion"]))
+    return filas
+
+
 # Canal que define los negocios (renegociaciones) de Itau Vencida; el Call/Contact Center es de Itau Vigente.
 CANALES_NEGOCIOS = ("TERRENO PREJUDICIAL",)
 
@@ -515,8 +621,21 @@ def _in_list(values: tuple) -> str:
     return ", ".join("'{}'".format(str(value).replace("'", "''")) for value in values)
 
 
+# Desde octubre 2026 una renegociacion cuenta como negocio solo si la operacion tiene saldo contenido.
+NEGOCIOS_CON_CONTENIDO_DESDE = "2026-10-01"
+
+
+def negocios_sql(periodo: str) -> str:
+    """Condicion SQL de negocio sobre el CTE base: renegociada en el mes (RENE_MES = 1) y, desde octubre 2026,
+    con saldo contenido."""
+    sql = "RENE_MES = 1"
+    if periodo >= NEGOCIOS_CON_CONTENIDO_DESDE:
+        sql += " AND SALDO_CONT > 0"
+    return sql
+
+
 def negocios_result(rows: list[dict]) -> dict:
-    """Negocios = operaciones renegociadas en el mes (RENE_MES = 1 en la contencion): resumen por ejecutivo y detalle."""
+    """Negocios = operaciones renegociadas en el mes (ver negocios_sql): resumen por ejecutivo y detalle."""
 
     def _empty(nombre: str) -> dict:
         return {"ejecutivo": nombre, "negocios": 0, "ruts": set(), "saldo_ini": 0.0, "saldo_cont": 0.0}
@@ -577,7 +696,7 @@ def get_negocios(filters: dict) -> dict:
         + f"""
     SELECT Ejecutivo, RUT, NOMBRE, OPER, Producto, Fase, SALDO_INI, SALDO_CONT
     FROM base
-    WHERE RENE_MES = 1
+    WHERE {negocios_sql(periodo)}
     {filter_sql}
     """,
         tuple(params),

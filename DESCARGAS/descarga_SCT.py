@@ -132,6 +132,11 @@ BENCH_TEMP_PATTERN = os.getenv("BENCH_TEMP_PATTERN", "").strip()
 BENCH_STC_PATTERN = os.getenv("BENCH_STC_PATTERN", "").strip()
 BENCH_STC_TEL_PATTERN = os.getenv("BENCH_STC_TEL_PATTERN", "").strip()
 BENCH_SC_CASTIGO_PATTERN = os.getenv("BENCH_SC_CASTIGO_PATTERN", "").strip()
+# Castigo telefonia (SC Piloto); mismo default que ETL/etl_bench_sc_castigo_tel.py.
+BENCH_SC_CASTIGO_TEL_PATTERN = (
+    os.getenv("BENCH_SC_CASTIGO_TEL_PATTERN", "").strip()
+    or "*PHOENIX (TELEFONIA)_BENCH_CASTIGO*.xlsx"
+)
 
 
 def texto_desde_patron(nombre_variable: str, patron: str) -> str:
@@ -237,6 +242,24 @@ DESCARGAS = [
             texto_desde_patron(
                 "BENCH_STC_TEL_PATTERN",
                 BENCH_STC_TEL_PATTERN,
+            ),
+
+        "fin_de_mes":
+            True,
+    },
+
+    # Castigo telefonia (SC Piloto): YYYYMMDD_PHOENIX (TELEFONIA)_BENCH_CASTIGO, en la carpeta EXTRAS.
+    {
+        "nombre":
+            "BENCH CASTIGO - TELEFONIA",
+
+        "carpeta_visor":
+            "📁 EXTRAS",
+
+        "patron_archivo":
+            texto_desde_patron(
+                "BENCH_SC_CASTIGO_TEL_PATTERN",
+                BENCH_SC_CASTIGO_TEL_PATTERN,
             ),
 
         "fin_de_mes":

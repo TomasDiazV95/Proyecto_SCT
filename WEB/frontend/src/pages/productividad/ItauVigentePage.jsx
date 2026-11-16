@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import { fetchItauVigenteFilters, fetchItauVigenteGeneral, fetchItauVigenteNegocios } from "../../api";
+import { downloadItauVigenteExcel, fetchItauVigenteFilters, fetchItauVigenteGeneral, fetchItauVigenteNegocios } from "../../api";
 import ItauNegociosCard from "../../components/productividad/ItauNegociosCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../../components/productividad/ui";
 
@@ -97,7 +97,10 @@ export default function ItauVigentePage() {
   const [metadata, setMetadata] = useState({ fecha_carga: "", periodo: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
+  // Descargar el Excel con el detalle de todo lo medible: solo super admin.
+  const esSuperAdmin = user?.role === "super_admin";
+  const [descargando, setDescargando] = useState(false);
   // Desde octubre 2026 el universo suma Inteligencia y los cruces vigente (sin los RUT de ejecutivos de castigo).
   const universoCanales = (metadata.canales || []).includes("INTELIGENCIA")
     ? "Call/Contact Center, Inteligencia y cruces vigente"
@@ -174,6 +177,26 @@ export default function ItauVigentePage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [metasOpen]);
+
+  async function descargarExcel() {
+    setDescargando(true);
+    setError("");
+    try {
+      const { blob, filename } = await downloadItauVigenteExcel(filters.fecha_carga);
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "No se pudo descargar el Excel");
+    } finally {
+      setDescargando(false);
+    }
+  }
 
   function onFilter(name, value) {
     setFilters((prev) => ({ ...prev, [name]: value }));
@@ -527,9 +550,16 @@ export default function ItauVigentePage() {
 
       <FilterBar
         actions={
-          <button type="button" className="pd-btn pd-btn-secondary" onClick={() => setMetasOpen(true)}>
-            <i className="bi bi-info-circle" aria-hidden="true" /> Metas
-          </button>
+          <>
+            {esSuperAdmin && (
+              <button type="button" className="pd-btn pd-btn-secondary" onClick={descargarExcel} disabled={!filters.fecha_carga || descargando}>
+                <i className="bi bi-download" aria-hidden="true" /> {descargando ? "Descargando..." : "Descargar Excel"}
+              </button>
+            )}
+            <button type="button" className="pd-btn pd-btn-secondary" onClick={() => setMetasOpen(true)}>
+              <i className="bi bi-info-circle" aria-hidden="true" /> Metas
+            </button>
+          </>
         }
         note={`Base: contención Phoenix ${formatDate(metadata.fecha_carga || filters.fecha_carga) || "N/D"}, fases 1 a 3 ${universoCanales}${castigo ? ` · Recupero castigo: ${formatDate(castigo.fecha_recupero) || "N/D"}` : ""}`}
       >

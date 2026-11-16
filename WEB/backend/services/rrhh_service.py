@@ -437,7 +437,7 @@ def _itau_contencion(p: _Planilla, data: dict) -> None:
 
 
 def _itau_negocios(p: _Planilla, data: dict) -> None:
-    """Renegociaciones del mes (RENE_MES = 1 en la contencion) de Itau Vencida e Itau Vigente."""
+    """Renegociaciones del mes (RENE_MES = 1; desde octubre 2026, solo con saldo contenido) de Itau Vencida e Itau Vigente."""
     for row in data["detalle"]:
         if _es_colaborador(row["ejecutivo"]):
             fase = row.get("fase")

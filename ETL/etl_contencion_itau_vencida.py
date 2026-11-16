@@ -321,6 +321,13 @@ def ensure_table() -> None:
         cn.commit()
 
 
+def already_loaded(source_file: str) -> bool:
+    with connect() as cn:
+        cur = cn.cursor()
+        cur.execute(f"SELECT TOP 1 1 FROM {TABLE} WHERE source_file = ?", (source_file,))
+        return cur.fetchone() is not None
+
+
 def insert_append(df: pd.DataFrame, source_file: str) -> None:
     insert_cols = ["source_file"] + EXPECTED_COLUMNS
     placeholders = ",".join(["?"] * len(insert_cols))
@@ -371,10 +378,14 @@ def main() -> None:
     source_file = excel_path.name
     print(f"Archivo contencion Itau vencida: {excel_path}")
 
+    ensure_table()
+    if already_loaded(source_file):
+        print(f"El archivo {source_file} ya fue cargado en {TABLE}. No se inserta nada.")
+        return
+
     df = read_excel(excel_path)
     print(f"Filas: {len(df)} | Columnas cargadas: {len(df.columns)}")
 
-    ensure_table()
     insert_append(df, source_file)
 
 
