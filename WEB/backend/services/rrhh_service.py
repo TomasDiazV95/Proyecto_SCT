@@ -312,8 +312,11 @@ def _sc_tardia(p: _Planilla) -> None:
             campana.add(VARIABLE_INDIVIDUAL, nombre, individual=_pct(row["cumplimiento_operativo"]))
             normalizado, meta_norm = norm.get(nombre, [0.0, 0.0])
             if meta_norm:
-                tope = sc_tardia_service.CUMPLIMIENTO_MAX / 100.0
-                campana.add("Normalización C3", nombre, individual=min(normalizado / meta_norm, tope))
+                # Desde octubre 2026 la normalizacion C3 no tiene tope.
+                cumplimiento = normalizado / meta_norm
+                if sc_tardia_service.con_tope("C3", p.corte):
+                    cumplimiento = min(cumplimiento, sc_tardia_service.CUMPLIMIENTO_MAX / 100.0)
+                campana.add("Normalización C3", nombre, individual=cumplimiento)
             for bloque, variable in SC_TARDIA_BLOQUES:
                 if bloque in row["bloques"]:
                     campana.add(variable, nombre, individual=_pct(row["bloques"][bloque]))

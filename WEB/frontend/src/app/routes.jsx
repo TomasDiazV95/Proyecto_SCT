@@ -21,6 +21,7 @@ import ScPilotoPage from "../pages/productividad/ScPilotoPage";
 import ScTardiaPage from "../pages/productividad/ScTardiaPage";
 import ScTempranaPage from "../pages/productividad/ScTempranaPage";
 import SimuladorRenegociacionPage from "../pages/simuladores/SimuladorRenegociacionPage";
+import SimuladorVeritusPage from "../pages/simuladores/SimuladorVeritusPage";
 import SthPage from "../pages/productividad/SthPage";
 
 // Pagina de cada modulo del catalogo (moduleCatalog.js), por su path.
@@ -46,6 +47,7 @@ export const modulePages = {
   "/administrativas/gestiones-diarias-sct": <GestionesDiariasSctPage />,
   "/estrategia-asignacion/itau-castigo": <EstrategiaItauCastigoPage />,
   "/simuladores/renegociacion-itau": <SimuladorRenegociacionPage />,
+  "/simuladores-veritus/convenios": <SimuladorVeritusPage />,
   "/rrhh/cumplimientos": <RrhhPage />,
   "/admin/usuarios": <AdminUsersPage />,
 };

@@ -23,7 +23,7 @@ from services.excel_formato import (
 )
 from services.negocios_service import SIN_EJECUTIVO, get_conteo, get_detalle as get_negocios_detalle
 from services.sc_tardia_service import (
-    ALTAS_CUANTIAS_BLOCK, CASTIGO_TOTAL_BLOCK, MORA_TARDIA_BLOCKS, _executive_key, _period_date, _period_version,
+    ALTAS_CUANTIAS_BLOCK, CASTIGO_TOTAL_BLOCK, MORA_TARDIA_BLOCKS, _executive_key, _period_date, _period_version, con_tope,
     get_ciclos_mes, get_cycle_view, get_ejecutivos_piloto, get_metas, get_operaciones_excel, get_zonas_ejecutivos,
     operacion_key,
 )
@@ -53,6 +53,12 @@ META_VARIABLE = {
     "C5": ("CONTENCION C5", None),
     "C6": ("CONTENCION C6", None),
     "PRE CASTIGO": ("CONTENCION PRE CASTIGO", None),
+}
+# Negocios que corresponden a otro ejecutivo (columna CORRESPONDE A de la hoja NEGOCIOS). Solo informativo:
+# el negocio sigue contando para el ejecutivo que lo trae el archivo.
+CORRESPONDE_A = {
+    op: "GUILLERMO MORALES"
+    for op in ("650081937979", "650071064470", "650061587122", "650077916878", "650080313459")
 }
 FASES = ("F1", "F2", "F3", "F4")
 FASES_CON_META = ("F1", "F2", "F3")
@@ -85,13 +91,17 @@ def _metas(periodo: str, fuente: str = "terreno") -> dict[str, dict]:
     return metas
 
 
-def _cumplimiento(grupo_monto: str, sub_monto: str, grupo_deuda: str, grupo_meta: str):
-    """%CUMPL. = monto / deuda / meta %, con tope; sin meta o sin deuda: 0 (como en la pagina)."""
+def _limite(expr: str, tope: bool) -> str:
+    return f"MAX(0,MIN({expr},{TOPE_CUMPLIMIENTO}))" if tope else f"MAX(0,{expr})"
+
+
+def _cumplimiento(grupo_monto: str, sub_monto: str, grupo_deuda: str, grupo_meta: str, tope: bool = True):
+    """%CUMPL. = monto / deuda / meta %, con tope (salvo C3 desde oct-2026); sin meta o sin deuda: 0 (como en la pagina)."""
     def fn(ref, r: int) -> str:
         monto = f"{ref(grupo_monto, sub_monto)}{r}"
         deuda = f"{ref(grupo_deuda, 'DEUDA ASIG.')}{r}"
         meta = f"{ref(grupo_meta, 'META %')}{r}"
-        return f"=IF(OR(N({meta})=0,N({deuda})=0),0,MAX(0,MIN({monto}/{deuda}/{meta},{TOPE_CUMPLIMIENTO})))"
+        return f"=IF(OR(N({meta})=0,N({deuda})=0),0,{_limite(f'{monto}/{deuda}/{meta}', tope)})"
     return fn
 
 
@@ -100,20 +110,23 @@ def _pct_normalizado(ref, r: int) -> str:
     return f"=IF(N({deuda})=0,0,{norm}/{deuda})"
 
 
-def _final_normalizacion(ref, r: int) -> str:
-    """Contencion y normalizacion ponderadas (nivel 3); sin meta de normalizacion, solo la contencion."""
-    deuda = f"{ref('CONTENCIÓN', 'DEUDA ASIG.')}{r}"
-    cc, pc = f"{ref('CONTENCIÓN', '%CUMPL.')}{r}", f"{ref('CONTENCIÓN', 'PONDERA')}{r}"
-    cn, pn = f"{ref('NORMALIZACIÓN', '%CUMPL.')}{r}", f"{ref('NORMALIZACIÓN', 'PONDERA')}{r}"
-    meta_norm = f"{ref('NORMALIZACIÓN', 'META %')}{r}"
-    return (f"=IF(AND(N({meta_norm})>0,N({deuda})>0,N({pc})+N({pn})>0),"
-            f"MAX(0,MIN(({cc}*{pc}+{cn}*{pn})/({pc}+{pn}),{TOPE_CUMPLIMIENTO})),{cc})")
+def _final_normalizacion(tope: bool = True):
+    def fn(ref, r: int) -> str:
+        """Contencion y normalizacion ponderadas (nivel 3); sin meta de normalizacion, solo la contencion."""
+        deuda = f"{ref('CONTENCIÓN', 'DEUDA ASIG.')}{r}"
+        cc, pc = f"{ref('CONTENCIÓN', '%CUMPL.')}{r}", f"{ref('CONTENCIÓN', 'PONDERA')}{r}"
+        cn, pn = f"{ref('NORMALIZACIÓN', '%CUMPL.')}{r}", f"{ref('NORMALIZACIÓN', 'PONDERA')}{r}"
+        meta_norm = f"{ref('NORMALIZACIÓN', 'META %')}{r}"
+        return (f"=IF(AND(N({meta_norm})>0,N({deuda})>0,N({pc})+N({pn})>0),"
+                f"{_limite(f'({cc}*{pc}+{cn}*{pn})/({pc}+{pn})', tope)},{cc})")
+    return fn
 
 
-def _grupos_bloque(bloque: str, metas: dict) -> tuple[list, tuple[str, str]]:
+def _grupos_bloque(bloque: str, metas: dict, periodo: str) -> tuple[list, tuple[str, str]]:
     """Columnas del cuadro de un bloque y (grupo, columna) de su cumplimiento."""
     var_cont, var_norm = META_VARIABLE[bloque]
     meta_cont = metas.get(var_cont, {"meta": 0, "pondera": 0})
+    tope = con_tope(bloque, periodo)
     if bloque in BLOQUES_CON_NORMALIZACION:
         meta_norm = metas.get(var_norm, {"meta": 0, "pondera": 0})
         return [
@@ -122,17 +135,17 @@ def _grupos_bloque(bloque: str, metas: dict) -> tuple[list, tuple[str, str]]:
                 valor("CONTENIDO", "contenido", MONEDA, NARANJO),
                 ratio("%CONT.", 1, 0, PCT2),
                 valor("META %", "meta_cont", PCT2, CELESTE, total=meta_cont["meta"]),
-                formula("%CUMPL.", PCT, _cumplimiento("CONTENCIÓN", "CONTENIDO", "CONTENCIÓN", "CONTENCIÓN")),
+                formula("%CUMPL.", PCT, _cumplimiento("CONTENCIÓN", "CONTENIDO", "CONTENCIÓN", "CONTENCIÓN", tope)),
                 valor("PONDERA", "pondera_cont", PCT, CELESTE, total=meta_cont["pondera"]),
             ]),
             ("NORMALIZACIÓN", [
                 valor("NORMALIZADO", "normalizado", MONEDA, NARANJO),
                 formula("%NORM.", PCT2, _pct_normalizado),
                 valor("META %", "meta_norm", PCT2, CELESTE, total=meta_norm["meta"]),
-                formula("%CUMPL.", PCT, _cumplimiento("NORMALIZACIÓN", "NORMALIZADO", "CONTENCIÓN", "NORMALIZACIÓN")),
+                formula("%CUMPL.", PCT, _cumplimiento("NORMALIZACIÓN", "NORMALIZADO", "CONTENCIÓN", "NORMALIZACIÓN", tope)),
                 valor("PONDERA", "pondera_norm", PCT, CELESTE, total=meta_norm["pondera"]),
             ]),
-            ("CUMPLIMIENTO", [formula("% FINAL", PCT, _final_normalizacion)]),
+            ("CUMPLIMIENTO", [formula("% FINAL", PCT, _final_normalizacion(tope))]),
         ], ("CUMPLIMIENTO", "% FINAL")
     titulo = TITULO_BLOQUE[bloque]
     return [
@@ -141,7 +154,7 @@ def _grupos_bloque(bloque: str, metas: dict) -> tuple[list, tuple[str, str]]:
             valor("CONTENIDO", "contenido", MONEDA, NARANJO),
             ratio("%CONT.", 1, 0, PCT2),
             valor("META %", "meta_cont", PCT2, CELESTE, total=meta_cont["meta"]),
-            formula("%CUMPL.", PCT, _cumplimiento(titulo, "CONTENIDO", titulo, titulo)),
+            formula("%CUMPL.", PCT, _cumplimiento(titulo, "CONTENIDO", titulo, titulo, tope)),
         ]),
     ], (titulo, "%CUMPL.")
 
@@ -271,7 +284,7 @@ def _grupos_principal(celdas: dict[str, dict], totales: dict[str, str], filas: l
 
 
 def _hoja_zona(wb: Workbook, zona: str, nombre: str, ejecutivos: list[dict], negocios: list[dict], productos: list[dict],
-               metas: dict, pesos: dict[str, float], config: dict = EXCEL_FUENTES["terreno"]) -> None:
+               metas: dict, pesos: dict[str, float], config: dict = EXCEL_FUENTES["terreno"], periodo: str = "") -> None:
     ws = wb.create_sheet(nombre)
     ws.sheet_view.showGridLines = False
     titulo = config["titulo"] if zona == PILOTO else f"{config['titulo']} · {zona}"
@@ -302,7 +315,9 @@ def _hoja_zona(wb: Workbook, zona: str, nombre: str, ejecutivos: list[dict], neg
         filas_bloque = [ej["detalle"][bloque] for ej in sorted(ejecutivos, key=lambda e: e["ejecutivo"]) if bloque in ej["detalle"]]
         if not filas_bloque:
             continue
-        grupos, (grupo_final, sub_final) = _grupos_castigo(metas) if bloque == CASTIGO_TOTAL_BLOCK else _grupos_bloque(bloque, metas)
+        grupos, (grupo_final, sub_final) = (
+            _grupos_castigo(metas) if bloque == CASTIGO_TOTAL_BLOCK else _grupos_bloque(bloque, metas, periodo)
+        )
         top = fila + 1
         datos = top + 2
         columna = columnas_grupos(grupos)(grupo_final, sub_final)
@@ -391,7 +406,7 @@ def build_excel(periodo: str | None, fuente: str = "terreno") -> tuple:
     for zona, nombre in config["hojas"]:
         _hoja_zona(
             wb, zona, nombre, [ej for ej in ejecutivos.values() if ej["zona"] == zona],
-            negocios_por_zona.get(zona, []), conteo["productos"], metas, pesos, config,
+            negocios_por_zona.get(zona, []), conteo["productos"], metas, pesos, config, periodo,
         )
 
     # Operaciones de los bloques que entran al cumplimiento de cada ejecutivo.
@@ -444,8 +459,9 @@ def build_excel(periodo: str | None, fuente: str = "terreno") -> tuple:
         hoja_detalle(
             wb, "NEGOCIOS",
             [("ZONA", 20, None), ("EJECUTIVO", 24, None), ("OPERACIÓN", 18, None), ("CICLO / TRAMO", 14, None),
-             ("TIPO", 18, None)],
-            [[zona, f["ejecutivo"], f["operacion"], ciclo_de.get(operacion_key(f["operacion"]), "-"), f["producto_nombre"]]
+             ("TIPO", 18, None), ("CORRESPONDE A", 22, None)],
+            [[zona, f["ejecutivo"], f["operacion"], ciclo_de.get(operacion_key(f["operacion"]), "-"), f["producto_nombre"],
+              CORRESPONDE_A.get(operacion_key(f["operacion"]))]
              for zona, f in negocios],
         )
 

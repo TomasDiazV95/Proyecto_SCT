@@ -958,3 +958,16 @@ export async function downloadSthExcel(periodo) {
     `STH_${String(periodo || "periodo").slice(0, 7)}.xlsx`
   );
 }
+
+// Simulador Veritus: deudor de la asignacion del mes por RUT (con o sin puntos, guion y DV).
+export async function fetchVeritusDeudor(rut) {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/simulador-veritus/deudor`, { rut }));
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const error = new Error(body?.detail || "No se pudo buscar el RUT");
+    error.status = res.status;
+    throw error;
+  }
+  const body = await res.json();
+  return body.data;
+}

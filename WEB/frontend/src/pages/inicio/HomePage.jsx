@@ -16,6 +16,7 @@ const PANEL_STYLE = {
   violet: { color: "#7c3aed", icon: "bi-diagram-3" },
   indigo: { color: "#4f46e5", icon: "bi-people" },
   orange: { color: "#ea580c", icon: "bi-calculator" },
+  teal: { color: "#0d9488", icon: "bi-cash-coin" },
   danger: { color: "#dc2626", icon: "bi-shield-lock" },
 };
 

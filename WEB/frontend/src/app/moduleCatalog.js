@@ -220,6 +220,22 @@ export const modulePanels = [
     ],
   },
   {
+    code: "simuladores-veritus",
+    title: "Simulador Veritus",
+    description: "Convenios Veritus por RUT: trae la deuda del cliente y arma el plan PUT o de pago en cuotas.",
+    path: "/simuladores-veritus",
+    accent: "teal",
+    modules: [
+      {
+        code: "simulador-veritus",
+        title: "Convenios Veritus",
+        description: "Ingresa el RUT, elige PUT o Convenio y obtén el total a pagar, la cuota y el calendario.",
+        path: "/simuladores-veritus/convenios",
+        buttonLabel: "Abrir simulador",
+      },
+    ],
+  },
+  {
     code: "rrhh",
     title: "Panel RRHH",
     description: "Planillas de cumplimiento por negocio y consolidado del mes.",

@@ -32,6 +32,9 @@ CASTIGO_TOTAL_BLOCK = "TOTAL F1 - F4"
 # Bloques cuyo cumplimiento combina contencion y normalizacion con los ponderadores nivel 3.
 BLOQUES_CON_NORMALIZACION = ("C1", "C2", ALTAS_CUANTIAS_BLOCK, "C3")
 CUMPLIMIENTO_MAX = 130.0
+# Desde octubre 2026 la contencion, la normalizacion y el cumplimiento del ciclo C3 no tienen tope
+# (el cumplimiento final del ejecutivo sigue topado en CUMPLIMIENTO_MAX).
+C3_SIN_TOPE_DESDE = "2026-10-01"
 
 # Origen de los datos. 'terreno' es SC Tardia (Santander Consumer Terreno); 'piloto' es SC Piloto
 # (ejecutivos de telefonia con mora tardia y castigo, cartera en dbo.tmp_carterizado_SC_MT_TELEFONIA,
@@ -805,30 +808,42 @@ def _cap_pct(value: float) -> float:
     return max(0.0, min(CUMPLIMIENTO_MAX, value))
 
 
-def _capped_pct(numerador, denominador) -> float:
+def con_tope(bloque: str, periodo: str | None) -> bool:
+    """El cumplimiento del bloque se topa en CUMPLIMIENTO_MAX, salvo C3 desde C3_SIN_TOPE_DESDE."""
+    return not (bloque == "C3" and _clean_text(periodo)[:10] >= C3_SIN_TOPE_DESDE)
+
+
+def _limit_pct(value: float, tope: bool = True) -> float:
+    return _cap_pct(value) if tope else max(0.0, value)
+
+
+def _capped_pct(numerador, denominador, tope: bool = True) -> float:
     den = _num(denominador)
     if not den:
         return 0.0
-    return _cap_pct(_num(numerador) / den * 100.0)
+    return _limit_pct(_num(numerador) / den * 100.0, tope)
 
 
 def _row_compliance(row: dict) -> float:
     """Cumplimiento de un bloque. C1 - C2 y C3 combinan contencion y normalizacion con los
     ponderadores nivel 3 de la tabla de metas; el resto es solo contencion."""
-    cont = _capped_pct(row.get("contenido"), row.get("monto_meta_cont"))
-    norm = _capped_pct(row.get("normalizado"), row.get("monto_meta_norm"))
+    tope = con_tope(row.get("bloque"), row.get("periodo"))
+    cont = _capped_pct(row.get("contenido"), row.get("monto_meta_cont"), tope)
+    norm = _capped_pct(row.get("normalizado"), row.get("monto_meta_norm"), tope)
     peso_cont = _num(row.get("pond_n3_cont"))
     peso_norm = _num(row.get("pond_n3_norm"))
     if row.get("bloque") in BLOQUES_CON_NORMALIZACION and _num(row.get("monto_meta_norm")) > 0 and peso_cont + peso_norm > 0:
-        return _cap_pct(((cont * peso_cont) + (norm * peso_norm)) / (peso_cont + peso_norm))
+        return _limit_pct(((cont * peso_cont) + (norm * peso_norm)) / (peso_cont + peso_norm), tope)
     return cont
 
 
 def get_cycle_view(filters: dict, fuente: str = "terreno") -> list[dict]:
     rows = _rows_from_query(filters, fuente)
     for row in rows:
-        row["pct_contencion"] = _capped_pct(row["contenido"], row["monto_meta_cont"])
-        row["pct_normalizacion"] = _capped_pct(row["normalizado"], row["monto_meta_norm"])
+        tope = con_tope(row["bloque"], row.get("periodo"))
+        row["con_tope"] = tope
+        row["pct_contencion"] = _capped_pct(row["contenido"], row["monto_meta_cont"], tope)
+        row["pct_normalizacion"] = _capped_pct(row["normalizado"], row["monto_meta_norm"], tope)
         row["cumplimiento_operativo"] = _row_compliance(row)
     return rows
 
@@ -867,6 +882,7 @@ def get_general_view(filters: dict, fuente: str = "terreno") -> list[dict]:
             row["bloque"],
             {
                 "bloque": row["bloque"],
+                "periodo": row.get("periodo"),
                 "contenido": 0.0,
                 "monto_meta_cont": 0.0,
                 "normalizado": 0.0,
