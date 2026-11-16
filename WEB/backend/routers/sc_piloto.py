@@ -1,0 +1,119 @@
+"""SC Piloto: ejecutivos de telefonia con mora tardia y castigo. Misma productividad que SC Tardia
+(services/sc_tardia_service.py) con la fuente 'piloto'. Los negocios vienen en el archivo de SC Terreno,
+filtrados a los ejecutivos del carterizado piloto del mes."""
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
+from auth.dependencies import require_module, require_roles
+from excel_export import XLSX_MEDIA_TYPE
+
+from schemas import ApiEnvelope, FiltersResponse
+from services.negocios_service import get_conteo as get_negocios_conteo
+from services.negocios_service import get_detalle as get_negocios_detalle
+from services.sc_tardia_excel import build_excel
+from services.sc_tardia_service import (
+    get_cycle_view, get_ejecutivos_piloto, get_filter_values, get_general_view, get_metas,
+)
+
+
+FUENTE = "piloto"
+
+router = APIRouter(dependencies=[Depends(require_module("sc-piloto"))])
+
+
+@router.get("/filtros", response_model=FiltersResponse)
+def filtros(
+    periodo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
+) -> FiltersResponse:
+    try:
+        return FiltersResponse(**get_filter_values(periodo, zona, FUENTE))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/metas", response_model=ApiEnvelope)
+def metas(periodo: str | None = Query(default=None)) -> ApiEnvelope:
+    try:
+        return ApiEnvelope(data=get_metas({"periodo": periodo}, FUENTE))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/productividad/general", response_model=ApiEnvelope)
+def productividad_general(
+    periodo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
+    tramo: str | None = Query(default=None),
+    apertura: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> ApiEnvelope:
+    try:
+        rows = get_general_view(
+            {"periodo": periodo, "zona": zona, "tramo": tramo, "apertura": apertura, "ejecutivo": ejecutivo},
+            FUENTE,
+        )
+        return ApiEnvelope(data=rows)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/productividad/ciclo", response_model=ApiEnvelope)
+def productividad_ciclo(
+    ciclo: str | None = Query(default=None),
+    periodo: str | None = Query(default=None),
+    zona: str | None = Query(default=None),
+    tramo: str | None = Query(default=None),
+    apertura: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> ApiEnvelope:
+    try:
+        rows = get_cycle_view(
+            {
+                "ciclo": ciclo,
+                "periodo": periodo,
+                "zona": zona,
+                "tramo": tramo,
+                "apertura": apertura,
+                "ejecutivo": ejecutivo,
+            },
+            FUENTE,
+        )
+        return ApiEnvelope(data=rows)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/negocios")
+def negocios(
+    periodo: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return get_negocios_conteo("sc-terreno", periodo, ejecutivo, get_ejecutivos_piloto(periodo))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/negocios/detalle")
+def negocios_detalle(
+    periodo: str | None = Query(default=None),
+    ejecutivo: str | None = Query(default=None),
+) -> dict:
+    try:
+        return get_negocios_detalle("sc-terreno", periodo, ejecutivo, get_ejecutivos_piloto(periodo))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/export")
+def export(periodo: str = Query(...), _user: dict = Depends(require_roles("super_admin"))) -> StreamingResponse:
+    try:
+        output, filename = build_excel(periodo, FUENTE)
+        return StreamingResponse(
+            output,
+            media_type=XLSX_MEDIA_TYPE,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

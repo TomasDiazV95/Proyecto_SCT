@@ -61,10 +61,22 @@ def precalentar_kpi_operacional() -> None:
     servicio.get_dashboard({}, hoy=date.today())
 
 
+def precalentar_sc_piloto() -> None:
+    """SC Piloto usa el servicio de SC Tardia con la fuente 'piloto' (mismas llamadas que routers/sc_piloto.py)."""
+    servicio = importlib.import_module("services.sc_tardia_service")
+    fechas = servicio.get_filter_values(None, None, "piloto").get("periodos") or []
+    if not fechas:
+        return
+    servicio.get_filter_values(fechas[0], None, "piloto")
+    for vista in ("get_general_view", "get_cycle_view", "get_metas"):
+        getattr(servicio, vista)({"periodo": fechas[0]}, "piloto")
+
+
 def precalentar(renovar: bool = True) -> None:
     """renovar=True vuelve a consultar aunque haya algo guardado (ciclo periodico). Con False usa los
     candados de la cache: sirve justo despues de limpiarla, cuando las paginas abiertas tambien piden."""
     pasos = [(modulo[0], functools.partial(precalentar_modulo, *modulo)) for modulo in MODULOS]
+    pasos.append(("sc_piloto", precalentar_sc_piloto))
     pasos.append(("kpi_operacional", precalentar_kpi_operacional))
     with cache.refrescando() if renovar else contextlib.nullcontext():
         for nombre, paso in pasos:

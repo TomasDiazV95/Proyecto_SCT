@@ -260,29 +260,38 @@ def sql_type_for(kind: str) -> str:
     return "NVARCHAR(MAX) NULL"
 
 
-def get_input_excel_paths() -> list[Path]:
+def get_input_excel_paths(
+    folder: Path = BENCH_FOLDER,
+    pattern: str = BENCH_PATTERN,
+    telefonia: bool = False,
+) -> list[Path]:
     """Archivos a procesar, del mas antiguo al mas nuevo segun su carga en el visor.
 
     La descarga deja el bench mas reciente y, los primeros dias del mes, el pre-cierre y el
     cierre del mes anterior (aunque el nombre venga escrito de otra forma). Los ya cargados se omiten.
+    El castigo de terreno y el de telefonia (SC Piloto) quedan en la misma carpeta: cada carga
+    toma solo los suyos, segun si el nombre trae TELEFONIA.
     """
-    if not BENCH_FOLDER.exists():
-        raise FileNotFoundError(f"La carpeta no existe: {BENCH_FOLDER}")
+    if not folder.exists():
+        raise FileNotFoundError(f"La carpeta no existe: {folder}")
 
-    files = bench_recarga.archivos_bench(BENCH_FOLDER, BENCH_PATTERN)
+    files = [
+        f for f in bench_recarga.archivos_bench(folder, pattern)
+        if ("TELEFONIA" in bench_recarga.tokens_bench(f.name)) == telefonia
+    ]
     if not files:
         raise FileNotFoundError(
-            f"No se encontro ningun archivo que cumpla el patron '{BENCH_PATTERN}' en {BENCH_FOLDER}"
+            f"No se encontro ningun archivo que cumpla el patron '{pattern}' en {folder}"
         )
     return files
 
 
-def read_excel(path: Path) -> pd.DataFrame:
+def read_excel(path: Path, sheet_name: int | str = SHEET_NAME) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"No existe el Excel en: {path}")
 
     raw = path.read_bytes()
-    df = pd.read_excel(BytesIO(raw), sheet_name=SHEET_NAME, dtype=object, engine="openpyxl")
+    df = pd.read_excel(BytesIO(raw), sheet_name=sheet_name, dtype=object, engine="openpyxl")
     df.columns = [normalize_excel_col(c) for c in df.columns]
     df = df.where(pd.notnull(df), None)
 
@@ -293,7 +302,9 @@ def read_excel(path: Path) -> pd.DataFrame:
     return df[EXPECTED_COLUMNS]
 
 
-def ensure_table() -> None:
+def ensure_table(table: str = TABLE) -> None:
+    # Nombre sin esquema, para los nombres de constraints e indices (unicos por tabla).
+    nombre = table.split(".")[-1]
     column_definitions = ",\n                    ".join(
         f"{sql_ident('fld_' + name)} {sql_type_for(kind)}" for name, kind in COLUMN_SPECS
     )
@@ -302,23 +313,23 @@ def ensure_table() -> None:
         cur = cn.cursor()
         cur.execute(
             f"""
-            IF OBJECT_ID('{TABLE}', 'U') IS NULL
+            IF OBJECT_ID('{table}', 'U') IS NULL
             BEGIN
-                CREATE TABLE {TABLE} (
+                CREATE TABLE {table} (
                     id_bench_sc_castigo BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-                    fecha_carga DATE NOT NULL CONSTRAINT DF_tmp_bench_SC_Castigo_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
-                    ts_carga DATETIME2(0) NOT NULL CONSTRAINT DF_tmp_bench_SC_Castigo_ts_carga DEFAULT (SYSDATETIME()),
+                    fecha_carga DATE NOT NULL CONSTRAINT DF_{nombre}_fecha_carga DEFAULT (CONVERT(date, GETDATE())),
+                    ts_carga DATETIME2(0) NOT NULL CONSTRAINT DF_{nombre}_ts_carga DEFAULT (SYSDATETIME()),
                     source_file NVARCHAR(260) NULL,
                     {column_definitions}
                 );
-                CREATE INDEX IX_tmp_bench_SC_Castigo_fecha_carga ON {TABLE}(fecha_carga);
-                CREATE INDEX IX_tmp_bench_SC_Castigo_source_file ON {TABLE}(source_file);
+                CREATE INDEX IX_{nombre}_fecha_carga ON {table}(fecha_carga);
+                CREATE INDEX IX_{nombre}_source_file ON {table}(source_file);
             END
             """
         )
         cn.commit()
 
-        schema, table_name = TABLE.split(".")
+        schema, table_name = table.split(".")
         cur.execute(
             """
             SELECT c.name
@@ -334,17 +345,17 @@ def ensure_table() -> None:
         for name, kind in COLUMN_SPECS:
             column_name = "fld_" + name
             if column_name not in existing:
-                cur.execute(f"ALTER TABLE {TABLE} ADD {sql_ident(column_name)} {sql_type_for(kind)};")
+                cur.execute(f"ALTER TABLE {table} ADD {sql_ident(column_name)} {sql_type_for(kind)};")
         cn.commit()
 
 
-def should_skip_load(current_source_file: str, fecha_visor: datetime, fecha_foto=None) -> bool:
+def should_skip_load(current_source_file: str, fecha_visor: datetime, fecha_foto=None, table: str = TABLE) -> bool:
     # Si el archivo ya esta cargado pero fue resubido al visor, se borran sus filas y se recarga.
     # El archivo de fin de mes conserva la primera carga marcada como pre-cierre (version_carga).
     # La foto es la FECHA de los datos (fecha_foto), no la fecha del nombre del archivo.
     with connect() as cn:
         cargar = bench_recarga.debe_cargar(
-            cn.cursor(), TABLE, current_source_file, fecha_visor, conservar_precierre=True,
+            cn.cursor(), table, current_source_file, fecha_visor, conservar_precierre=True,
             fecha_foto=fecha_foto,
         )
         cn.commit()
@@ -364,11 +375,11 @@ def value_for_insert(column: str, value: object):
     return clean_text(value)
 
 
-def insert_append(df: pd.DataFrame, source_file: str) -> None:
+def insert_append(df: pd.DataFrame, source_file: str, table: str = TABLE) -> None:
     insert_cols = ["source_file"] + ["fld_" + col for col in EXPECTED_COLUMNS]
     placeholders = ",".join(["?"] * len(insert_cols))
     sql = f"""
-    INSERT INTO {TABLE} ({','.join(map(sql_ident, insert_cols))})
+    INSERT INTO {table} ({','.join(map(sql_ident, insert_cols))})
     VALUES ({placeholders})
     """
 
@@ -406,7 +417,7 @@ def insert_append(df: pd.DataFrame, source_file: str) -> None:
                         print(f"Saltando fila problematica global #{global_idx} (Excel aprox fila {global_idx + 2})")
                         print("Detalle:", row_exc)
 
-    print(f"OK: insertadas {inserted} filas en {TABLE}")
+    print(f"OK: insertadas {inserted} filas en {table}")
 
 
 def main() -> None:
@@ -416,29 +427,29 @@ def main() -> None:
     corregir_nombres.corregir_tras_carga()
 
 
-def cargar_archivo(excel_path: Path) -> None:
+def cargar_archivo(excel_path: Path, table: str = TABLE, sheet_name: int | str = SHEET_NAME) -> None:
     source_file = excel_path.name
 
-    print(f"Archivo SC Castigo: {excel_path}")
+    print(f"Archivo SC Castigo: {excel_path} -> {table}")
 
-    ensure_table()
+    ensure_table(table)
 
     fecha_visor = bench_recarga.fecha_visor_archivo(excel_path)
     leido: dict[str, pd.DataFrame] = {}
 
     def leer() -> pd.DataFrame:
         if "df" not in leido:
-            leido["df"] = read_excel(excel_path)
+            leido["df"] = read_excel(excel_path, sheet_name)
         return leido["df"]
 
-    if should_skip_load(source_file, fecha_visor, lambda: bench_recarga.fecha_foto_df(leer())):
+    if should_skip_load(source_file, fecha_visor, lambda: bench_recarga.fecha_foto_df(leer()), table):
         return
 
     df = leer()
     print(f"Filas: {len(df)} | Columnas: {len(df.columns)}")
-    insert_append(df, source_file)
+    insert_append(df, source_file, table)
     with connect() as cn:
-        bench_recarga.registrar_fecha_visor(cn.cursor(), TABLE, source_file, fecha_visor)
+        bench_recarga.registrar_fecha_visor(cn.cursor(), table, source_file, fecha_visor)
         cn.commit()
 
 

@@ -18,6 +18,13 @@ export const modulePanels = [
         buttonLabel: "Ir a SC Tardía",
       },
       {
+        code: "sc-piloto",
+        title: "SC Piloto",
+        description: "Productividad de los ejecutivos de telefonía con mora tardía y castigo.",
+        path: "/productividad/sc-piloto",
+        buttonLabel: "Ir a SC Piloto",
+      },
+      {
         code: "sc-temprana",
         title: "SC Temprana",
         description: "Productividad y cumplimiento de cartera temprana.",

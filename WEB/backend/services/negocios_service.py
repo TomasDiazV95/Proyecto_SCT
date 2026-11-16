@@ -514,10 +514,19 @@ def _detalle_mes(negocio: str, mes: str) -> list[dict]:
     )
 
 
-def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None) -> dict:
+def _de_ejecutivos(rows: list[dict], ejecutivos: set[str] | None) -> list[dict]:
+    """Solo las filas de esos ejecutivos (comparados sin acentos ni mayusculas); None = todas.
+    SC Piloto usa el archivo de SC Terreno filtrado a sus ejecutivos."""
+    if ejecutivos is None:
+        return rows
+    claves = {_norm(e) for e in ejecutivos}
+    return [row for row in rows if _norm(row["ejecutivo"]) in claves]
+
+
+def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None, ejecutivos: set[str] | None = None) -> dict:
     """Una fila por negocio del mes (OP o RUT, ejecutivo y tipo de negocio), para la pestaña Detalle negocios."""
     mes = _mes(periodo)
-    rows = cache.cached(("negocios", "detalle", negocio, mes), lambda: _detalle_mes(negocio, mes))
+    rows = _de_ejecutivos(cache.cached(("negocios", "detalle", negocio, mes), lambda: _detalle_mes(negocio, mes)), ejecutivos)
     filtro = _norm(ejecutivo)
 
     filas = [
@@ -537,10 +546,10 @@ def get_detalle(negocio: str, periodo: str | None, ejecutivo: str | None = None)
     return {"periodo": mes, "identificador": "RUT" if negocio in POR_RUT else "OP", "filas": filas, "total": len(filas)}
 
 
-def get_conteo(negocio: str, periodo: str | None, ejecutivo: str | None = None) -> dict:
+def get_conteo(negocio: str, periodo: str | None, ejecutivo: str | None = None, ejecutivos: set[str] | None = None) -> dict:
     """Negocios del mes por ejecutivo y producto, para la pestaña Negocios de la productividad."""
     mes = _mes(periodo)
-    rows = cache.cached(("negocios", "conteo", negocio, mes), lambda: _conteo_mes(negocio, mes))
+    rows = _de_ejecutivos(cache.cached(("negocios", "conteo", negocio, mes), lambda: _conteo_mes(negocio, mes)), ejecutivos)
     filtro = _norm(ejecutivo)
 
     por_ejecutivo: dict[str, Counter] = {}

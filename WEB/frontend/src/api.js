@@ -66,16 +66,17 @@ function withQuery(url, params = {}) {
   return qs ? `${url}?${qs}` : url;
 }
 
-export async function fetchFilters(periodo = "", zona = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/filtros`, { periodo, zona }));
+// base: "sc-tardia" (SC Terreno) o "sc-piloto" (SC Piloto, misma productividad con otra cartera).
+export async function fetchFilters(periodo = "", zona = "", base = "sc-tardia") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/filtros`, { periodo, zona }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar los filtros");
   }
   return res.json();
 }
 
-export async function fetchGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/general`, filters));
+export async function fetchGeneral(filters, base = "sc-tardia") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/productividad/general`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista general");
   }
@@ -83,8 +84,8 @@ export async function fetchGeneral(filters) {
   return body.data || [];
 }
 
-export async function fetchCycle(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/productividad/ciclo`, filters));
+export async function fetchCycle(filters, base = "sc-tardia") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/productividad/ciclo`, filters));
   if (!res.ok) {
     throw new Error("No se pudo cargar la vista por ciclo");
   }
@@ -92,8 +93,8 @@ export async function fetchCycle(filters) {
   return body.data || [];
 }
 
-export async function fetchScTardiaMetas(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-tardia/metas`, { periodo: filters.periodo }));
+export async function fetchScTardiaMetas(filters, base = "sc-tardia") {
+  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/metas`, { periodo: filters.periodo }));
   if (!res.ok) {
     throw new Error("No se pudieron cargar las metas");
   }
@@ -908,6 +909,20 @@ export async function downloadItauCastigoExcel(fecha_carga) {
   );
 }
 
+export async function downloadItauVencidaExcel(fecha_carga) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/itau-vencida/export`, { fecha_carga }),
+    `Itau_Vencida_${fecha_carga || "fecha"}.xlsx`
+  );
+}
+
+export async function downloadItauVigenteExcel(fecha_carga) {
+  return downloadExcelFile(
+    withQuery(`${API_BASE}/api/itau-vigente/export`, { fecha_carga }),
+    `Itau_Vigente_${fecha_carga || "fecha"}.xlsx`
+  );
+}
+
 export async function downloadRrhhConsolidado(periodo) {
   return downloadExcelFile(
     withQuery(`${API_BASE}/api/rrhh/export`, { periodo }),
@@ -922,10 +937,11 @@ export async function downloadLaAraucanaProductividadExcel(periodo) {
   );
 }
 
-export async function downloadScTardiaExcel(periodo) {
+export async function downloadScTardiaExcel(periodo, base = "sc-tardia") {
+  const prefijo = base === "sc-piloto" ? "SC_Piloto" : "SC_Tardia";
   return downloadExcelFile(
-    withQuery(`${API_BASE}/api/sc-tardia/export`, { periodo }),
-    `SC_Tardia_${periodo || "periodo"}.xlsx`
+    withQuery(`${API_BASE}/api/${base}/export`, { periodo }),
+    `${prefijo}_${periodo || "periodo"}.xlsx`
   );
 }
 

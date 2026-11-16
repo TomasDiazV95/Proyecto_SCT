@@ -27,6 +27,7 @@ from routers.kpi_operacional import router as kpi_operacional_router
 from routers.la_araucana import router as la_araucana_router
 from routers.procuradores import router as procuradores_router
 from routers.rrhh import router as rrhh_router
+from routers.sc_piloto import router as sc_piloto_router
 from routers.sc_tardia import router as sc_tardia_router
 from routers.sc_temprana import router as sc_temprana_router
 from routers.sth import router as sth_router
@@ -68,6 +69,7 @@ def health() -> dict:
 
 
 app.include_router(sc_tardia_router, prefix="/api/sc-tardia", tags=["sc-tardia"])
+app.include_router(sc_piloto_router, prefix="/api/sc-piloto", tags=["sc-piloto"])
 app.include_router(sc_temprana_router, prefix="/api/sc-temprana", tags=["sc-temprana"])
 app.include_router(gm_router, prefix="/api/gm", tags=["gm"])
 app.include_router(gestiones_diarias_sct_router, prefix="/api/gestiones-diarias-sct", tags=["gestiones-diarias-sct"])

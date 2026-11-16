@@ -20,6 +20,7 @@ from services.itau_vencida_service import (
     _producto_values,
     _safe_div,
     negocios_result,
+    negocios_sql,
 )
 
 
@@ -671,6 +672,43 @@ def get_general(filters: dict) -> dict:
 
 
 @cached_view
+def get_contencion_detalle(filters: dict) -> list[dict]:
+    """Una fila por operacion del universo del cumplimiento (fases 1 a 3 de los canales del mes) con el ejecutivo de
+    la mejor gestion, igual que get_general: la suma por ejecutivo, producto y fase con meta da los saldos del resumen.
+    meta_pct = meta de contencion de su producto y fase (None: no entra al cumplimiento)."""
+    fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
+    periodo = _periodo_from_fecha(fecha_carga)
+    metas, _ = _load_metas(periodo)
+    rows = run_query(
+        _base_cte(periodo)
+        + """
+    SELECT Ejecutivo, RUT, NOMBRE, OPER, Producto, Fase, CANAL, MARCA, SALDO_INI, SALDO_CONT
+    FROM base
+    OPTION (HASH JOIN)
+    """,
+        (periodo, fecha_carga, fecha_carga, GESTOR_PHOENIX),
+    )
+    filas = [
+        {
+            "ejecutivo": row.get("Ejecutivo") or DEFAULT_EXECUTIVE,
+            "rut": str(int(row["RUT"])) if row.get("RUT") is not None else "",
+            "nombre": _clean_text(row.get("NOMBRE")),
+            "operacion": _clean_text(row.get("OPER")),
+            "producto": row.get("Producto"),
+            "fase": row.get("Fase"),
+            "canal": _clean_text(row.get("CANAL")),
+            "marca": _clean_text(row.get("MARCA")),
+            "saldo_ini": float(row.get("SALDO_INI") or 0),
+            "saldo_cont": float(row.get("SALDO_CONT") or 0),
+            "meta_pct": metas.get(row.get("Producto"), {}).get("fases", {}).get(row.get("Fase")),
+        }
+        for row in rows
+    ]
+    filas.sort(key=lambda f: (f["ejecutivo"] == DEFAULT_EXECUTIVE, f["ejecutivo"], f["rut"], f["operacion"]))
+    return filas
+
+
+@cached_view
 def get_negocios(filters: dict) -> dict:
     fecha_carga = _parse_fecha_carga(filters.get("fecha_carga"))
     periodo = _periodo_from_fecha(fecha_carga)
@@ -688,7 +726,7 @@ def get_negocios(filters: dict) -> dict:
         + f"""
     SELECT Ejecutivo, RUT, NOMBRE, OPER, Producto, Fase, SALDO_INI, SALDO_CONT
     FROM base
-    WHERE RENE_MES = 1
+    WHERE {negocios_sql(periodo)}
     {filter_sql}
     OPTION (HASH JOIN)
     """,
