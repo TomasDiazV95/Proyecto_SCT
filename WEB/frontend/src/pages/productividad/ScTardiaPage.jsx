@@ -294,14 +294,16 @@ export default function ScTardiaPage({ variante = "terreno" }) {
       const deuda = blockRows.reduce((acc, row) => acc + num(row.deuda_asignada), 0);
       const meta = blockRows.reduce((acc, row) => acc + num(row.monto_meta_cont), 0);
       const contenido = blockRows.reduce((acc, row) => acc + num(row.contenido), 0);
-      const cumplimiento = cappedPct(contenido, meta);
+      // El backend indica si el bloque se topa (C3 no tiene tope desde octubre 2026).
+      const conTope = blockRows.every((row) => row.con_tope !== false);
+      const cumplimiento = conTope ? cappedPct(contenido, meta) : Math.max(0, safePct(contenido, meta));
       return {
         block,
         rows: blockRows.length,
         deuda,
         meta,
         contenido,
-        cumplimiento: capPct(cumplimiento),
+        cumplimiento,
         status: statusOf(cumplimiento),
       };
     });

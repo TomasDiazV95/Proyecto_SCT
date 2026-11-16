@@ -112,6 +112,7 @@ Rutas principales del frontend:
 - `/administrativas/<modulo>`: `itau-vencida`, `gestiones-diarias-sct`.
 - `/contactabilidad/itau-vencida`, `/estrategia-asignacion/itau-castigo`, `/rrhh/cumplimientos`, `/admin/usuarios`.
 - `/simuladores/renegociacion-itau`: simulador de cuota de renegociacion (Itau Apoya y otras campanas); calcula en el navegador, sin API. Requiere `SQL\011_simuladores.sql`.
+- `/simuladores-veritus/convenios`: simulador de convenios Veritus (PUT hasta 6 cuotas / Convenio hasta 24, descuento max 50%, cuota min $50.000). Con el RUT trae la deuda de `dbo.tmp_asignacion_veritus` (ultimo PERIODO) via `GET /api/simulador-veritus/deudor?rut=`; el calculo corre en el navegador. Requiere `SQL\012_simulador_veritus.sql`.
 
 Paneles, modulos y rutas se definen en `WEB/frontend/src/app/moduleCatalog.js`; la pagina de cada ruta, en `app/routes.jsx`. Las direcciones antiguas (`/sc-tardia`, `/bench`, ...) redirigen a las nuevas.
 

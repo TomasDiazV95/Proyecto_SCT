@@ -719,3 +719,218 @@
     print-color-adjust: exact;
   }
 }
+
+/* =====================================================================
+   Simulador de Convenios Veritus (clase sim-vt sobre la misma base sim-)
+   ===================================================================== */
+.sim-vt {
+  --sim-accent: #0d9488;
+  --sim-accent-dark: #0f766e;
+  --sim-accent-soft: #f0fdfa;
+  --sim-accent-ring: rgba(13, 148, 136, 0.2);
+}
+
+.sim-vt .sim-ficha-top {
+  background: radial-gradient(120% 140% at 100% 0%, #115e59 0%, var(--sim-ink) 55%);
+}
+
+.sim-vt .sim-ficha-sub {
+  color: #5eead4;
+}
+
+.sim-vt .sim-ficha-sub.is-error {
+  color: #fca5a5;
+}
+
+/* Buscador de RUT */
+.sim-vt-buscar {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.sim-vt-rut {
+  flex: 1;
+}
+
+.sim-vt-rut .form-control {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sim-vt-rut .sim-input.is-error {
+  border-color: var(--pd-danger);
+}
+
+.sim-vt-btn-buscar {
+  height: 36px;
+  border-color: var(--sim-accent) !important;
+  background: var(--sim-accent) !important;
+}
+
+.sim-vt-btn-buscar:not(:disabled):hover {
+  background: var(--sim-accent-dark) !important;
+}
+
+.sim-vt-buscar .sim-btn-limpiar {
+  height: 36px;
+}
+
+.sim-vt-error-rut {
+  margin: -4px 0 10px;
+  color: var(--pd-danger-text);
+  font-size: var(--pd-fs-small);
+}
+
+/* Ficha del deudor */
+.sim-vt-deudor {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 4px;
+  padding: 10px 12px;
+  border: 1px solid #99f6e4;
+  border-radius: var(--pd-radius-sm);
+  background: var(--sim-accent-soft);
+}
+
+.sim-vt-deudor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+
+.sim-vt-nombre {
+  display: block;
+  color: var(--pd-text);
+  font-size: 0.95rem;
+}
+
+.sim-vt-rut-texto {
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-vt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sim-vt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: var(--pd-radius-pill);
+  background: var(--pd-surface);
+  color: #115e59;
+  font-size: 0.7rem;
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px #99f6e4;
+}
+
+.sim-vt-contacto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-label);
+}
+
+.sim-vt-contacto i {
+  margin-right: 3px;
+}
+
+.sim-vt-link {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sim-accent-dark);
+  font-size: var(--pd-fs-label);
+  font-weight: 600;
+}
+
+.sim-vt-ops {
+  margin: 2px 0 0;
+  background: var(--pd-surface);
+}
+
+.sim-vt-ops td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Producto y limites */
+.sim-vt-limites {
+  margin: 6px 0 0;
+  color: var(--pd-text-muted);
+  font-size: var(--pd-fs-label);
+}
+
+.sim-vt-limites strong {
+  color: var(--pd-text);
+}
+
+.sim-vt-monto {
+  font-weight: 700;
+}
+
+/* Alertas de limites en la ficha */
+.sim-vt-alerta {
+  display: grid;
+  gap: 4px;
+  margin: 12px 20px 0;
+  padding: 10px 12px;
+  border: 1px solid #fecaca;
+  border-radius: var(--pd-radius-sm);
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: var(--pd-fs-small);
+}
+
+.sim-vt-alerta ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.sim-vt-alerta > span {
+  font-size: var(--pd-fs-label);
+}
+
+.sim-vt-ok {
+  margin: 12px 20px 0;
+  padding: 8px 12px;
+  border-radius: var(--pd-radius-sm);
+  background: #f0fdf4;
+  color: var(--pd-success-text);
+  font-size: var(--pd-fs-small);
+  font-weight: 600;
+}
+
+.sim-vt-bajo-minimo td:nth-child(3) {
+  color: var(--pd-danger-text);
+}
+
+@media (max-width: 600px) {
+  .sim-vt-buscar {
+    flex-wrap: wrap;
+  }
+
+  .sim-vt-rut {
+    flex-basis: 100%;
+  }
+}
+
+@media print {
+  .sim-vt-alerta,
+  .sim-vt-ok {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

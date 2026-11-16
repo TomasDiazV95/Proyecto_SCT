@@ -31,6 +31,7 @@ from routers.sc_piloto import router as sc_piloto_router
 from routers.sc_tardia import router as sc_tardia_router
 from routers.sc_temprana import router as sc_temprana_router
 from routers.sth import router as sth_router
+from routers.simulador_veritus import router as simulador_veritus_router
 
 
 @asynccontextmanager
@@ -85,6 +86,7 @@ app.include_router(bit_router, prefix="/api/bit", tags=["bit"])
 # app.include_router(factura_router, prefix="/api/factura", tags=["factura"])
 app.include_router(la_araucana_router, prefix="/api/la-araucana", tags=["la-araucana"])
 app.include_router(sth_router, prefix="/api/sth", tags=["sth"])
+app.include_router(simulador_veritus_router, prefix="/api/simulador-veritus", tags=["simulador-veritus"])
 app.include_router(procuradores_router, prefix="/api/procuradores", tags=["procuradores"])
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(admin_users_router, prefix="/api/admin", tags=["admin-users"])

@@ -39,6 +39,11 @@ data/prueba.xlsx
 /*.docx
 /*.html
 
+# Capturas e imagenes sueltas en la raiz (ej. imagen.png, imagen (1).png)
+/*.png
+/*.jpg
+/*.jpeg
+
 # Logs ETL
 ETL/logs/
 
