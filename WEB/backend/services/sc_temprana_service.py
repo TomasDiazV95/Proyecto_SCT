@@ -63,6 +63,7 @@ DERIVADO_TO_USER = {
 }
 
 # Peso de cada respuesta: 1 es la mejor. Las respuestas que no estan aca no cuentan.
+# Desde COMPROMISOS_IGUALES_DESDE todas las COMPROMISO* pesan 1.
 PESO_RESPUESTA = [
     "COMPROMISO NORMALIZACION",
     "COMPROMISO CONTENCION",
@@ -129,6 +130,10 @@ EQUIPOS = [
 FPD_TABLE = "dbo.tmp_sc_temprana_fpd"
 
 BENCH_TABLE = "dbo.tmp_bench_temp_STC"
+# Mes (YYYYMM) desde el que la fecha de pago de una operacion contenida es su fld_FEC_ULT_PAGO.
+PAGO_ULT_PAGO_DESDE = "202611"
+# Mes (YYYYMM) desde el que todas las respuestas COMPROMISO* pesan igual (peso 1); antes, segun PESO_RESPUESTA.
+COMPROMISOS_IGUALES_DESDE = "202611"
 # El bench de fin de mes guarda dos cargas del mismo archivo (ETL/bench_recarga.py):
 # version_carga = 'PRECIERRE' en la primera y NULL en la vigente (cierre).
 VERSION_COL = "version_carga"
@@ -203,7 +208,9 @@ def _equipo_insert(periodo: str) -> str:
 def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     """Lote SQL que deja en #asig una fila por operacion del bench con la gestion que se la lleva.
 
-    Fecha de pago de una operacion contenida: el ultimo pago informado en el primer bench del mes
+    Fecha de pago de una operacion contenida: desde noviembre 2026 (PAGO_ULT_PAGO_DESDE), el
+    fld_FEC_ULT_PAGO de la foto consultada si es una fecha del mes hasta esa foto. Si no, y en los meses
+    anteriores: el ultimo pago informado en el primer bench del mes
     en que aparece contenida (si no es una fecha del mes hasta ese bench, la fecha de ese bench).
     Gana la mejor gestion del RUT hasta la fecha de pago (peso de la respuesta y la mas reciente);
     si no hay, la primera gestion posterior. Asi el contenido no cambia de ejecutivo al llegar
@@ -213,9 +220,24 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
     FPD del mes quedan marcadas con fpd = 1.
     """
     bench = _bench_source(periodo, version)
+    # Desde PAGO_ULT_PAGO_DESDE la fecha de pago es fld_FEC_ULT_PAGO de la foto consultada, si cae en el
+    # mes hasta esa foto. Si no (un contenido arrastrado del mes anterior), se usa la regla de antes (#pago).
+    mes = "".join(ch for ch in periodo if ch.isdigit())[:6]
+    if len(mes) == 6 and mes >= PAGO_ULT_PAGO_DESDE:
+        fecha_pago_sql = f"""CASE
+                WHEN TRY_CAST(b.fld_FEC_ULT_PAGO AS date) BETWEEN '{mes}01' AND TRY_CAST(b.fld_fecha AS date)
+                    THEN TRY_CAST(b.fld_FEC_ULT_PAGO AS date)
+                ELSE p.fecha_pago
+            END"""
+    else:
+        fecha_pago_sql = "p.fecha_pago"
+    pesos = {respuesta: peso for peso, respuesta in enumerate(PESO_RESPUESTA, start=1)}
+    if len(mes) == 6 and mes >= COMPROMISOS_IGUALES_DESDE:
+        # Todos los compromisos pesan igual (1): entre ellos gana el mas reciente.
+        pesos.update({r: 1 for r in PESO_RESPUESTA if r.startswith("COMPROMISO")})
     peso_case = "\n".join(
         "                WHEN '{}' THEN {}".format(respuesta.replace("'", "''"), peso)
-        for peso, respuesta in enumerate(PESO_RESPUESTA, start=1)
+        for respuesta, peso in pesos.items()
     )
     sql = f"""SET NOCOUNT ON;
     CREATE TABLE #equipo (
@@ -287,7 +309,7 @@ def _asignacion_sql(periodo: str, version: str = "CIERRE") -> tuple[str, list]:
         CAST(ISNULL(b.fld_CONTENIDO, 0) AS float) AS monto_contenido,
         CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN 1 ELSE 0 END AS contenido,
         CASE WHEN ISNULL(b.fld_NORMALIZADO, 0) <> 0 THEN 1 ELSE 0 END AS normalizado,
-        CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN p.fecha_pago END AS fecha_pago
+        CASE WHEN ISNULL(b.fld_CONTENIDO, 0) <> 0 THEN {fecha_pago_sql} END AS fecha_pago
     INTO #ops
     FROM {bench} b
     LEFT JOIN #pago p ON p.operacion = b.fld_OPERACION
