@@ -23,12 +23,12 @@ from services.sc_temprana_service import (
 NEGOCIO = "sc-telefonia"
 # Igual que la pagina: el tramo C3 solo se mide cuando tiene mas de 350 casos en el bench.
 MIN_CASOS_C3 = 350
-# Gestion asociada al pago (usuario, respuesta, fecha y telefono) en la hoja CONTENCION: desactivada por ahora.
-# Para volver a mostrarla, cambiar a True (la pagina tiene su propio interruptor en ScTempranaPage.jsx).
-MOSTRAR_GESTIONES = False
-# Montos por ejecutiva (deuda asig., monto cont., % cont. y % cumplimiento) en CUMPLIMIENTOS: desactivados por
-# ahora (la pagina muestra la vista en mantencion). Para volver a mostrarlos, cambiar a True.
-MOSTRAR_MONTOS_EJECUTIVA = False
+# Gestion asociada al pago (usuario, respuesta, fecha y telefono) en la hoja CONTENCION.
+# Con False se oculta (la pagina tiene su propio interruptor en ScTempranaPage.jsx).
+MOSTRAR_GESTIONES = True
+# Montos por ejecutiva (deuda asig., monto cont., % cont. y % cumplimiento) en CUMPLIMIENTOS. Con False se ocultan
+# y CUMPLIMIENTOS queda solo con negocios.
+MOSTRAR_MONTOS_EJECUTIVA = True
 
 
 def _cumplimiento(tramo: str, fila_total: int):

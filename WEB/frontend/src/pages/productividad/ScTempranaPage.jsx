@@ -11,12 +11,12 @@ const initialFilters = {
   ejecutivo: "",
 };
 
-// Gestiones asociadas al pago (usuario, respuesta, fecha y telefono) en el detalle: desactivadas por ahora.
-// Para volver a mostrarlas, cambiar a true (el Excel tiene su propio interruptor en sc_temprana_excel.py).
-const MOSTRAR_GESTIONES = false;
+// Gestiones asociadas al pago (usuario, respuesta, fecha y telefono) en el detalle y filtro Usuario Gestion.
+// Con false se ocultan (el Excel tiene su propio interruptor en sc_temprana_excel.py).
+const MOSTRAR_GESTIONES = true;
 // Montos por ejecutiva (deuda asignada, monto contenido, % contenido y % aporte) en General y Detalle por ciclo:
-// desactivados por ahora, esas vistas muestran un aviso de mantencion. Para volver a mostrarlos, cambiar a true.
-const MOSTRAR_MONTOS_EJECUTIVA = false;
+// con false esas vistas muestran un aviso de mantencion.
+const MOSTRAR_MONTOS_EJECUTIVA = true;
 
 const initialDetailFilters = {
   operacion: "",
