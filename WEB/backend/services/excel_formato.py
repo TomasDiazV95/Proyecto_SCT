@@ -81,7 +81,17 @@ def hoja_detalle(wb: Workbook, titulo: str, columnas: list[tuple[str, int, str |
         ws.auto_filter.ref = f"A1:{col(len(columnas))}{len(filas) + 1}"
 
 
+def mayusculas(wb: Workbook) -> None:
+    """Todo texto en mayusculas (nombres de ejecutivos incluidos), salvo las formulas."""
+    for ws in wb.worksheets:
+        for fila in ws.iter_rows():
+            for cell in fila:
+                if isinstance(cell.value, str) and not cell.value.startswith("="):
+                    cell.value = cell.value.upper()
+
+
 def guardar(wb: Workbook) -> BytesIO:
+    mayusculas(wb)
     output = BytesIO()
     wb.save(output)
     output.seek(0)

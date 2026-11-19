@@ -112,6 +112,25 @@ function formVacio() {
   return { ...FORM_VACIO, inicio: fechaAInput(new Date()) };
 }
 
+// Texto bajo la cuota grande de la ficha (y etiqueta de la barra movil) segun el tipo de plan.
+function subtituloPlan(r) {
+  const ultima = r.cuota !== null && r.ultimaMonto !== r.cuota ? ` · última ${pesos(r.ultimaMonto)}` : "";
+  if (r.pie !== null && r.modificadas === 1) {
+    return `Pie ${pesos(r.pie)} + ${plural(r.libres, "cuota", "cuotas")}${ultima}`;
+  }
+  if (r.modificadas > 0) {
+    return `${plural(r.cuotas, "cuota", "cuotas")} · ${plural(r.modificadas, "modificada", "modificadas")}`;
+  }
+  return `${plural(r.cuotas, "cuota", "cuotas")}${ultima}`;
+}
+
+function etiquetaBarra(r) {
+  if (r.cuotas === 1) return "Pago único";
+  if (r.cuota === null) return "Cuotas a medida · total";
+  if (r.pie !== null && r.modificadas === 1) return `Pie + ${r.libres} cuotas de`;
+  return `${r.libres} cuotas de`;
+}
+
 export default function SimuladorVeritusPage() {
   const [rutInput, setRutInput] = useState("");
   const [buscando, setBuscando] = useState(false);
@@ -120,6 +139,8 @@ export default function SimuladorVeritusPage() {
   const [verOperaciones, setVerOperaciones] = useState(false);
   const [productoCode, setProductoCode] = useState("convenio");
   const [form, setForm] = useState(formVacio);
+  // Cuotas con monto puesto a mano: { indice: digitos }. "" = se esta escribiendo (cuenta como automatica).
+  const [fijas, setFijas] = useState({});
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [aviso, setAviso] = useState("");
   const [fichaVisible, setFichaVisible] = useState(true);
@@ -139,13 +160,17 @@ export default function SimuladorVeritusPage() {
         monto: soloDigitos(form.monto),
         cuotas: soloDigitos(form.cuotas),
         inicio: form.inicio,
+        fijas,
       }),
-    [form, productoCode, deudor]
+    [form, productoCode, deudor, fijas]
   );
   const sinDatos = soloDigitos(form.saldoAjustado) === "";
   const errores = sinDatos ? {} : r.erroresCampo;
   const montoNum = Number(soloDigitos(form.monto)) || 0;
   const sugeridas = montoNum > 0 ? cuotasSugeridas(producto, montoNum) : null;
+  const nCuotas = Number(form.cuotas) || 0;
+  const nModificadas = r.calendario ? r.calendario.filter((c) => c.fija).length : 0;
+  const pieAuto = r.calendario && !r.calendario[0]?.fija ? r.calendario[0]?.monto : null;
 
   useEffect(() => {
     rutRef.current?.focus();
@@ -208,6 +233,7 @@ export default function SimuladorVeritusPage() {
       setRutInput(rutTexto);
       setVerOperaciones(false);
       setForm((prev) => ({ ...prev, ...planInicial(data.deuda_total, productoCode) }));
+      setFijas({});
     } catch (err) {
       if (id !== busquedaId.current) {
         return;
@@ -261,6 +287,35 @@ export default function SimuladorVeritusPage() {
     });
   }
 
+  // ---- Cuotas modificadas a mano ----
+  function fijarCuota(indice, valor) {
+    const digitos = soloDigitos(valor).slice(0, 12);
+    setFijas((prev) => ({ ...prev, [indice]: digitos }));
+  }
+
+  function soltarCuota(indice) {
+    setFijas((prev) => {
+      const siguiente = { ...prev };
+      delete siguiente[indice];
+      return siguiente;
+    });
+  }
+
+  // Al salir de una cuota que quedo vacia, vuelve a ser automatica.
+  function cerrarCuota(indice) {
+    if (fijas[indice] === "") {
+      soltarCuota(indice);
+    }
+  }
+
+  // Al terminar de escribir el N° de cuotas se descartan las fijadas que quedaron fuera del plan.
+  function podarFijas() {
+    setFijas((prev) => {
+      const dentro = Object.entries(prev).filter(([indice]) => Number(indice) < nCuotas);
+      return dentro.length === Object.keys(prev).length ? prev : Object.fromEntries(dentro);
+    });
+  }
+
   function limpiar() {
     busquedaId.current += 1;
     setBuscando(false);
@@ -268,6 +323,7 @@ export default function SimuladorVeritusPage() {
     setErrorRut("");
     setDeudor(null);
     setForm(formVacio());
+    setFijas({});
     setAviso("");
     rutRef.current?.focus();
   }
@@ -411,12 +467,38 @@ export default function SimuladorVeritusPage() {
                 error={errores.cuotas || (Number(form.cuotas) > producto.maxCuotas ? `Máximo ${producto.maxCuotas}` : null)}
                 hint={sugeridas ? `Sugerido: ${sugeridas} (cuota ≥ ${pesos(CUOTA_MINIMA)})` : null}
               >
-                <input className="form-control" inputMode="numeric" placeholder={`1 a ${producto.maxCuotas}`} value={form.cuotas} onChange={(e) => setForm((prev) => ({ ...prev, cuotas: soloDigitos(e.target.value).slice(0, 2) }))} />
+                <input className="form-control" inputMode="numeric" placeholder={`1 a ${producto.maxCuotas}`} value={form.cuotas} onChange={(e) => setForm((prev) => ({ ...prev, cuotas: soloDigitos(e.target.value).slice(0, 2) }))} onBlur={podarFijas} />
               </Campo>
               <Campo label="Inicio (cuota 1)" error={errores.inicio}>
                 <input className="form-control" type="date" value={form.inicio} onChange={(e) => setForm((prev) => ({ ...prev, inicio: e.target.value }))} />
               </Campo>
+              <Campo label="Pie (cuota 1)" prefijo="$" hint={nCuotas > 1 ? (fijas[0] ? "El resto se reparte parejo" : "Opcional · en gris, el automático") : "Requiere 2 cuotas o más"}>
+                <input
+                  className={`form-control${fijas[0] ? " sim-vt-monto" : ""}`}
+                  inputMode="numeric"
+                  placeholder={pieAuto != null ? miles(pieAuto) : "Automático"}
+                  value={fijas[0] !== undefined ? miles(fijas[0]) : ""}
+                  onChange={(e) => fijarCuota(0, e.target.value)}
+                  onBlur={() => cerrarCuota(0)}
+                  disabled={nCuotas <= 1}
+                />
+              </Campo>
             </div>
+            {errores.fijas && <p className="sim-vt-error-rut" role="alert"><i className="bi bi-exclamation-circle" aria-hidden="true" /> {errores.fijas}</p>}
+            {nCuotas > 1 && (
+              <p className="sim-vt-limites">
+                {nModificadas > 0 ? `${plural(nModificadas, "cuota modificada", "cuotas modificadas")} a mano · ` : "¿Otra cuota distinta? "}
+                <button type="button" className="sim-vt-link sim-vt-link-inline" onClick={() => setMostrarCalendario(true)}>
+                  Editar cada cuota en el calendario
+                </button>
+                {nModificadas > 0 && (
+                  <>
+                    {" · "}
+                    <button type="button" className="sim-vt-link sim-vt-link-inline" onClick={() => setFijas({})}>Restablecer</button>
+                  </>
+                )}
+              </p>
+            )}
           </Seccion>
 
           <label className="sim-switch">
@@ -424,22 +506,22 @@ export default function SimuladorVeritusPage() {
             <span className="sim-switch-track" aria-hidden="true"><span /></span>
             <i className="bi bi-calendar-week" aria-hidden="true" />
             <span>Mostrar calendario de cuotas</span>
-            {r.ok && <span className="sim-switch-meta">{plural(r.cuotas, "cuota", "cuotas")}</span>}
+            {r.ok && <span className="sim-switch-meta">{plural(r.cuotas, "cuota", "cuotas")}{r.modificadas > 0 ? ` · ${r.modificadas} a mano` : ""}</span>}
           </label>
         </div>
 
         <aside className="sim-ficha" ref={fichaRef} aria-live="polite">
           <div className="sim-ficha-top">
             <div className="sim-ficha-fila">
-              <span className="sim-ficha-label">{pagoUnico ? "Pago único" : "Cuota mensual"}</span>
+              <span className="sim-ficha-label">{pagoUnico ? "Pago único" : r.ok && r.cuota === null ? "Total en cuotas a medida" : "Cuota mensual"}</span>
               <span className="sim-ficha-etiqueta"><i className={`bi ${producto.icono}`} aria-hidden="true" /> {producto.titulo}</span>
             </div>
-            <span className={`sim-ficha-cuota${r.ok ? "" : " is-empty"}`} key={r.ok ? `${r.cuota}-${r.cuotas}` : "vacio"}>{r.ok ? pesos(r.cuota) : "$ —"}</span>
+            <span className={`sim-ficha-cuota${r.ok ? "" : " is-empty"}`} key={r.ok ? `${r.cuota}-${r.cuotas}` : "vacio"}>{r.ok ? pesos(r.cuota ?? r.monto) : "$ —"}</span>
             <span className={`sim-ficha-sub${!r.ok && !sinDatos ? " is-error" : ""}`}>
               {r.ok
                 ? pagoUnico
                   ? `Total con ${coma(r.descuento)}% de descuento`
-                  : `${plural(r.cuotas, "cuota", "cuotas")}${r.ultimaMonto !== r.cuota ? ` · última ${pesos(r.ultimaMonto)}` : ""}`
+                  : subtituloPlan(r)
                 : mensajeFicha}
             </span>
           </div>
@@ -482,16 +564,30 @@ export default function SimuladorVeritusPage() {
         <div ref={calendarioRef} className="sim-tabla-bloque">
           <SectionCard
             title="Calendario de cuotas"
-            description="Cuotas mensuales desde la fecha de inicio; la última ajusta el redondeo."
+            description={
+              r.calendario && r.cuotas > 1
+                ? "Escribe el monto de cualquier cuota para fijarlo (ej. un pie más alto); las demás se reparten parejo el resto del total."
+                : "Cuotas mensuales desde la fecha de inicio; la última ajusta el redondeo."
+            }
             bodyClassName="pd-table-scroll sim-tabla-wrap"
             exportName={r.ok ? `Convenio_Veritus_${deudor ? deudor.rut : "simulacion"}_${fechaAInput(new Date())}` : undefined}
             actions={
-              <button type="button" className="pd-btn pd-btn-ghost pd-btn-sm sim-no-print" onClick={() => { setMostrarCalendario(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-                <i className="bi bi-x-lg" aria-hidden="true" /> Ocultar
-              </button>
+              <>
+                {nModificadas > 0 && (
+                  <button type="button" className="pd-btn pd-btn-ghost pd-btn-sm sim-no-print pd-no-export" onClick={() => setFijas({})} title="Todas las cuotas vuelven a repartirse parejo">
+                    <i className="bi bi-arrow-counterclockwise" aria-hidden="true" /> Restablecer cuotas
+                  </button>
+                )}
+                <button type="button" className="pd-btn pd-btn-ghost pd-btn-sm sim-no-print pd-no-export" onClick={() => { setMostrarCalendario(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+                  <i className="bi bi-x-lg" aria-hidden="true" /> Ocultar
+                </button>
+              </>
             }
           >
-            {r.ok ? (
+            {errores.fijas && (
+              <p className="sim-vt-error-rut sim-vt-error-tabla" role="alert"><i className="bi bi-exclamation-circle" aria-hidden="true" /> {errores.fijas}</p>
+            )}
+            {r.calendario ? (
               <table className="pd-table pd-table-compact sim-tabla">
                 <thead>
                   <tr>
@@ -507,11 +603,37 @@ export default function SimuladorVeritusPage() {
                     const acumulado = (filas.length ? filas[filas.length - 1].acumulado : 0) + c.monto;
                     filas.push({ ...c, acumulado });
                     return filas;
-                  }, []).map((c) => (
-                    <tr key={c.numero} className={c.monto < CUOTA_MINIMA ? "sim-vt-bajo-minimo" : undefined}>
-                      <td>{c.numero}</td>
+                  }, []).map((c, i) => (
+                    <tr key={c.numero} className={[c.monto < CUOTA_MINIMA ? "sim-vt-bajo-minimo" : "", c.fija ? "sim-vt-fila-fija" : ""].join(" ").trim() || undefined}>
+                      <td>{c.numero}{c.fija && <span className="sim-vt-tag-fija">{i === 0 ? "pie" : "a mano"}</span>}</td>
                       <td>{fecha(c.vencimiento)}</td>
-                      <td className="text-end">{pesos(c.monto)}</td>
+                      <td className="text-end">
+                        {r.cuotas > 1 ? (
+                          <span className="sim-vt-cuota-edit">
+                            <span aria-hidden="true">$</span>
+                            <input
+                              className={`sim-vt-cuota-input${c.fija ? " is-fija" : ""}`}
+                              inputMode="numeric"
+                              aria-label={`Monto de la cuota ${c.numero}`}
+                              title={c.fija ? "Monto fijado a mano" : "Escribe un monto para fijar esta cuota"}
+                              value={fijas[i] !== undefined ? miles(fijas[i]) : miles(c.monto)}
+                              style={{ width: `${Math.max(9, (fijas[i] !== undefined ? miles(fijas[i]) : miles(c.monto)).length + 2)}ch` }}
+                              onChange={(e) => fijarCuota(i, e.target.value)}
+                              onBlur={() => cerrarCuota(i)}
+                              onFocus={(e) => e.target.select()}
+                            />
+                            {fijas[i] !== undefined ? (
+                              <button type="button" className="sim-vt-cuota-reset sim-no-print pd-no-export" title="Volver al monto automático" aria-label={`Volver al monto automático en la cuota ${c.numero}`} onClick={() => soltarCuota(i)}>
+                                <i className="bi bi-x-circle" aria-hidden="true" />
+                              </button>
+                            ) : (
+                              <span className="sim-vt-cuota-reset sim-no-print pd-no-export" aria-hidden="true" />
+                            )}
+                          </span>
+                        ) : (
+                          pesos(c.monto)
+                        )}
+                      </td>
                       <td className="text-end">{pesos(c.acumulado)}</td>
                       <td className="text-end">{pesos(r.monto - c.acumulado)}</td>
                     </tr>
@@ -531,8 +653,8 @@ export default function SimuladorVeritusPage() {
       {r.ok && !fichaVisible && (
         <button type="button" className="sim-barra-movil sim-no-print" onClick={() => fichaRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
           <span>
-            <span className="sim-barra-label">{pagoUnico ? "Pago único" : `${r.cuotas} cuotas de`}</span>
-            <strong>{pesos(r.cuota)}</strong>
+            <span className="sim-barra-label">{etiquetaBarra(r)}</span>
+            <strong>{pesos(r.cuota ?? r.monto)}</strong>
           </span>
           <span className="sim-barra-extra">total {pesos(r.monto)}</span>
           <i className="bi bi-chevron-up" aria-hidden="true" />

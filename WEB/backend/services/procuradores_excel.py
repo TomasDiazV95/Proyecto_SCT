@@ -13,6 +13,7 @@ from openpyxl import Workbook
 
 from services.excel_formato import AZUL, BLANCA, CELESTE, MONEDA, NARANJO, NEGRITA, PCT
 from services.excel_formato import celda as _celda
+from services.excel_formato import guardar
 from services.excel_formato import col as _col
 from services.excel_formato import semaforo as _semaforo
 from services.procuradores_service import AUTOMATICAS, ETIQUETAS, MANUALES, TOPE_CUMPLIMIENTO, get_detalle, get_general
@@ -155,7 +156,4 @@ def build_excel(periodo: str | None) -> tuple[BytesIO, str]:
     for variable in HOJAS_DETALLE:
         _hoja_detalle(wb, variable, [f for f in detalle if f["variable"] == variable])
 
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output, f"Procuradores_{general['periodo']}.xlsx"
+    return guardar(wb), f"Procuradores_{general['periodo']}.xlsx"

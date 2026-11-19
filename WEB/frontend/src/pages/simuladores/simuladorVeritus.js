@@ -1,6 +1,7 @@
 // Calculo del simulador de convenios Veritus (PUT / plan de pago). Solo calculo: sin React ni DOM.
 // Igual que el "Constructor de plan" del portal Veritus: el monto total del convenio se reparte parejo
-// entre las cuotas (mensuales desde la fecha de inicio) y la ultima absorbe el redondeo. Los limites del
+// entre las cuotas (mensuales desde la fecha de inicio) y la ultima absorbe el redondeo. Cualquier cuota
+// se puede fijar a mano (ej. un pie mas alto) y el resto se reparte entre las demas. Los limites del
 // producto no bloquean: se informan como "fuera de los limites" para revision del aprobador.
 
 import { fecha, fechaDesdeInput, pesos, sumarMeses } from "./simuladorRenegociacion";
@@ -51,7 +52,36 @@ export function cuotasSugeridas(producto, monto) {
   return Math.max(1, Math.min(producto.maxCuotas, porMinimo));
 }
 
-// valores: { producto (code), saldoTotal, saldoAjustado, monto, cuotas, inicio (YYYY-MM-DD) }
+// Cuotas fijadas a mano: { indice (0 = cuota 1 / pie): texto con digitos }. Un texto vacio es una
+// cuota que se esta editando y todavia cuenta como automatica. Solo valen las que caen dentro del plan.
+function cuotasFijadas(fijas, cuotas) {
+  const salida = new Map();
+  Object.entries(fijas || {}).forEach(([indice, texto]) => {
+    const i = Number(indice);
+    if (Number.isInteger(i) && i >= 0 && i < cuotas && String(texto ?? "") !== "") {
+      salida.set(i, Math.round(num(texto)));
+    }
+  });
+  return salida;
+}
+
+// Agrupa cuotas consecutivas del mismo monto: [{ desde, hasta, cantidad, monto }] (numeros de cuota).
+export function tramos(calendario) {
+  return calendario.reduce((lista, c) => {
+    const ultimo = lista[lista.length - 1];
+    if (ultimo && ultimo.monto === c.monto) {
+      ultimo.hasta = c.numero;
+      ultimo.cantidad += 1;
+    } else {
+      lista.push({ desde: c.numero, hasta: c.numero, cantidad: 1, monto: c.monto });
+    }
+    return lista;
+  }, []);
+}
+
+// valores: { producto (code), saldoTotal, saldoAjustado, monto, cuotas, inicio (YYYY-MM-DD), fijas }
+// fijas: cuotas con monto puesto a mano (ej. un pie mas alto); el resto del total se reparte parejo entre
+// las cuotas libres y la ultima libre absorbe el redondeo.
 export function simular(valores) {
   const producto = PRODUCTOS[valores.producto] || PRODUCTOS.convenio;
   const saldoTotal = num(valores.saldoTotal);
@@ -70,12 +100,32 @@ export function simular(valores) {
     return { ok: false, producto, erroresCampo, errores: Object.values(erroresCampo) };
   }
 
-  const base = Math.floor(monto / cuotas);
+  const fijadas = cuotas > 1 ? cuotasFijadas(valores.fijas, cuotas) : new Map();
+  const sumaFijas = [...fijadas.values()].reduce((s, v) => s + v, 0);
+  const libres = cuotas - fijadas.size;
+  const resto = monto - sumaFijas;
+  const base = libres > 0 ? Math.max(0, Math.floor(resto / libres)) : 0;
+  const ultimaLibre = libres > 0 ? Math.max(...Array.from({ length: cuotas }, (_, i) => (fijadas.has(i) ? -1 : i))) : -1;
   const calendario = Array.from({ length: cuotas }, (_, i) => ({
     numero: i + 1,
-    monto: i === cuotas - 1 ? monto - base * (cuotas - 1) : base,
+    monto: fijadas.has(i) ? fijadas.get(i) : i === ultimaLibre ? Math.max(0, resto - base * (libres - 1)) : base,
+    fija: fijadas.has(i),
     vencimiento: sumarMeses(inicio, i),
   }));
+
+  // Errores de las cuotas fijadas: se devuelve igual el calendario para poder corregirlas en la tabla.
+  let errorFijas = null;
+  const enCero = calendario.find((c) => c.fija && !(c.monto > 0));
+  if (enCero) {
+    errorFijas = `La cuota ${enCero.numero} no puede ser $0.`;
+  } else if (libres === 0 && resto !== 0) {
+    errorFijas = `Las cuotas suman ${pesos(sumaFijas)} y el total a pagar es ${pesos(monto)}: ${resto > 0 ? "faltan" : "sobran"} ${pesos(Math.abs(resto))}.`;
+  } else if (libres > 0 && resto < libres) {
+    errorFijas = `Las cuotas modificadas (${pesos(sumaFijas)}) ${resto < 0 ? "superan" : "cubren"} el total a pagar (${pesos(monto)}): no queda saldo para las demás cuotas.`;
+  }
+  if (errorFijas) {
+    return { ok: false, producto, erroresCampo: { fijas: errorFijas }, errores: [errorFijas], monto, cuotas, calendario };
+  }
 
   const descuento = descuentoDeMonto(saldoAjustado, monto);
   const bajoMinimo = calendario.filter((c) => c.monto < CUOTA_MINIMA).length;
@@ -100,7 +150,11 @@ export function simular(valores) {
     saldoAjustado,
     monto,
     cuotas,
-    cuota: base,
+    // Con cuotas fijadas, "cuota" es la de las cuotas libres (null si todas se fijaron a mano).
+    cuota: libres > 0 ? base : null,
+    libres,
+    modificadas: fijadas.size,
+    pie: cuotas > 1 && fijadas.has(0) ? fijadas.get(0) : null,
     ultimaMonto: calendario[cuotas - 1].monto,
     descuento,
     ahorro: Math.max(0, saldoAjustado - monto),
@@ -122,6 +176,13 @@ export function resumenCliente(deudor, r) {
   );
   if (r.cuotas === 1) {
     lineas.push(`Pago único: ${pesos(r.monto)} el ${fecha(r.primeraCuota)}`);
+  } else if (r.modificadas > 0) {
+    lineas.push(`Plan de ${r.cuotas} cuotas mensuales:`);
+    tramos(r.calendario).forEach((t) => {
+      const nombre = t.cantidad === 1 ? `Cuota ${t.desde}${t.desde === 1 && r.pie !== null ? " (pie)" : ""}` : `Cuotas ${t.desde} a ${t.hasta}`;
+      lineas.push(`• ${nombre}: ${pesos(t.monto)}${t.cantidad > 1 ? " c/u" : ""}`);
+    });
+    lineas.push(`Primera cuota: ${fecha(r.primeraCuota)} · Última cuota: ${fecha(r.ultimaCuota)}`);
   } else {
     const ultimaDistinta = r.ultimaMonto !== r.cuota ? ` (última cuota ${pesos(r.ultimaMonto)})` : "";
     lineas.push(

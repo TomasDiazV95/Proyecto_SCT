@@ -14,6 +14,11 @@ export default function PanelPage({ panelCode }) {
 
   const modules = getVisibleModules(user, panel);
 
+  // Paneles "directos" (simuladores): sin pagina intermedia, se entra al unico modulo.
+  if (panel.direct && modules.length === 1) {
+    return <Navigate to={modules[0].path} replace />;
+  }
+
   return (
     <div className="pd-page">
       <header className="pd-header">

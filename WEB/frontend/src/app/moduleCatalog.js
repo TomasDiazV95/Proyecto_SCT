@@ -209,6 +209,8 @@ export const modulePanels = [
     description: "Cuota estimada de renegociación Itaú en línea, para entregarle al cliente el monto a pagar.",
     path: "/simuladores",
     accent: "orange",
+    // direct: el panel no muestra su pagina de tarjetas; si el usuario ve un solo modulo, entra directo a el.
+    direct: true,
     modules: [
       {
         code: "simulador-renegociacion",
@@ -225,6 +227,7 @@ export const modulePanels = [
     description: "Convenios Veritus por RUT: trae la deuda del cliente y arma el plan PUT o de pago en cuotas.",
     path: "/simuladores-veritus",
     accent: "teal",
+    direct: true,
     modules: [
       {
         code: "simulador-veritus",
