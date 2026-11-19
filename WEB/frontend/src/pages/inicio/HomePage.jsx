@@ -94,32 +94,23 @@ export default function HomePage() {
           <section aria-labelledby="pd-home-panels-title">
             <div className="pd-home-section-head">
               <h2 id="pd-home-panels-title" className="pd-home-section-title">Paneles</h2>
-              <p className="pd-home-section-hint">Abre un panel completo o entra directo a uno de sus módulos.</p>
+              <p className="pd-home-section-hint">Abre un panel para ver sus módulos.</p>
             </div>
 
             <ul className="pd-home-index">
               {panels.map((panel) => {
                 const style = PANEL_STYLE[panel.accent] || PANEL_STYLE.primary;
+                // Solo el nombre del panel (sin botones de modulos). Panel directo (simuladores): abre su unico modulo.
+                const directo = panel.direct && panel.visibleModules.length === 1;
                 return (
                   <li className="pd-home-row" style={{ "--accent": style.color }} key={panel.code}>
-                    <Link to={panel.path} className="pd-home-row-head">
+                    <Link to={directo ? panel.visibleModules[0].path : panel.path} className="pd-home-row-head">
                       <i className={`bi ${style.icon} pd-home-row-icon`} aria-hidden="true" />
                       <span className="pd-home-row-text">
                         <span className="pd-home-row-name">{panel.title}</span>
                         <span className="pd-home-row-desc">{panel.description}</span>
                       </span>
                     </Link>
-                    <div className="pd-home-row-modules">
-                      {panel.visibleModules.length ? (
-                        panel.visibleModules.map((module) => (
-                          <Link to={module.path} className="pd-home-module" key={`${panel.code}-${module.path}`}>
-                            {module.title}
-                          </Link>
-                        ))
-                      ) : (
-                        <span className="pd-home-row-empty">Aún no tiene módulos. Abre el panel para ver su estado.</span>
-                      )}
-                    </div>
                   </li>
                 );
               })}

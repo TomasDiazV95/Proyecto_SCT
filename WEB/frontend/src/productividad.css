@@ -2036,11 +2036,10 @@
   overflow: hidden;
 }
 
-/* Cada fila: panel a la izquierda, sus modulos a la derecha. La franja de color identifica al panel. */
+/* Cada fila: un panel (nombre y descripcion, sin botones de modulos). La franja de color identifica al panel. */
 .pd-home-row {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) 1fr;
-  gap: var(--pd-space-4) var(--pd-space-6);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   padding: var(--pd-space-5);
   box-shadow: inset 4px 0 0 var(--accent);
@@ -2095,39 +2094,6 @@
   line-height: 1.45;
 }
 
-.pd-home-row-modules {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--pd-space-2);
-}
-
-.pd-home-module {
-  padding: 6px 12px;
-  border: 1px solid var(--pd-border);
-  border-radius: var(--pd-radius-sm);
-  background: var(--pd-surface-muted);
-  color: var(--home-ink);
-  font-size: var(--pd-fs-small);
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.pd-home-module:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--pd-surface);
-}
-
-.pd-home-module:focus-visible {
-  outline: 2px solid var(--pd-primary);
-  outline-offset: 2px;
-}
-
-.pd-home-row-empty {
-  color: var(--pd-text-subtle);
-  font-size: var(--pd-fs-small);
-}
-
 .pd-home-empty {
   padding: var(--pd-space-6);
   border: 1px dashed var(--pd-border-strong);
@@ -2152,7 +2118,6 @@
   }
 
   .pd-home-row {
-    grid-template-columns: 1fr;
     padding: var(--pd-space-4);
   }
 }

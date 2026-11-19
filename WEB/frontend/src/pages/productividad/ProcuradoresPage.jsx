@@ -223,7 +223,11 @@ export default function ProcuradoresPage() {
       <SectionCard
         key={item.cartera}
         title={item.titulo}
-        description={item.mapeada ? "" : "Sin mapear en el CRM judicial: solo se muestran las metas."}
+        description={
+          item.aviso
+          || (!item.mapeada ? "Sin fuente de gestiones: solo se muestran las metas."
+            : item.fuente === "api" ? "Gestiones de la API de hitos (fecha del trámite en el PJUD)." : "")
+        }
         exportName={exportFileName("Procuradores", item.titulo, periodo)}
         bodyClassName=""
         footer={<StatusLegend items={cumplimientoLegendItems} />}

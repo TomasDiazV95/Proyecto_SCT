@@ -1,6 +1,8 @@
 """Productividad de procuradores.
 
-Notificaciones, embargos, oficios e incautaciones salen del CRM judicial (JUDICIAL/*.sql, otro servidor).
+Notificaciones, embargos, oficios e incautaciones salen del CRM judicial (JUDICIAL/*.sql, otro servidor) para
+Santander Consumer. Tanner y Forum salen de la API de hitos (integrations/api_hitos.py) cuando su cliente_id esta
+en el .env; mientras no, Tanner sigue con el CRM y Forum queda sin mapear.
 Recupero castigo y gestion judicial se ingresan a mano. Metas, pesos y logros manuales: dbo.procuradores_metas.
 
 Una meta con ejecutivo GRUPAL es de la cartera: su logro cuenta las gestiones de todos los usuarios de esa
@@ -10,12 +12,14 @@ de esa variable, sin importar quien hizo la gestion (Tanner).
 """
 from __future__ import annotations
 
+import os
 from collections import Counter
 from datetime import date
 
 import cache
 from cache import cached, cached_view
 from database import get_connection, run_query, run_query_judicial
+from integrations import api_hitos
 
 
 AUTOMATICAS = ("notificaciones", "embargos", "oficios", "incautaciones")
@@ -30,9 +34,20 @@ ETIQUETAS = {
 }
 GRUPAL = "GRUPAL"
 TOPE_CUMPLIMIENTO = 1.3  # por variable
-# Cartera en procuradores_metas -> titulo. Forum aun no esta en el CRM judicial.
+# Cartera en procuradores_metas -> titulo.
 CARTERAS = {"SANTANDER CONSUMER": "Santander Consumer", "TANNER": "Tanner", "FORUM": "Forum"}
-CARTERAS_MAPEADAS = ("SANTANDER CONSUMER", "TANNER")
+CARTERAS_CRM = ("SANTANDER CONSUMER", "TANNER")
+# Carteras que se cuentan con la API de hitos: variable del .env con su cliente_id en la API.
+CLIENTE_API_ENV = {"TANNER": "API_BI_CLIENTE_TANNER", "FORUM": "API_BI_CLIENTE_FORUM"}
+# Variable -> endpoint de la API y filtros extra. Notificaciones: igual que en el CRM, sin las del art. 52.
+ENDPOINTS_API = {
+    "notificaciones": ("notificaciones", {"tipos": ["NOTIFICACION_PERSONAL", "NOTIFICACION_ART_44"]}),
+    "embargos": ("embargos", {}),
+    "oficios": ("oficios", {}),
+    "incautaciones": ("incautaciones", {}),
+}
+# procurador_id de la API -> nombre, solo para mostrar en el detalle (el logro es de toda la cartera).
+PROCURADORES_API = {25: "Nathaly Villanueva", 27: "Viviana Sanchez", 31: "Jimena Millar"}
 
 _GESTIONES_SQL = """
 SET NOCOUNT ON;
@@ -181,11 +196,69 @@ def _rango(periodo: str) -> tuple[str, str]:
     return desde.isoformat(), hasta.isoformat()
 
 
-def _gestiones(periodo: str) -> list[dict]:
+def _gestiones_crm(periodo: str) -> list[dict]:
     return cached(
         ("procuradores", "gestiones", periodo),
         lambda: run_query_judicial(_GESTIONES_SQL, _rango(periodo)),
     )
+
+
+def _clientes_api() -> dict[str, int]:
+    """Cartera -> cliente_id de las carteras que se cuentan con la API (requiere usuario de la API en el .env)."""
+    if not api_hitos.configurada():
+        return {}
+    clientes = {}
+    for cartera, variable_env in CLIENTE_API_ENV.items():
+        valor = os.getenv(variable_env, "").strip()
+        if valor:
+            clientes[cartera] = int(valor)
+    return clientes
+
+
+def _procurador_api(procurador_id: int | None) -> str:
+    if not procurador_id:
+        return ""
+    return PROCURADORES_API.get(procurador_id, f"Procurador {procurador_id}")
+
+
+def _hitos_api(cartera: str, cliente_id: int) -> list[dict]:
+    """Primer hito de cada pagare en toda la historia del cliente (distinct sin fecha), por variable.
+    Asi un pagare cuenta solo en el mes de su primer hito, como en el CRM (ya hecha antes del mes no cuenta)."""
+
+    def cargar() -> list[dict]:
+        filas = []
+        for variable, (endpoint, extra) in ENDPOINTS_API.items():
+            for hito in api_hitos.hitos(endpoint, {"cliente_id": cliente_id, "distinct": True, **extra}):
+                fecha = hito.get("fecha_tramite_1")
+                filas.append({
+                    "variable": variable,
+                    "cartera": cartera,
+                    "op": hito.get("numero_pagare") or hito.get("rol") or "",
+                    "usuario": _procurador_api(hito.get("procurador_id")),
+                    "tribunal": hito.get("tribunal_nombre") or "",
+                    "fecha": date.fromisoformat(fecha) if fecha else None,
+                })
+        return filas
+
+    return cached(("procuradores", "api", cartera, cliente_id), cargar)
+
+
+def _gestiones(periodo: str) -> tuple[list[dict], set[str], dict[str, str]]:
+    """Gestiones contadas en el mes, carteras con fuente de gestiones y aviso de las que no se pudieron leer."""
+    clientes = _clientes_api()
+    filas = [r for r in _gestiones_crm(periodo) if r["cartera"] not in clientes]
+    mapeadas = {c for c in CARTERAS_CRM if c not in clientes}
+    avisos = {}
+    desde, hasta = (date.fromisoformat(d) for d in _rango(periodo))
+    for cartera, cliente_id in clientes.items():
+        try:
+            hitos = _hitos_api(cartera, cliente_id)
+        except Exception as exc:  # la API caida no debe botar las demas carteras
+            avisos[cartera] = f"No se pudo consultar la API de hitos: {exc}"
+            continue
+        filas += [h for h in hitos if h["fecha"] and desde <= h["fecha"] < hasta]
+        mapeadas.add(cartera)
+    return filas, mapeadas, avisos
 
 
 def _metas(periodo: str) -> list[dict]:
@@ -225,18 +298,18 @@ def get_filter_values(periodo: str | None = None) -> dict:
     return {"periodos": periodos, "carteras": [{"value": k, "label": v} for k, v in CARTERAS.items()]}
 
 
-def _logro(meta: dict, conteos: Counter) -> float | None:
+def _logro(meta: dict, conteos: Counter, mapeadas: set[str]) -> float | None:
     if meta["variable"] in MANUALES:
         return meta["logro_manual"]
-    if meta["cartera"] not in CARTERAS_MAPEADAS:
+    if meta["cartera"] not in mapeadas:
         return None
     if meta["ejecutivo"] == GRUPAL or not meta["usuario_crm"]:
         return sum(n for (cartera, variable, _), n in conteos.items() if cartera == meta["cartera"] and variable == meta["variable"])
     return conteos[(meta["cartera"], meta["variable"], _usuario_key(meta["usuario_crm"]))]
 
 
-def _variable(meta: dict, conteos: Counter) -> dict:
-    logro = _logro(meta, conteos)
+def _variable(meta: dict, conteos: Counter, mapeadas: set[str]) -> dict:
+    logro = _logro(meta, conteos, mapeadas)
     return {
         "logro": logro,
         "meta": meta["meta"],
@@ -247,9 +320,9 @@ def _variable(meta: dict, conteos: Counter) -> dict:
     }
 
 
-def _fila(metas: list[dict], cartera: str, ejecutivo: str, conteos: Counter) -> dict:
+def _fila(metas: list[dict], cartera: str, ejecutivo: str, conteos: Counter, mapeadas: set[str]) -> dict:
     propias = [m for m in metas if m["cartera"] == cartera and m["ejecutivo"] in (ejecutivo, GRUPAL)]
-    variables = {m["variable"]: _variable(m, conteos) for m in propias}
+    variables = {m["variable"]: _variable(m, conteos, mapeadas) for m in propias}
 
     # Gestiones de una variable sin meta para el ejecutivo: se muestran, pero no suman al cumplimiento.
     usuario = next((m["usuario_crm"] for m in propias if m["usuario_crm"]), None)
@@ -263,7 +336,7 @@ def _fila(metas: list[dict], cartera: str, ejecutivo: str, conteos: Counter) -> 
     return {
         "ejecutivo": ejecutivo,
         "variables": variables,
-        "cumplimiento": cumplimiento if cartera in CARTERAS_MAPEADAS else None,
+        "cumplimiento": cumplimiento if cartera in mapeadas else None,
         "pendientes": pendientes,
     }
 
@@ -272,14 +345,18 @@ def _fila(metas: list[dict], cartera: str, ejecutivo: str, conteos: Counter) -> 
 def get_general(filters: dict) -> dict:
     periodo = _resolve_period(filters.get("periodo"))
     metas = _metas(periodo)
-    conteos = Counter((r["cartera"], r["variable"], _usuario_key(r["usuario"])) for r in _gestiones(periodo))
+    gestiones, mapeadas, avisos = _gestiones(periodo)
+    conteos = Counter((r["cartera"], r["variable"], _usuario_key(r["usuario"])) for r in gestiones)
+    clientes = _clientes_api()
 
     carteras = [
         {
             "cartera": cartera,
             "titulo": titulo,
-            "mapeada": cartera in CARTERAS_MAPEADAS,
-            "rows": [_fila(metas, cartera, ejecutivo, conteos) for ejecutivo in _ejecutivos(metas, cartera)],
+            "mapeada": cartera in mapeadas,
+            "fuente": "api" if cartera in clientes else "crm",
+            "aviso": avisos.get(cartera, ""),
+            "rows": [_fila(metas, cartera, ejecutivo, conteos, mapeadas) for ejecutivo in _ejecutivos(metas, cartera)],
         }
         for cartera, titulo in CARTERAS.items()
         if any(m["cartera"] == cartera for m in metas)
@@ -307,7 +384,7 @@ def get_detalle(filters: dict) -> list[dict]:
             "tribunal": _clean(row["tribunal"]),
             "fecha": row["fecha"].isoformat() if row["fecha"] else "",
         }
-        for row in _gestiones(periodo)
+        for row in _gestiones(periodo)[0]
     ]
     return sorted(filas, key=lambda f: (f["cartera"], f["gestion"], f["usuario"], f["fecha"]))
 

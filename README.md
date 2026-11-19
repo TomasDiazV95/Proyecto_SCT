@@ -75,6 +75,17 @@ JUDICIAL_DB_USER=tu_usuario
 JUDICIAL_DB_PASSWORD=tu_password
 ```
 
+API de hitos judiciales (`documentacion API.pdf`): en procuradores, Tanner y Forum se cuentan con ella cuando están
+el usuario ADMINISTRADOR y el `cliente_id` de la cartera. Sin esto, Tanner sigue con el CRM judicial y Forum queda sin mapear:
+
+```env
+API_BI_USER=usuario_administrador
+API_BI_PASSWORD=tu_password
+API_BI_CLIENTE_TANNER=id_cliente_tanner
+API_BI_CLIENTE_FORUM=id_cliente_forum
+# API_BI_URL=...   (opcional; por defecto la URL de produccion del PDF)
+```
+
 ## Ejecutar aplicacion web
 
 Opcion rapida en Windows:

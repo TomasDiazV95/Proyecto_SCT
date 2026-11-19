@@ -917,6 +917,86 @@
   color: var(--pd-danger-text);
 }
 
+/* Cuotas editables en el calendario */
+.sim-vt-link-inline {
+  margin-left: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sim-vt-error-tabla {
+  margin: 0;
+  padding: 8px 12px;
+}
+
+.sim-vt-cuota-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+/* Ancho en content-box (el padding no le quita espacio al numero) y crece con el monto (style inline). */
+.sim-vt-cuota-input {
+  box-sizing: content-box;
+  width: 11ch;
+  min-width: 9ch;
+  max-width: 16ch;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--pd-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.sim-vt-cuota-input:hover {
+  border-color: var(--pd-border);
+}
+
+.sim-vt-cuota-input:focus {
+  border-color: var(--sim-accent);
+  background: var(--pd-surface);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--sim-accent-ring);
+}
+
+.sim-vt-cuota-input.is-fija {
+  border-color: #99f6e4;
+  background: var(--pd-surface);
+  font-weight: 700;
+}
+
+.sim-vt-cuota-reset {
+  display: inline-flex;
+  width: 20px;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pd-text-muted);
+}
+
+button.sim-vt-cuota-reset:hover {
+  color: var(--pd-danger-text);
+}
+
+.sim-vt-fila-fija td {
+  background: var(--sim-accent-soft);
+}
+
+.sim-vt-tag-fija {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--pd-radius-pill);
+  background: #ccfbf1;
+  color: #115e59;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
 @media (max-width: 600px) {
   .sim-vt-buscar {
     flex-wrap: wrap;
@@ -928,8 +1008,14 @@
 }
 
 @media print {
+  .sim-vt-cuota-input {
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+
   .sim-vt-alerta,
-  .sim-vt-ok {
+  .sim-vt-ok,
+  .sim-vt-fila-fija td {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

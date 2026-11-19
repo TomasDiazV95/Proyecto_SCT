@@ -16,7 +16,6 @@ import "./simuladores.css";
 
 const BREADCRUMB = [
   { label: "Inicio", to: "/" },
-  { label: "Simulador de Renegociaciones Itaú", to: "/simuladores" },
 ];
 
 const GRACIA_OPCIONES = Array.from({ length: 13 }, (_, i) => i);
