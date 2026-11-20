@@ -5,7 +5,7 @@ import { useAuth } from "../../auth/AuthContext";
 import { EjecutivoDetalleFilter, EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 import { formatMoney } from "../../utils/format";
 
@@ -71,7 +71,7 @@ export default function BitCastigoPage() {
       try {
         const data = await fetchBitCastigoFilters();
         setOptions(data);
-        setFilters((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
+        setFilters((prev) => conCambios(prev, { periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       }

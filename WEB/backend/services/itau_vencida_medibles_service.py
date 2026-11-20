@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 import numpy as np
 
@@ -51,16 +52,25 @@ def _filtro(periodo: str, columna: str, valor: str) -> tuple[str, str, str]:
     return _periodo(periodo), columna, valor
 
 
+def _rango_mes(periodo: str) -> tuple[date, date]:
+    """Primer dia del mes 'YYYY-MM' y primer dia del mes siguiente."""
+    anio, mes = int(periodo[:4]), int(periodo[5:7])
+    return date(anio, mes, 1), date(anio + mes // 12, mes % 12 + 1, 1)
+
+
 def _valores_contencion(periodo: str) -> dict[str, list[str]]:
     """Valores distintos de cada columna en la ultima contencion Phoenix cargada en el mes (o la ultima carga si el mes no tiene)."""
+    # Filtro por rango (no CONVERT sobre la columna) para que use el indice de fecha_carga.
+    inicio, fin = _rango_mes(periodo)
     fechas = run_query(
         """
         SELECT MAX(fecha_carga) AS fecha
         FROM dbo.contencion_itau_vencida
         WHERE GESTOR = ?
-          AND CONVERT(char(7), fecha_carga, 126) = ?
+          AND fecha_carga >= ?
+          AND fecha_carga < ?
         """,
-        (GESTOR_PHOENIX, periodo),
+        (GESTOR_PHOENIX, inicio, fin),
     )
     fecha = fechas[0].get("fecha") if fechas else None
     if not fecha:

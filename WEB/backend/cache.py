@@ -72,12 +72,24 @@ def segundos_sin_uso() -> float:
     return time.monotonic() - _ultimo_uso
 
 
+# Cachés propias de algunos servicios (fuera de este modulo) que tambien deben vaciarse con clear().
+_al_limpiar: list = []
+
+
+def al_limpiar(fn):
+    """Registra fn() para que corra en cada clear(). Se puede usar como decorador."""
+    _al_limpiar.append(fn)
+    return fn
+
+
 def clear() -> None:
     """Olvida todo lo guardado. Se llama cuando la aplicacion modifica datos que cambian los resultados."""
     global _generacion
     with _cache_guard:
         _generacion += 1
         _cache.clear()
+    for fn in list(_al_limpiar):
+        fn()
 
 
 def forget(key: tuple) -> None:

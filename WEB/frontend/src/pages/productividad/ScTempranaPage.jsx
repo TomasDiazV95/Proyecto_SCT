@@ -4,7 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 
 const initialFilters = {
@@ -140,8 +140,7 @@ export default function ScTempranaPage() {
           ejecutivos: data.ejecutivos || [],
           usuarios_gestion: data.usuarios_gestion || [],
         });
-        setFilters((prev) => ({
-          ...prev,
+        setFilters((prev) => conCambios(prev, {
           periodo: fechaVigente(prev.periodo, options.periodos, data.periodos),
         }));
       } catch (err) {
@@ -175,6 +174,7 @@ export default function ScTempranaPage() {
   }, [operationSearch]);
 
   useEffect(() => {
+    let vigente = true;
     async function loadData() {
       // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
       if (!filters.periodo || view === "negocios" || view === "negocios-detalle") {
@@ -185,18 +185,24 @@ export default function ScTempranaPage() {
       try {
         if (view === "detalle") {
           const detail = await fetchScTempranaDetail({ ...filters, ...detailFilters, page: detailPage, page_size: detailPageSize });
+          if (!vigente) return;
           setDetailRows(detail.data || []);
           setDetailTotal(Number(detail.total || 0));
         } else {
-          setCycleRows(await fetchScTempranaCycle(filters));
+          const cycle = await fetchScTempranaCycle(filters);
+          if (!vigente) return;
+          setCycleRows(cycle);
         }
       } catch (err) {
-        setError(err.message);
+        if (vigente) setError(err.message);
       } finally {
-        setLoading(false);
+        if (vigente) setLoading(false);
       }
     }
     loadData();
+    return () => {
+      vigente = false;
+    };
   }, [filters, detailFilters, detailPage, detailPageSize, view, dataVersion]);
 
   // Excel con los cumplimientos y el detalle de lo medible, solo para super admin.

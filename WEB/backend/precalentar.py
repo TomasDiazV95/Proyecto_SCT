@@ -24,7 +24,7 @@ MODULOS = [
     ("sc_tardia", "get_filter_values", "periodo", ["get_general_view", "get_cycle_view", "get_metas"]),
     ("sc_temprana", "get_filter_values", "periodo", ["get_cycle_view"]),
     ("gm", "get_filter_values", "periodo", ["get_cycle_view", "get_bucket_view", "get_general_view"]),
-    ("itau_castigo", "get_filter_values", "fecha_carga", ["get_general", "get_producto"]),
+    ("itau_castigo", "get_filter_values", "fecha_carga", ["get_general", "get_nuevos_convenios"]),
     ("itau_vencida", "get_filter_values", "fecha_carga", ["get_general"]),
     ("itau_vigente", "get_filter_values", "fecha_carga", ["get_general"]),
     ("sth", "get_filter_values", "periodo", ["get_general_view", "get_detail_view", "get_metas"]),

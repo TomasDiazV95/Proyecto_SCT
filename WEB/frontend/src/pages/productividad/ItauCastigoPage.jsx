@@ -4,7 +4,7 @@ import { downloadItauCastigoExcel, fetchItauCastigoFilters, fetchItauCastigoGene
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, EjecutivoDetalleFilter, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 import { formatMoney } from "../../utils/format";
 
@@ -98,7 +98,7 @@ export default function ItauCastigoPage() {
       try {
         const data = await fetchItauCastigoFilters();
         setOptions(data);
-        setFilters((prev) => ({ ...prev, fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
+        setFilters((prev) => conCambios(prev, { fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
       } catch (err) {
         setError(err.message);
       }

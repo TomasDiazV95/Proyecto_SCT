@@ -4,7 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoLegendItems, cumplimientoStatus, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 
 const initialFilters = {
@@ -147,7 +147,7 @@ export default function ScTardiaPage({ variante = "terreno" }) {
           zonas: data.zonas || [],
           ejecutivos: data.ejecutivos || [],
         });
-        setFilters((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
+        setFilters((prev) => conCambios(prev, { periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       }
@@ -170,6 +170,7 @@ export default function ScTardiaPage({ variante = "terreno" }) {
   }, [filters.periodo, filters.zona, dataVersion]);
 
   useEffect(() => {
+    let vigente = true;
     async function loadData() {
       // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
       if (!filters.periodo || view === "negocios" || view === "negocios-detalle") return;
@@ -177,14 +178,18 @@ export default function ScTardiaPage({ variante = "terreno" }) {
       setError("");
       try {
         const data = view === "general" ? await fetchGeneral(filters, apiBase) : await fetchCycle(filters, apiBase);
+        if (!vigente) return;
         setResult({ view, rows: data || [] });
       } catch (err) {
-        setError(err.message);
+        if (vigente) setError(err.message);
       } finally {
-        setLoading(false);
+        if (vigente) setLoading(false);
       }
     }
     loadData();
+    return () => {
+      vigente = false;
+    };
   }, [filters, view, dataVersion]);
 
   // Las metas se cargan al abrir el panel, para el mes de la fecha consultada.

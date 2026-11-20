@@ -4,7 +4,7 @@ import { fetchBenchFilters, fetchBenchKpi } from "../../api";
 import { SIN_NEGOCIO_KPI } from "./sinNegocio";
 
 
-import useDataVersion, { fechaVigente, mantenerSiExiste } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, mantenerSiExiste, conCambios } from "../../hooks/useDataVersion";
 function formatPct(value) {
   return `${Number(value || 0).toFixed(1)} %`;
 }
@@ -344,7 +344,7 @@ export default function BenchPage() {
       try {
         const response = await fetchBenchFilters();
         setOptions(response);
-        setFilters((prev) => ({
+        setFilters((prev) => conCambios(prev, {
           periodo: fechaVigente(prev.periodo, options.periodos, response.periodos),
           negocio: mantenerSiExiste(prev.negocio, response.negocios, response.negocios?.[0] || ""),
           segmento: mantenerSiExiste(prev.segmento, response.segmentos, response.segmentos?.[0] || ""),

@@ -4,7 +4,7 @@ import { useAuth } from "../../auth/AuthContext";
 import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 
 const initialFilters = {
@@ -97,8 +97,7 @@ export default function SthPage() {
       try {
         const data = await fetchSthFilters();
         setOptions(data);
-        setFilters((prev) => ({
-          ...prev,
+        setFilters((prev) => conCambios(prev, {
           periodo: fechaVigente(prev.periodo, options.periodos, data.periodos),
         }));
       } catch (err) {
@@ -132,6 +131,7 @@ export default function SthPage() {
   }, [operationSearch]);
 
   useEffect(() => {
+    let vigente = true;
     async function loadData() {
       // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
       if (!filters.periodo || view === "negocios" || view === "negocios-detalle") {
@@ -147,20 +147,25 @@ export default function SthPage() {
             page: operationsPage,
             page_size: operationsPageSize,
           });
+          if (!vigente) return;
           setOperationsRows(detail.data || []);
           setOperationsTotal(Number(detail.total || 0));
         } else {
           const [general, detail] = await Promise.all([fetchSthGeneral(filters), fetchSthDetail(filters)]);
+          if (!vigente) return;
           setGeneralRows(general);
           setDetailBlocks(detail);
         }
       } catch (err) {
-        setError(err.message);
+        if (vigente) setError(err.message);
       } finally {
-        setLoading(false);
+        if (vigente) setLoading(false);
       }
     }
     loadData();
+    return () => {
+      vigente = false;
+    };
   }, [filters, operationsFilters, operationsPage, operationsPageSize, view, dataVersion]);
 
   // La columna Grupal solo existe en los periodos con bloque multiproducto (desde 2026-10).

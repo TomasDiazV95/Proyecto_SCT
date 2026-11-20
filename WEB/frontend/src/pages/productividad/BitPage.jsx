@@ -4,7 +4,7 @@ import { downloadBitExcel, fetchBitFilters, fetchBitGeneral, fetchBitNegocios, f
 import { useAuth } from "../../auth/AuthContext";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 import { formatMoney } from "../../utils/format";
 
@@ -62,7 +62,7 @@ export default function BitPage() {
       try {
         const data = await fetchBitFilters();
         setOptions({ periodos: data.periodos || [], ejecutivos: data.ejecutivos || [] });
-        setFilters((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
+        setFilters((prev) => conCambios(prev, { periodo: fechaVigente(prev.periodo, options.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       }
@@ -89,30 +89,37 @@ export default function BitPage() {
     if (!filters.periodo || view === "negocios-detalle") {
       return;
     }
+    let vigente = true;
     async function loadData() {
       setLoading(true);
       setError("");
       try {
         if (view === "general") {
           const data = await fetchBitGeneral(filters);
+          if (!vigente) return;
           setGeneral({ rows: data.rows || [], total: data.total || null, metas: data.metas || [] });
           setContencionFile(data.contencion_file || "");
         } else if (view === "negocios") {
           const data = await fetchBitNegocios(filters);
+          if (!vigente) return;
           setNegocios({ rows: data.rows || [], total: data.total || null });
           setContencionFile(data.contencion_file || "");
         } else {
           const data = await fetchBitTramos(filters);
+          if (!vigente) return;
           setTramoData({ rows: data.rows || [] });
           setContencionFile(data.contencion_file || "");
         }
       } catch (err) {
-        setError(err.message);
+        if (vigente) setError(err.message);
       } finally {
-        setLoading(false);
+        if (vigente) setLoading(false);
       }
     }
     loadData();
+    return () => {
+      vigente = false;
+    };
   }, [view, filters, dataVersion]);
 
   useEffect(() => {

@@ -1,27 +1,31 @@
-import AdminUsersPage from "../pages/admin/AdminUsersPage";
-import BenchPage from "../pages/kpi/BenchPage";
-import BitCastigoPage from "../pages/productividad/BitCastigoPage";
-import BitPage from "../pages/productividad/BitPage";
-import ContactabilidadItauVencidaPage from "../pages/contactabilidad/ContactabilidadItauVencidaPage";
-import EstrategiaItauCastigoPage from "../pages/estrategia/EstrategiaItauCastigoPage";
-import GestionesDiariasSctPage from "../pages/administrativas/GestionesDiariasSctPage";
-import GmPage from "../pages/productividad/GmPage";
-import ItauAdministrativasPage from "../pages/administrativas/ItauAdministrativasPage";
-import ItauCastigoPage from "../pages/productividad/ItauCastigoPage";
-import ItauVencidaPage from "../pages/productividad/ItauVencidaPage";
-import ItauVigentePage from "../pages/productividad/ItauVigentePage";
-import KpiAvancePhoenixPage from "../pages/kpi/KpiAvancePhoenixPage";
-import KpiOperacionalPage from "../pages/kpi/KpiOperacionalPage";
-import LaAraucanaPage from "../pages/productividad/LaAraucanaPage";
-import NegociosAdministrativasPage from "../pages/administrativas/NegociosAdministrativasPage";
-import ProcuradoresPage from "../pages/productividad/ProcuradoresPage";
-import RrhhPage from "../pages/rrhh/RrhhPage";
-import ScPilotoPage from "../pages/productividad/ScPilotoPage";
-import ScTardiaPage from "../pages/productividad/ScTardiaPage";
-import ScTempranaPage from "../pages/productividad/ScTempranaPage";
-import SimuladorRenegociacionPage from "../pages/simuladores/SimuladorRenegociacionPage";
-import SimuladorVeritusPage from "../pages/simuladores/SimuladorVeritusPage";
-import SthPage from "../pages/productividad/SthPage";
+import { lazy } from "react";
+
+// Cada pagina se descarga al abrirla por primera vez (el JS inicial queda mas liviano).
+// Sus CSS propios se importan en main.jsx para que los estilos sigan siendo los de siempre.
+const AdminUsersPage = lazy(() => import("../pages/admin/AdminUsersPage"));
+const BenchPage = lazy(() => import("../pages/kpi/BenchPage"));
+const BitCastigoPage = lazy(() => import("../pages/productividad/BitCastigoPage"));
+const BitPage = lazy(() => import("../pages/productividad/BitPage"));
+const ContactabilidadItauVencidaPage = lazy(() => import("../pages/contactabilidad/ContactabilidadItauVencidaPage"));
+const EstrategiaItauCastigoPage = lazy(() => import("../pages/estrategia/EstrategiaItauCastigoPage"));
+const GestionesDiariasSctPage = lazy(() => import("../pages/administrativas/GestionesDiariasSctPage"));
+const GmPage = lazy(() => import("../pages/productividad/GmPage"));
+const ItauAdministrativasPage = lazy(() => import("../pages/administrativas/ItauAdministrativasPage"));
+const ItauCastigoPage = lazy(() => import("../pages/productividad/ItauCastigoPage"));
+const ItauVencidaPage = lazy(() => import("../pages/productividad/ItauVencidaPage"));
+const ItauVigentePage = lazy(() => import("../pages/productividad/ItauVigentePage"));
+const KpiAvancePhoenixPage = lazy(() => import("../pages/kpi/KpiAvancePhoenixPage"));
+const KpiOperacionalPage = lazy(() => import("../pages/kpi/KpiOperacionalPage"));
+const LaAraucanaPage = lazy(() => import("../pages/productividad/LaAraucanaPage"));
+const NegociosAdministrativasPage = lazy(() => import("../pages/administrativas/NegociosAdministrativasPage"));
+const ProcuradoresPage = lazy(() => import("../pages/productividad/ProcuradoresPage"));
+const RrhhPage = lazy(() => import("../pages/rrhh/RrhhPage"));
+const ScPilotoPage = lazy(() => import("../pages/productividad/ScPilotoPage"));
+const ScTardiaPage = lazy(() => import("../pages/productividad/ScTardiaPage"));
+const ScTempranaPage = lazy(() => import("../pages/productividad/ScTempranaPage"));
+const SimuladorRenegociacionPage = lazy(() => import("../pages/simuladores/SimuladorRenegociacionPage"));
+const SimuladorVeritusPage = lazy(() => import("../pages/simuladores/SimuladorVeritusPage"));
+const SthPage = lazy(() => import("../pages/productividad/SthPage"));
 
 // Pagina de cada modulo del catalogo (moduleCatalog.js), por su path.
 export const modulePages = {

@@ -5,7 +5,7 @@ import ItauNegociosCard from "../../components/productividad/ItauNegociosCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../../components/productividad/ui";
 
 
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 import { formatMoneyM as formatMoney } from "../../utils/format";
 
@@ -121,7 +121,7 @@ export default function ItauVigentePage() {
       try {
         const data = await fetchItauVigenteFilters();
         setOptions(data);
-        setFilters((prev) => ({ ...prev, fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
+        setFilters((prev) => conCambios(prev, { fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
       } catch (err) {
         setError(err.message);
       }
@@ -134,11 +134,13 @@ export default function ItauVigentePage() {
       return;
     }
 
+    let vigente = true;
     async function loadData() {
       setLoading(true);
       setError("");
       try {
         const data = await fetchItauVigenteGeneral(filters);
+        if (!vigente) return;
         setRows(data.rows || []);
         setTotal(data.total || null);
         setMetas(data.metas || []);
@@ -152,13 +154,16 @@ export default function ItauVigentePage() {
           aporteCobertura: data.con_aporte_cobertura === true,
         });
       } catch (err) {
-        setError(err.message);
+        if (vigente) setError(err.message);
       } finally {
-        setLoading(false);
+        if (vigente) setLoading(false);
       }
     }
 
     loadData();
+    return () => {
+      vigente = false;
+    };
   }, [filters, dataVersion]);
 
   useEffect(() => {

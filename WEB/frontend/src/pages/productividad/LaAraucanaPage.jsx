@@ -3,7 +3,7 @@ import { useAuth } from "../../auth/AuthContext";
 
 import { downloadLaAraucanaExcel, downloadLaAraucanaProductividadExcel, fetchLaAraucanaDetalle, fetchLaAraucanaFilters, fetchLaAraucanaNegocios, fetchLaAraucanaResumen } from "../../api";
 import { EjecutivoDetalleFilter, EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import { saveDownload } from "../../utils/download";
 import useExcelDownload from "../../hooks/useExcelDownload";
 import { formatMoney } from "../../utils/format";
@@ -195,7 +195,7 @@ export default function LaAraucanaPage() {
       try {
         const data = await fetchLaAraucanaFilters();
         setFilters({ periodos: data.periodos || [], ejecutivos: data.ejecutivos || [] });
-        setSelected((prev) => ({ ...prev, periodo: fechaVigente(prev.periodo, filters.periodos, data.periodos) }));
+        setSelected((prev) => conCambios(prev, { periodo: fechaVigente(prev.periodo, filters.periodos, data.periodos) }));
       } catch (err) {
         setError(err.message);
       } finally {

@@ -8,7 +8,7 @@ import {
 import { PageHeader, SectionCard } from "../../components/productividad/ui";
 import { saveDownload } from "../../utils/download";
 import MediblesItauCard from "./MediblesItauCard";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 
 const BREADCRUMB = [
   { label: "Inicio", to: "/" },
@@ -67,7 +67,7 @@ export default function ItauAdministrativasPage() {
         const cuotas = data.cuotas || [];
         const asignacion = data.asignacion || [];
         setPeriodos({ cuotas, asignacion });
-        setSelected((prev) => ({
+        setSelected((prev) => conCambios(prev, {
           cuotas: fechaVigente(prev.cuotas, periodos.cuotas, cuotas),
           asignacion: fechaVigente(prev.asignacion, periodos.asignacion, asignacion),
           cuotasPagadas: fechaVigente(prev.cuotasPagadas, periodos.cuotas, cuotas),

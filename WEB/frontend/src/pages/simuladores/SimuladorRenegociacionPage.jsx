@@ -11,7 +11,6 @@ import {
   simular,
 } from "./simuladorRenegociacion";
 import { Campo, Seccion, coma, copiarTexto, decimal, limpiarDecimal, miles, plural, soloDigitos, useVisibleEnPantalla } from "./simuladorUi";
-import "./simuladores.css";
 
 // Todo en una pantalla: formulario compacto a la izquierda y ficha de pago a la derecha.
 

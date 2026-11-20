@@ -8,6 +8,7 @@ from threading import Lock
 from time import monotonic
 from typing import Any
 
+import cache
 from database import run_query, run_query_sets
 from feriados_chile import dias_habiles_al_cierre
 
@@ -53,6 +54,14 @@ EXPORT_MAX_ROWS = 200000
 FILTER_CACHE_TTL_SECONDS = 300
 _filter_cache: dict[str, tuple[float, dict]] = {}
 _filter_cache_lock = Lock()
+
+
+@cache.al_limpiar
+def _olvidar_filtros() -> None:
+    """Al cambiar los datos (cache.clear) se olvidan los filtros y las columnas leidas."""
+    with _filter_cache_lock:
+        _filter_cache.clear()
+    _columns.cache_clear()
 
 
 def _text(value: Any) -> str:

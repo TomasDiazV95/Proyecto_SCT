@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 import re
 
+from cache import cached_view
 from database import run_query
 from services._comunes import clean_text as _clean_text
 
@@ -61,6 +62,7 @@ def _get_last_db_update() -> str:
     return str(rows[0].get("fecha_actualizacion") or "") if rows else ""
 
 
+@cached_view
 def get_filter_values(filters: dict | None = None) -> dict:
     filters = filters or {}
     periodos = _query_periodos(filters)
@@ -124,6 +126,7 @@ def _resolve_periodos(filters: dict) -> list[str]:
     return available[:2]
 
 
+@cached_view
 def get_comparison_view(filters: dict) -> dict:
     selected_periods = _resolve_periodos(filters)
     if not selected_periods:

@@ -1,6 +1,7 @@
 from collections import defaultdict
 import re
 
+from cache import cached_view
 from database import run_query
 
 
@@ -88,6 +89,12 @@ def _empty_kpi_response(filters_context: dict) -> dict:
 
 
 def get_filter_values(filters: dict | None = None, user: dict | None = None) -> dict:
+    # El resultado no depende del usuario (el filtro por negocio lo aplica el router): cache compartida.
+    return _get_filter_values(filters)
+
+
+@cached_view
+def _get_filter_values(filters: dict | None = None) -> dict:
     filters = filters or {}
     negocio = str(filters.get("negocio") or "").strip()
     periodo = str(filters.get("periodo") or "").strip()
@@ -164,6 +171,11 @@ def _build_where(filters: dict) -> tuple[str, list]:
 
 
 def get_kpi_view(filters: dict, user: dict | None = None) -> dict:
+    return _get_kpi_view(filters)
+
+
+@cached_view
+def _get_kpi_view(filters: dict) -> dict:
     periodo = _resolve_periodo(filters)
     filters_context = {
         "periodo": periodo,

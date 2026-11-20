@@ -6,6 +6,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
+import cache
 from database import run_query
 from services import (
     bit_castigo_service,
@@ -95,6 +96,14 @@ CONSOLIDADO_WORKERS = 4
 
 _cortes_cache: dict[str, tuple[float, list[str]]] = {}
 _ruts_cache: tuple[float, dict[str, str]] | None = None
+
+
+@cache.al_limpiar
+def _olvidar_cortes() -> None:
+    """Al cambiar los datos (cache.clear) se vuelven a leer los cortes y la nomina."""
+    global _ruts_cache
+    _cortes_cache.clear()
+    _ruts_cache = None
 
 
 def _clave_nombre(nombre) -> str:

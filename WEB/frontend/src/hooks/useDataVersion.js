@@ -65,3 +65,9 @@ export function fechaVigente(actual, anteriores, nuevas) {
 export function mantenerSiExiste(actual, nuevas, porDefecto = "") {
   return actual && (nuevas || []).includes(actual) ? actual : porDefecto;
 }
+
+/** Estado con los cambios aplicados; si ninguno cambia el valor, devuelve el mismo objeto. Asi una recarga
+ * de la lista de fechas que deja la misma fecha no vuelve a disparar los efectos que dependen del estado. */
+export function conCambios(prev, cambios) {
+  return Object.keys(cambios).every((clave) => prev[clave] === cambios[clave]) ? prev : { ...prev, ...cambios };
+}

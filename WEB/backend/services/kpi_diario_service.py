@@ -2,6 +2,7 @@ import os
 import re
 from dataclasses import dataclass
 
+from cache import cached_view
 from database import run_query
 from services._comunes import pct as _safe_div
 
@@ -144,8 +145,9 @@ def _clean_text(value) -> str:
 
 def _period_expr(cols: ColumnMap) -> str:
     if cols.fecha_col:
-        # Intenta convertir YYYYMMDD a fecha y luego a YYYY-MM-DD
-        return f"FORMAT(CONVERT(date, {cols.fecha_col}, 112), 'yyyy-MM-dd')"
+        # YYYYMMDD -> fecha -> 'YYYY-MM-DD'. CONVERT estilo 126 da el mismo texto que FORMAT(..., 'yyyy-MM-dd')
+        # y es varias veces mas rapido (FORMAT es CLR y se evalua fila a fila).
+        return f"CONVERT(char(10), CONVERT(date, {cols.fecha_col}, 112), 126)"
     # Convierte fecha_carga (DATE) a YYYY-MM-DD
     return f"CONVERT(char(10), {cols.date_col}, 126)"
 
@@ -322,6 +324,7 @@ def get_cycle_rows(filters: dict) -> list[dict]:
     return rows
 
 
+@cached_view
 def get_cycle_view(filters: dict) -> list[dict]:
     rows = get_cycle_rows(filters)
     ciclo = filters.get("ciclo")
@@ -398,6 +401,7 @@ def get_cycle_view(filters: dict) -> list[dict]:
     return response
 
 
+@cached_view
 def get_general_view(filters: dict) -> list[dict]:
     rows = get_cycle_rows(filters)
     by_exec: dict[str, dict] = {}
@@ -478,6 +482,7 @@ def get_general_view(filters: dict) -> list[dict]:
     return response
 
 
+@cached_view
 def get_filter_values(filters: dict | None = None) -> dict:
     filters = filters or {}
     cols = resolve_columns()

@@ -6,7 +6,7 @@ import {
   fetchContactabilidadItauFilters,
 } from "../../api";
 import { saveDownload } from "../../utils/download";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 
 const PAGE_SIZE = 10;
 
@@ -378,8 +378,7 @@ export default function ContactabilidadItauVencidaPage() {
         estados_contencion: body.estados_contencion || [],
         estados_contacto: body.estados_contacto || [],
       });
-      setFilters((prev) => ({
-        ...prev,
+      setFilters((prev) => conCambios(prev, {
         periodo: prev.periodo ? fechaVigente(prev.periodo, options.periodos, body.periodos) : body.periodo || body.periodos?.[0] || "",
       }));
     }).catch((err) => {

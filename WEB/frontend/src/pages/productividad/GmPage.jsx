@@ -4,7 +4,7 @@ import { downloadGmExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFil
 import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import { saveDownload } from "../../utils/download";
 
 const initialFilters = {
@@ -76,8 +76,7 @@ export default function GmPage() {
       try {
         const data = await fetchGmFilters();
         setOptions(data);
-        setFilters((prev) => ({
-          ...prev,
+        setFilters((prev) => conCambios(prev, {
           periodo: fechaVigente(prev.periodo, options.periodos, data.periodos),
         }));
       } catch (err) {
@@ -102,6 +101,7 @@ export default function GmPage() {
   }, [filters.periodo, dataVersion]);
 
   useEffect(() => {
+    let vigente = true;
     async function loadData() {
       // Las pestañas de negocios cargan sus propios datos (NegociosCard y NegociosDetalleCard).
       if (!filters.periodo || view === "negocios" || view === "negocios-detalle") {
@@ -113,6 +113,7 @@ export default function GmPage() {
       try {
         if (view === "detalle") {
           const detailData = await fetchGmDetail({ ...filters, ...detailFilters });
+          if (!vigente) return;
           setDetailRows(detailData);
         } else {
           const [cycleData, bucketData, generalData] = await Promise.all([
@@ -120,18 +121,22 @@ export default function GmPage() {
             fetchGmBucket({ periodo: filters.periodo }),
             fetchGmGeneral(filters),
           ]);
+          if (!vigente) return;
           setRows(cycleData);
           setBucketRows(bucketData);
           setGeneralRows(generalData);
         }
       } catch (err) {
-        setError(err.message);
+        if (vigente) setError(err.message);
       } finally {
-        setLoading(false);
+        if (vigente) setLoading(false);
       }
     }
 
     loadData();
+    return () => {
+      vigente = false;
+    };
   }, [filters, detailFilters, view, dataVersion]);
 
   // Las metas salen de la vista bucket (todo el periodo), asi no dependen del filtro de ejecutivo.

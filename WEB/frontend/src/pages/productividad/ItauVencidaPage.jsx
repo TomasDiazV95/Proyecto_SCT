@@ -5,7 +5,7 @@ import ItauNegociosCard from "../../components/productividad/ItauNegociosCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 
 
-import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useDataVersion, { fechaVigente, conCambios } from "../../hooks/useDataVersion";
 import useExcelDownload from "../../hooks/useExcelDownload";
 import { formatMoneyM as formatMoney } from "../../utils/format";
 
@@ -72,7 +72,7 @@ export default function ItauVencidaPage() {
       try {
         const data = await fetchItauVencidaFilters();
         setOptions(data);
-        setFilters((prev) => ({ ...prev, fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
+        setFilters((prev) => conCambios(prev, { fecha_carga: fechaVigente(prev.fecha_carga, options.fechas_carga, data.fechas_carga) }));
       } catch (err) {
         setError(err.message);
       }
@@ -99,11 +99,13 @@ export default function ItauVencidaPage() {
       return;
     }
 
+    let vigente = true;
     async function loadData() {
       setLoading(true);
       setError("");
       try {
         const data = await fetchItauVencidaGeneral(filters);
+        if (!vigente) return;
         setRows(data.rows || []);
         setTotal(data.total || null);
         setMetas(data.metas || []);
@@ -111,13 +113,16 @@ export default function ItauVencidaPage() {
         setFiltrosMedibles(data.filtros_medibles || []);
         setMetadata({ fecha_carga: data.fecha_carga || filters.fecha_carga, periodo: data.periodo || "" });
       } catch (err) {
-        setError(err.message);
+        if (vigente) setError(err.message);
       } finally {
-        setLoading(false);
+        if (vigente) setLoading(false);
       }
     }
 
     loadData();
+    return () => {
+      vigente = false;
+    };
   }, [filters, dataVersion]);
 
   useEffect(() => {

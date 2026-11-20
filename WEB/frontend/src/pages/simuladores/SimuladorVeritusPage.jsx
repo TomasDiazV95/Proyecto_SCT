@@ -13,7 +13,6 @@ import {
   simular,
 } from "./simuladorVeritus";
 import { Campo, Seccion, coma, copiarTexto, decimal, limpiarDecimal, miles, plural, soloDigitos, useVisibleEnPantalla } from "./simuladorUi";
-import "./simuladores.css";
 
 // Mismo esquema que el simulador Itau: formulario a la izquierda y ficha del plan a la derecha.
 // El RUT trae la deuda desde la asignacion Veritus del mes; el calculo corre en el navegador.

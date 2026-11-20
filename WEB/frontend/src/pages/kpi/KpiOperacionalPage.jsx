@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchKpiOperacionalDashboard, fetchKpiOperacionalFilters } from "../../api";
-import "./kpiOperacional.css";
 import useDataVersion from "../../hooks/useDataVersion";
 import { SIN_NEGOCIO_KPI } from "./sinNegocio";
 

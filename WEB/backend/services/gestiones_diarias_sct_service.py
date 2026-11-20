@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from cache import cached_view
 from database import run_query
 
 
@@ -112,6 +113,7 @@ def _sort_contact_columns(values: list[str]) -> list[str]:
     return sorted(values, key=priority)
 
 
+@cached_view
 def get_filter_values(filters: dict | None = None) -> dict:
     filters = filters or {}
     date_rows = run_query(
