@@ -1,19 +1,4 @@
-function resolveApiBase() {
-  const envBase = import.meta.env.VITE_API_URL;
-  if (envBase) {
-    return envBase;
-  }
-
-  return "";
-}
-
-const API_BASE = resolveApiBase();
-
-function notifySessionExpired() {
-  localStorage.removeItem("auth_access_token");
-  localStorage.removeItem("auth_user");
-  window.dispatchEvent(new Event("auth-session-expired"));
-}
+import { API_BASE, clearStoredSession as notifySessionExpired } from "../apiBase";
 
 export async function authLogin(email, password) {
   const res = await fetch(`${API_BASE}/api/auth/login`, {

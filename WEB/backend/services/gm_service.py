@@ -4,6 +4,7 @@ from datetime import date
 
 from cache import cached_view
 from database import run_query
+from services._comunes import cap_pct as _cap, clean_text as _clean_text, cumplimiento_meta as _cumpl_variable, pct as _safe_div
 
 
 BUCKET_ORDER = ["6 a 30", "31 a 60", "61 a 90", "91 a 150"]
@@ -24,12 +25,6 @@ RESULTADO_OFICIAL_BUCKET = {
 SIN_TRAMO_91_150 = {"2026-09-01"}
 
 
-def _clean_text(value) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
 def _period_start(periodo: str | None) -> str:
     if periodo:
         text = str(periodo).strip()
@@ -43,22 +38,6 @@ def _period_start(periodo: str | None) -> str:
     """
     rows = run_query(sql)
     return (rows[0].get("periodo") if rows else None) or date.today().replace(day=1).isoformat()
-
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return (num / den) * 100.0
-
-
-def _cap(value: float, max_value: float = 130.0) -> float:
-    return max(0.0, min(max_value, value))
-
-
-def _cumpl_variable(pct_real: float, meta: float) -> float:
-    if meta is None or meta <= 0:
-        return 0.0
-    return _cap(_safe_div(pct_real, meta))
 
 
 def _bucket_index(bucket: str) -> int:

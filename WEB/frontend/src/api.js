@@ -1,19 +1,4 @@
-function resolveApiBase() {
-  const envBase = import.meta.env.VITE_API_URL;
-  if (envBase) {
-    return envBase;
-  }
-
-  return "";
-}
-
-const API_BASE = resolveApiBase();
-
-function clearStoredSession() {
-  localStorage.removeItem("auth_access_token");
-  localStorage.removeItem("auth_user");
-  window.dispatchEvent(new Event("auth-session-expired"));
-}
+import { API_BASE, clearStoredSession } from "./apiBase";
 
 async function apiFetch(url, options = {}, retry = true) {
   const token = localStorage.getItem("auth_access_token") || "";
@@ -66,72 +51,52 @@ function withQuery(url, params = {}) {
   return qs ? `${url}?${qs}` : url;
 }
 
-// base: "sc-tardia" (SC Terreno) o "sc-piloto" (SC Piloto, misma productividad con otra cartera).
-export async function fetchFilters(periodo = "", zona = "", base = "sc-tardia") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/filtros`, { periodo, zona }));
+// GET que devuelve el JSON de la respuesta, o lanza Error(mensajeError) si no es 2xx.
+async function getJson(url, mensajeError) {
+  const res = await apiFetch(url);
   if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros");
+    throw new Error(mensajeError);
   }
   return res.json();
+}
+
+// Igual que getJson, pero devuelve body.data (o [] si no viene).
+async function getData(url, mensajeError) {
+  const body = await getJson(url, mensajeError);
+  return body.data || [];
+}
+
+// base: "sc-tardia" (SC Terreno) o "sc-piloto" (SC Piloto, misma productividad con otra cartera).
+export async function fetchFilters(periodo = "", zona = "", base = "sc-tardia") {
+  return getJson(withQuery(`${API_BASE}/api/${base}/filtros`, { periodo, zona }), "No se pudieron cargar los filtros");
 }
 
 export async function fetchGeneral(filters, base = "sc-tardia") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/productividad/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/${base}/productividad/general`, filters), "No se pudo cargar la vista general");
 }
 
 export async function fetchCycle(filters, base = "sc-tardia") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/productividad/ciclo`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista por ciclo");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/${base}/productividad/ciclo`, filters), "No se pudo cargar la vista por ciclo");
 }
 
 export async function fetchScTardiaMetas(filters, base = "sc-tardia") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/${base}/metas`, { periodo: filters.periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar las metas");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/${base}/metas`, { periodo: filters.periodo }), "No se pudieron cargar las metas");
 }
 
 export async function fetchLaAraucanaFilters(periodo = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/filtros`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de La Araucana");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/la-araucana/filtros`, { periodo }), "No se pudieron cargar los filtros de La Araucana");
 }
 
 export async function fetchLaAraucanaResumen(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/resumen`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el resumen de La Araucana");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/la-araucana/resumen`, filters), "No se pudo cargar el resumen de La Araucana");
 }
 
 export async function fetchLaAraucanaNegocios(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/negocios`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los negocios de La Araucana");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/la-araucana/negocios`, filters), "No se pudieron cargar los negocios de La Araucana");
 }
 
 export async function fetchLaAraucanaDetalle(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/la-araucana/detalle`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el detalle de La Araucana");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/la-araucana/detalle`, filters), "No se pudo cargar el detalle de La Araucana");
 }
 
 export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
@@ -145,184 +110,91 @@ export async function downloadLaAraucanaExcel(periodo, tipoCartera = "") {
   return { blob: await res.blob(), filename };
 }
 export async function fetchScTempranaFilters(periodo = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/filtros`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de SC Temprana");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/sc-temprana/filtros`, { periodo }), "No se pudieron cargar los filtros de SC Temprana");
 }
 
 export async function fetchScTempranaCycle(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/ciclo`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista por ciclo de SC Temprana");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/sc-temprana/productividad/ciclo`, filters), "No se pudo cargar la vista por ciclo de SC Temprana");
 }
 
 export async function fetchScTempranaDetail(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/detalle`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el detalle de SC Temprana");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/sc-temprana/detalle`, filters), "No se pudo cargar el detalle de SC Temprana");
 }
 
 export async function fetchGestionesDiariasSctFilters(filters = {}) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gestiones-diarias-sct/filtros`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de Gestiones Diarias SCT");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/gestiones-diarias-sct/filtros`, filters), "No se pudieron cargar los filtros de Gestiones Diarias SCT");
 }
 
 export async function fetchKpiDiarioFilters(filters = {}) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/filtros`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de KPI diario");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/kpi-diario/filtros`, filters), "No se pudieron cargar los filtros de KPI diario");
 }
 
 export async function fetchGestionesDiariasSctDetail(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gestiones-diarias-sct/detalle`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar Gestiones Diarias SCT");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/gestiones-diarias-sct/detalle`, filters), "No se pudo cargar Gestiones Diarias SCT");
 }
 
 export async function fetchGestionesDiariasSctSummary(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gestiones-diarias-sct/resumen`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el resumen de Gestiones Diarias SCT");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/gestiones-diarias-sct/resumen`, filters), "No se pudo cargar el resumen de Gestiones Diarias SCT");
 }
 
 export async function fetchKpiDiarioGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de KPI diario");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/kpi-diario/productividad/general`, filters), "No se pudo cargar la vista general de KPI diario");
 }
 
 export async function fetchKpiDiarioCycle(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-diario/productividad/ciclo`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista por ciclo de KPI diario");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/kpi-diario/productividad/ciclo`, filters), "No se pudo cargar la vista por ciclo de KPI diario");
 }
 
 export async function fetchGmFilters(periodo = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/filtros`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de GM");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/gm/filtros`, { periodo }), "No se pudieron cargar los filtros de GM");
 }
 
 export async function fetchGmCycle(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/ciclo`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la productividad de GM");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/gm/productividad/ciclo`, filters), "No se pudo cargar la productividad de GM");
 }
 
 export async function fetchGmGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de GM");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/gm/productividad/general`, filters), "No se pudo cargar la vista general de GM");
 }
 
 export async function fetchBitFilters(periodo = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/filtros`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de BIT");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/bit/filtros`, { periodo }), "No se pudieron cargar los filtros de BIT");
 }
 
 export async function fetchBitGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de BIT");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/bit/general`, filters), "No se pudo cargar la vista general de BIT");
 }
 
 export async function fetchBitTramos(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/tramos`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista por tramo de BIT");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/bit/tramos`, filters), "No se pudo cargar la vista por tramo de BIT");
 }
 
 export async function fetchBitNegocios(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/negocios`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista de negocios de BIT");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/bit/negocios`, filters), "No se pudo cargar la vista de negocios de BIT");
 }
 
 export async function fetchBitCastigoFilters(periodo = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/filtros`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de BIT Castigo");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/bit-castigo/filtros`, { periodo }), "No se pudieron cargar los filtros de BIT Castigo");
 }
 
 export async function fetchBitCastigoNuevosConvenios(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/nuevos-convenios`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el detalle de nuevos convenios de BIT Castigo");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/bit-castigo/nuevos-convenios`, filters), "No se pudo cargar el detalle de nuevos convenios de BIT Castigo");
 }
 
 export async function fetchBitCastigoGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de BIT Castigo");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/bit-castigo/general`, filters), "No se pudo cargar la vista general de BIT Castigo");
 }
 
 export async function fetchProcuradoresFilters() {
-  const res = await apiFetch(`${API_BASE}/api/procuradores/filtros`);
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de Procuradores");
-  }
-  return res.json();
+  return getJson(`${API_BASE}/api/procuradores/filtros`, "No se pudieron cargar los filtros de Procuradores");
 }
 
 export async function fetchProcuradoresGeneral(periodo) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/procuradores/general`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de Procuradores");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/procuradores/general`, { periodo }), "No se pudo cargar la vista general de Procuradores");
 }
 
 export async function fetchProcuradoresDetalle(periodo) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/procuradores/detalle`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el detalle de Procuradores");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/procuradores/detalle`, { periodo }), "No se pudo cargar el detalle de Procuradores");
 }
 
 export async function saveProcuradoresLogros(periodo, valores) {
@@ -348,93 +220,47 @@ export async function saveProcuradoresLogros(periodo, valores) {
 // }
 
 export async function fetchItauCastigoFilters(fecha_carga = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/filtros`, { fecha_carga }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de Itaú Castigo");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-castigo/filtros`, { fecha_carga }), "No se pudieron cargar los filtros de Itaú Castigo");
 }
 
 export async function fetchItauCastigoGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de Itaú Castigo");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-castigo/general`, filters), "No se pudo cargar la vista general de Itaú Castigo");
 }
 
 export async function fetchItauCastigoNuevosConvenios(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/nuevos-convenios`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los nuevos convenios de Itaú Castigo");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-castigo/nuevos-convenios`, filters), "No se pudieron cargar los nuevos convenios de Itaú Castigo");
 }
 
 export async function fetchItauVencidaFilters(fecha_carga = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/filtros`, { fecha_carga }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de Itaú Vencida");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-vencida/filtros`, { fecha_carga }), "No se pudieron cargar los filtros de Itaú Vencida");
 }
 
 export async function fetchItauVencidaGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de Itaú Vencida");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-vencida/general`, filters), "No se pudo cargar la vista general de Itaú Vencida");
 }
 
 export async function fetchItauVigenteFilters(fecha_carga = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vigente/filtros`, { fecha_carga }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de Itaú Vigente");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-vigente/filtros`, { fecha_carga }), "No se pudieron cargar los filtros de Itaú Vigente");
 }
 
 export async function fetchItauVigenteGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vigente/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de Itaú Vigente");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-vigente/general`, filters), "No se pudo cargar la vista general de Itaú Vigente");
 }
 
 export async function fetchItauVencidaNegocios(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vencida/negocios`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los negocios de Itaú Vencida");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-vencida/negocios`, filters), "No se pudieron cargar los negocios de Itaú Vencida");
 }
 
 export async function fetchItauVigenteNegocios(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-vigente/negocios`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los negocios de Itaú Vigente");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/itau-vigente/negocios`, filters), "No se pudieron cargar los negocios de Itaú Vigente");
 }
 
 export async function fetchGmBucket(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista por bucket de GM");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/gm/productividad/bucket`, filters), "No se pudo cargar la vista por bucket de GM");
 }
 
 export async function fetchGmDetail(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/gm/detalle`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el detalle de GM");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/gm/detalle`, filters), "No se pudo cargar el detalle de GM");
 }
 
 // Mensaje del backend (detail) si lo trae; si no, el generico. Ej.: el aviso de "solo tu negocio" en los KPI.
@@ -499,64 +325,31 @@ export async function downloadGmExcel(periodo) {
 }
 
 export async function fetchSthFilters(periodo = "") {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/filtros`, { periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de STH");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/sth/filtros`, { periodo }), "No se pudieron cargar los filtros de STH");
 }
 
 export async function fetchSthGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/productividad/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de STH");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/sth/productividad/general`, filters), "No se pudo cargar la vista general de STH");
 }
 
 export async function fetchSthDetail(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/productividad/desglosada`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista desglosada de STH");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/sth/productividad/desglosada`, filters), "No se pudo cargar la vista desglosada de STH");
 }
 
 export async function fetchSthMetas(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/metas`, { periodo: filters.periodo }));
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar las metas de STH");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(withQuery(`${API_BASE}/api/sth/metas`, { periodo: filters.periodo }), "No se pudieron cargar las metas de STH");
 }
 
 export async function fetchSthOperationsDetail(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sth/detalle`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el detalle de STH");
-  }
-  return res.json();
+  return getJson(withQuery(`${API_BASE}/api/sth/detalle`, filters), "No se pudo cargar el detalle de STH");
 }
 
 export async function fetchAdminModules() {
-  const res = await apiFetch(`${API_BASE}/api/admin/modules`);
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los módulos");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(`${API_BASE}/api/admin/modules`, "No se pudieron cargar los módulos");
 }
 
 export async function fetchAdminUsers() {
-  const res = await apiFetch(`${API_BASE}/api/admin/users`);
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los usuarios");
-  }
-  const body = await res.json();
-  return body.data || [];
+  return getData(`${API_BASE}/api/admin/users`, "No se pudieron cargar los usuarios");
 }
 
 export async function createAdminUser(payload) {
@@ -760,11 +553,7 @@ export async function fetchNegociosDetalle(modulo, filters) {
 }
 
 export async function fetchItauAdministrativasPeriodos() {
-  const res = await apiFetch(`${API_BASE}/api/administrativas/itau/periodos`);
-  if (!res.ok) {
-    throw new Error("No se pudieron cargar los periodos de Itaú");
-  }
-  return res.json();
+  return getJson(`${API_BASE}/api/administrativas/itau/periodos`, "No se pudieron cargar los periodos de Itaú");
 }
 
 async function downloadExcelFile(url, fallbackFilename) {

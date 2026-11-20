@@ -3,7 +3,7 @@ import os
 from integrations.graph_mail import send_mail_graph
 
 
-def send_welcome_email(to_email: str, full_name: str, temp_password: str = "Ph.2026") -> None:
+def send_welcome_email(to_email: str, full_name: str, temp_password: str) -> None:
     web_base = os.getenv("WEB_APP_URL", "http://localhost:5173").rstrip("/")
     login_url = f"{web_base}/login"
     subject = "Acceso Plataforma de Productividad"
@@ -18,7 +18,7 @@ def send_welcome_email(to_email: str, full_name: str, temp_password: str = "Ph.2
     send_mail_graph(to_email, subject, body)
 
 
-def send_temp_password_email(to_email: str, full_name: str, temp_password: str = "Ph.2026") -> None:
+def send_temp_password_email(to_email: str, full_name: str, temp_password: str) -> None:
     """Contrasena temporal que deja un administrador al restablecer el acceso de un usuario."""
     web_base = os.getenv("WEB_APP_URL", "http://localhost:5173").rstrip("/")
     login_url = f"{web_base}/login"

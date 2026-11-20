@@ -4,16 +4,11 @@ from datetime import date, datetime
 
 from cache import cached_view
 from database import run_query
+from services._comunes import cap_fraccion as _cap, clean_text as _clean_text, in_list as _in_list, periodo_from_fecha as _periodo_from_fecha, razon as _safe_div
 
 
 DEFAULT_EXECUTIVE = "PHOENIX"
 GESTOR_PHOENIX = "PHOENIX"
-
-
-def _clean_text(value) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def _parse_fecha_carga(value: str | None) -> str:
@@ -44,21 +39,6 @@ def _parse_fecha_carga(value: str | None) -> str:
             pass
 
     raise RuntimeError(f"Fecha de carga inválida: {value}")
-
-
-def _periodo_from_fecha(fecha_carga: str) -> str:
-    parsed = date.fromisoformat(fecha_carga)
-    return parsed.replace(day=1).isoformat()
-
-
-def _cap(value: float, max_value: float = 1.3) -> float:
-    return max(0.0, min(value, max_value))
-
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return num / den
 
 
 PRODUCTOS = ("CONSUMO", "HIPOTECARIO")
@@ -615,10 +595,6 @@ def get_contencion_detalle(filters: dict) -> list[dict]:
 
 # Canal que define los negocios (renegociaciones) de Itau Vencida; el Call/Contact Center es de Itau Vigente.
 CANALES_NEGOCIOS = ("TERRENO PREJUDICIAL",)
-
-
-def _in_list(values: tuple) -> str:
-    return ", ".join("'{}'".format(str(value).replace("'", "''")) for value in values)
 
 
 # Desde octubre 2026 una renegociacion cuenta como negocio solo si la operacion tiene saldo contenido.

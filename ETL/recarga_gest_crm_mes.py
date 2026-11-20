@@ -20,8 +20,9 @@ from decimal import Decimal
 from pathlib import Path
 
 import pymysql
-import pyodbc
 from dotenv import load_dotenv
+
+from etl_comun import sqlserver
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,25 +116,6 @@ def hora(value):
         total = int(value.total_seconds())
         return f"{total // 3600:02d}:{(total % 3600) // 60:02d}:{total % 60:02d}"
     return value
-
-
-def sqlserver() -> pyodbc.Connection:
-    faltan = [n for n in ("DB_SERVER", "DB_NAME", "DB_USER", "DB_PASSWORD") if not os.getenv(n)]
-    if faltan:
-        raise RuntimeError("Faltan variables en .env: " + ", ".join(faltan))
-    disponibles = pyodbc.drivers()
-    driver = next(
-        (d for d in (os.getenv("DB_DRIVER"), "ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server")
-         if d and d in disponibles),
-        None,
-    )
-    if not driver:
-        raise RuntimeError(f"No hay driver ODBC para SQL Server. Drivers encontrados: {disponibles}")
-    return pyodbc.connect(
-        f"Driver={{{driver}}};Server={os.getenv('DB_SERVER')};Database={os.getenv('DB_NAME')};"
-        f"UID={os.getenv('DB_USER')};PWD={os.getenv('DB_PASSWORD')};TrustServerCertificate=yes;",
-        autocommit=False,
-    )
 
 
 def crm() -> pymysql.connections.Connection:

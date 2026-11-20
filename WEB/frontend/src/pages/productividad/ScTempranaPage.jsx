@@ -5,6 +5,7 @@ import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, Segmented, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useExcelDownload from "../../hooks/useExcelDownload";
 
 const initialFilters = {
   periodo: "",
@@ -110,7 +111,7 @@ export default function ScTempranaPage() {
   const [error, setError] = useState("");
   const { user } = useAuth();
   const esSuperAdmin = user?.role === "super_admin";
-  const [descargando, setDescargando] = useState(false);
+  const [descargando, descargar] = useExcelDownload();
   const hasActiveFilters =
   filters.ejecutivo ||
   operationSearch ||
@@ -203,23 +204,7 @@ export default function ScTempranaPage() {
     if (!filters.periodo) {
       return;
     }
-    setDescargando(true);
-    setError("");
-    try {
-      const { blob, filename } = await downloadScTempranaExcel(filters.periodo);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar el Excel");
-    } finally {
-      setDescargando(false);
-    }
+    await descargar(() => downloadScTempranaExcel(filters.periodo), setError);
   }
 
   function onChange(name, value) {

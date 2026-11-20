@@ -12,6 +12,7 @@ import {
   resumenCliente,
   simular,
 } from "./simuladorVeritus";
+import { Campo, Seccion, coma, copiarTexto, decimal, limpiarDecimal, miles, plural, soloDigitos, useVisibleEnPantalla } from "./simuladorUi";
 import "./simuladores.css";
 
 // Mismo esquema que el simulador Itau: formulario a la izquierda y ficha del plan a la derecha.
@@ -19,85 +20,10 @@ import "./simuladores.css";
 
 const BREADCRUMB = [{ label: "Inicio", to: "/" }];
 
-// ---- Entrada de numeros al estilo chileno ----
-function soloDigitos(texto) {
-  return String(texto ?? "").replace(/\D/g, "");
-}
-
-function miles(texto) {
-  const digitos = soloDigitos(texto);
-  return digitos ? new Intl.NumberFormat("es-CL").format(Number(digitos)) : "";
-}
-
-function limpiarDecimal(texto) {
-  const limpio = String(texto ?? "").replace(/[^\d.,]/g, "").replace(".", ",");
-  const [entero, ...resto] = limpio.split(",");
-  return resto.length ? `${entero},${resto.join("").replace(/,/g, "").slice(0, 1)}` : entero;
-}
-
-function decimal(texto) {
-  const n = Number(String(texto ?? "").replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function coma(valor) {
-  return String(valor).replace(".", ",");
-}
-
-function plural(n, uno, varios) {
-  return `${n} ${n === 1 ? uno : varios}`;
-}
-
 // Mientras se escribe solo se filtran caracteres: el RUT puede venir con o sin DV y el backend
 // resuelve ambas lecturas. Al encontrarlo se muestra formateado (12.345.678-9).
 function formatoRutEscrito(texto) {
   return String(texto ?? "").replace(/[^0-9kK.\-\s]/g, "").toUpperCase().slice(0, 14);
-}
-
-async function copiarTexto(texto) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(texto);
-    return;
-  }
-  const area = document.createElement("textarea");
-  area.value = texto;
-  area.setAttribute("readonly", "");
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  area.select();
-  const ok = document.execCommand("copy");
-  area.remove();
-  if (!ok) {
-    throw new Error("sin portapapeles");
-  }
-}
-
-function Seccion({ numero, titulo, extra, children }) {
-  return (
-    <section className="sim-seccion">
-      <div className="sim-seccion-head">
-        <span className="sim-num" aria-hidden="true">{numero}</span>
-        <h2 className="sim-seccion-titulo">{titulo}</h2>
-        {extra && <span className="sim-seccion-extra">{extra}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Campo({ label, sufijo, prefijo, hint, error, children }) {
-  return (
-    <label className={`sim-campo${error ? " is-invalid" : ""}`}>
-      <span className="sim-label">{label}</span>
-      <span className="sim-input">
-        {prefijo && <span className="sim-input-pre">{prefijo}</span>}
-        {children}
-        {sufijo && <span className="sim-input-suf">{sufijo}</span>}
-      </span>
-      {error ? <span className="sim-error">{error}</span> : hint && <span className="sim-hint">{hint}</span>}
-    </label>
-  );
 }
 
 const FORM_VACIO = {
@@ -143,9 +69,9 @@ export default function SimuladorVeritusPage() {
   const [fijas, setFijas] = useState({});
   const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [aviso, setAviso] = useState("");
-  const [fichaVisible, setFichaVisible] = useState(true);
   const rutRef = useRef(null);
   const fichaRef = useRef(null);
+  const fichaVisible = useVisibleEnPantalla(fichaRef);
   const calendarioRef = useRef(null);
   const avisoTimer = useRef(null);
   const busquedaId = useRef(0);
@@ -174,16 +100,6 @@ export default function SimuladorVeritusPage() {
 
   useEffect(() => {
     rutRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const nodo = fichaRef.current;
-    if (!nodo || typeof IntersectionObserver === "undefined") {
-      return undefined;
-    }
-    const obs = new IntersectionObserver(([entrada]) => setFichaVisible(entrada.isIntersecting), { threshold: 0.25 });
-    obs.observe(nodo);
-    return () => obs.disconnect();
   }, []);
 
   useEffect(() => () => window.clearTimeout(avisoTimer.current), []);
@@ -271,7 +187,7 @@ export default function SimuladorVeritusPage() {
   }
 
   function cambiarDescuento(valor) {
-    const texto = limpiarDecimal(valor);
+    const texto = limpiarDecimal(valor, 1);
     setForm((prev) => {
       const saldo = soloDigitos(prev.saldoAjustado);
       const desc = Math.min(100, decimal(texto));

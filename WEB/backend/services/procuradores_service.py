@@ -20,6 +20,7 @@ import cache
 from cache import cached, cached_view
 from database import get_connection, run_query, run_query_judicial
 from integrations import api_hitos
+from services._comunes import clean as _clean
 
 
 AUTOMATICAS = ("notificaciones", "embargos", "oficios", "incautaciones")
@@ -180,10 +181,6 @@ WHERE h.MANDANTE IN ('TANNER', 'SANTANDER CONSUMER')
   )
 GROUP BY h.MANDANTE, h.[NUMERO OPERACION], h.[NOMBRE USUARIO]
 """
-
-
-def _clean(value: object) -> str:
-    return str(value or "").strip()
 
 
 def _usuario_key(value: object) -> str:

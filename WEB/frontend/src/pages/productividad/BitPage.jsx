@@ -5,6 +5,8 @@ import { useAuth } from "../../auth/AuthContext";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { Field, FilterBar, LoadingState, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useExcelDownload from "../../hooks/useExcelDownload";
+import { formatMoney } from "../../utils/format";
 
 const TRAMOS = ["30-90", "90+"];
 const TRAMO_GROUP_CLASS = { "30-90": "1", "90+": "2" };
@@ -13,10 +15,6 @@ const NEGOCIO_TIPOS = [
   { key: "refinanciamiento", label: "Refinanciamiento" },
   { key: "renegociacion", label: "Renegociación" },
 ];
-
-function formatMoney(value) {
-  return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
-}
 
 function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
@@ -57,7 +55,7 @@ export default function BitPage() {
   // Descargar el Excel con el detalle de todo lo medible: solo super admin.
   const { user } = useAuth();
   const esSuperAdmin = user?.role === "super_admin";
-  const [descargando, setDescargando] = useState(false);
+  const [descargando, descargar] = useExcelDownload();
 
   useEffect(() => {
     async function loadFilters() {
@@ -135,23 +133,7 @@ export default function BitPage() {
   }
 
   async function descargarExcel() {
-    setDescargando(true);
-    setError("");
-    try {
-      const { blob, filename } = await downloadBitExcel(filters.periodo);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar el Excel");
-    } finally {
-      setDescargando(false);
-    }
+    await descargar(() => downloadBitExcel(filters.periodo), setError);
   }
 
   const metaByTramo = useMemo(() => Object.fromEntries(general.metas.map((meta) => [meta.tramo, meta])), [general.metas]);

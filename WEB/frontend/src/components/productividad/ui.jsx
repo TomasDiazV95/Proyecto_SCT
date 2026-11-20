@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { toBlob } from "html-to-image";
+import { saveDownload } from "../../utils/download";
 
 // Componentes visuales compartidos por los modulos del Panel de Productividad.
 // Solo presentacion: no cargan datos ni aplican reglas de negocio.
@@ -137,14 +138,7 @@ function ExportButtons({ targetRef, fileName }) {
   }
 
   async function download(blob) {
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${fileName}.png`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    window.URL.revokeObjectURL(url);
+    saveDownload(blob, `${fileName}.png`);
   }
 
   return (

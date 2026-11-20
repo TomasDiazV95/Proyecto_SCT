@@ -5,6 +5,7 @@ import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useExcelDownload from "../../hooks/useExcelDownload";
 
 const initialFilters = {
   periodo: "",
@@ -81,30 +82,14 @@ export default function SthPage() {
   const [metas, setMetas] = useState([]);
   const { user } = useAuth();
   const esSuperAdmin = user?.role === "super_admin";
-  const [descargando, setDescargando] = useState(false);
+  const [descargando, descargar] = useExcelDownload();
 
   // Excel con los cumplimientos y el detalle de lo medible, solo para super admin.
   async function descargarExcel() {
     if (!filters.periodo) {
       return;
     }
-    setDescargando(true);
-    setError("");
-    try {
-      const { blob, filename } = await downloadSthExcel(filters.periodo);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar el Excel");
-    } finally {
-      setDescargando(false);
-    }
+    await descargar(() => downloadSthExcel(filters.periodo), setError);
   }
 
   useEffect(() => {

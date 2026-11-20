@@ -3,10 +3,11 @@ from fastapi.responses import StreamingResponse
 from io import BytesIO
 
 from auth.dependencies import require_module, require_roles
-from excel_export import XLSX_MEDIA_TYPE
+from excel_export import xlsx_response
 from services.la_araucana_auditoria import build_auditoria_workbook
 from services.la_araucana_excel import build_excel
 from services.la_araucana_service import get_detalle, get_filtros, get_negocios, get_resumen, get_validacion
+from routers._errores import error_500
 
 
 router = APIRouter(dependencies=[Depends(require_module("la-araucana"))])
@@ -22,7 +23,7 @@ def filtros(periodo: str | None = Query(default=None)) -> dict:
     try:
         return get_filtros(periodo)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/resumen")
@@ -47,7 +48,7 @@ def resumen(
             ),
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/productividad/detalle")
@@ -72,7 +73,7 @@ def productividad_detalle(
             ),
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/negocios")
@@ -83,7 +84,7 @@ def negocios(
     try:
         return {"periodo": periodo, "cartera_crm": 531, **get_negocios({"periodo": periodo, "ejecutivo": ejecutivo})}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/detalle")
@@ -111,7 +112,7 @@ def detalle(
             }
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/export")
@@ -125,13 +126,9 @@ def export(
         wb.save(output)
         output.seek(0)
         filename = f"la_araucana_auditoria_{period_month}.xlsx"
-        return StreamingResponse(
-            output,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        return xlsx_response(output, filename)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/export/productividad")
@@ -141,13 +138,9 @@ def export_productividad(
 ) -> StreamingResponse:
     try:
         output, filename = build_excel(periodo)
-        return StreamingResponse(
-            output,
-            media_type=XLSX_MEDIA_TYPE,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        return xlsx_response(output, filename)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/resumen/validacion")
@@ -155,4 +148,4 @@ def validacion(periodo: str = Query(...)) -> dict:
     try:
         return get_validacion(periodo)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc

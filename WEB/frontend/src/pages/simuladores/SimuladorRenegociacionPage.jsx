@@ -10,6 +10,7 @@ import {
   resumenCliente,
   simular,
 } from "./simuladorRenegociacion";
+import { Campo, Seccion, coma, copiarTexto, decimal, limpiarDecimal, miles, plural, soloDigitos, useVisibleEnPantalla } from "./simuladorUi";
 import "./simuladores.css";
 
 // Todo en una pantalla: formulario compacto a la izquierda y ficha de pago a la derecha.
@@ -19,36 +20,6 @@ const BREADCRUMB = [
 ];
 
 const GRACIA_OPCIONES = Array.from({ length: 13 }, (_, i) => i);
-
-// ---- Entrada de numeros al estilo chileno: miles con punto y decimales con coma ----
-function soloDigitos(texto) {
-  return String(texto ?? "").replace(/\D/g, "");
-}
-
-function miles(texto) {
-  const digitos = soloDigitos(texto);
-  return digitos ? new Intl.NumberFormat("es-CL").format(Number(digitos)) : "";
-}
-
-// Acepta "1,99" o "1.99"; deja escribir la coma final ("1,").
-function limpiarDecimal(texto) {
-  const limpio = String(texto ?? "").replace(/[^\d.,]/g, "").replace(".", ",");
-  const [entero, ...resto] = limpio.split(",");
-  return resto.length ? `${entero},${resto.join("").replace(/,/g, "")}` : entero;
-}
-
-function decimal(texto) {
-  const n = Number(String(texto ?? "").replace(",", "."));
-  return Number.isFinite(n) ? n : 0;
-}
-
-function coma(valor) {
-  return String(valor).replace(".", ",");
-}
-
-function plural(n, uno, varios) {
-  return `${n} ${n === 1 ? uno : varios}`;
-}
 
 function formInicial(campanaCode) {
   return {
@@ -82,62 +53,15 @@ function aCalculo(form) {
   };
 }
 
-// Copia al portapapeles; en http (acceso por IP de red) el API moderno no existe y se usa el metodo clasico.
-async function copiarTexto(texto) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(texto);
-    return;
-  }
-  const area = document.createElement("textarea");
-  area.value = texto;
-  area.setAttribute("readonly", "");
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  area.select();
-  const ok = document.execCommand("copy");
-  area.remove();
-  if (!ok) {
-    throw new Error("sin portapapeles");
-  }
-}
-
-function Seccion({ numero, titulo, extra, children }) {
-  return (
-    <section className="sim-seccion">
-      <div className="sim-seccion-head">
-        <span className="sim-num" aria-hidden="true">{numero}</span>
-        <h2 className="sim-seccion-titulo">{titulo}</h2>
-        {extra && <span className="sim-seccion-extra">{extra}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Campo({ label, sufijo, prefijo, hint, error, children }) {
-  return (
-    <label className={`sim-campo${error ? " is-invalid" : ""}`}>
-      <span className="sim-label">{label}</span>
-      <span className="sim-input">
-        {prefijo && <span className="sim-input-pre">{prefijo}</span>}
-        {children}
-        {sufijo && <span className="sim-input-suf">{sufijo}</span>}
-      </span>
-      {error ? <span className="sim-error">{error}</span> : hint && <span className="sim-hint">{hint}</span>}
-    </label>
-  );
-}
-
 export default function SimuladorRenegociacionPage() {
   const [campanaCode, setCampanaCode] = useState("estandar");
   const [form, setForm] = useState(() => formInicial("estandar"));
   const [costosAbiertos, setCostosAbiertos] = useState(false);
   const [aviso, setAviso] = useState("");
   const [mostrarTabla, setMostrarTabla] = useState(false);
-  const [fichaVisible, setFichaVisible] = useState(true);
   const deudaRef = useRef(null);
   const fichaRef = useRef(null);
+  const fichaVisible = useVisibleEnPantalla(fichaRef);
   const tablaRef = useRef(null);
   const avisoTimer = useRef(null);
 
@@ -156,17 +80,6 @@ export default function SimuladorRenegociacionPage() {
 
   useEffect(() => {
     deudaRef.current?.focus();
-  }, []);
-
-  // En pantallas angostas, una barra fija muestra la cuota mientras la ficha no esta a la vista.
-  useEffect(() => {
-    const nodo = fichaRef.current;
-    if (!nodo || typeof IntersectionObserver === "undefined") {
-      return undefined;
-    }
-    const obs = new IntersectionObserver(([entrada]) => setFichaVisible(entrada.isIntersecting), { threshold: 0.25 });
-    obs.observe(nodo);
-    return () => obs.disconnect();
   }, []);
 
   useEffect(() => () => window.clearTimeout(avisoTimer.current), []);

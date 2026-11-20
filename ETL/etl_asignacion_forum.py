@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import pyodbc
 from dotenv import load_dotenv
+from etl_comun import sql_ident
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -82,10 +83,6 @@ def connect() -> pyodbc.Connection:
         "Encrypt=yes;"
     )
     return pyodbc.connect(conn_str)
-
-
-def sql_ident(name: str) -> str:
-    return "[" + str(name).replace("]", "]]") + "]"
 
 
 def normalize_excel_col(value: object) -> str:

@@ -22,6 +22,7 @@ from services.itau_vencida_service import (
     negocios_result,
     negocios_sql,
 )
+from services._comunes import in_list as _in_list
 
 
 # Los RUT sin gestion de ningun ejecutivo quedan en la fila grupal PHOENIX.
@@ -111,10 +112,6 @@ RESPUESTAS_COMPROMISO = (
     "EN PROCESO RENEGOCIACION NUEVA LLAMADA",
     "SOLICITA LLAMADO DE EJECUTIVO PARA RENEGOCIAR",
 )
-
-
-def _in_list(values: tuple) -> str:
-    return ", ".join("'{}'".format(str(value).replace("'", "''")) for value in values)
 
 
 def _load_metas(periodo: str) -> tuple[dict[str, dict], dict | None]:

@@ -9,6 +9,15 @@ from openpyxl.utils import get_column_letter
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def xlsx_response(contenido, filename: str) -> StreamingResponse:
+    """Descarga de un .xlsx (BytesIO o bytes) con el nombre de archivo indicado."""
+    return StreamingResponse(
+        contenido,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 def excel_response(headers: list[str], rows: list[dict], sheet_title: str, filename: str) -> StreamingResponse:
     wb = Workbook()
     ws = wb.active
@@ -20,11 +29,7 @@ def excel_response(headers: list[str], rows: list[dict], sheet_title: str, filen
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    return StreamingResponse(
-        output,
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return xlsx_response(output, filename)
 
 
 def workbook_response(sheets: list[dict], filename: str) -> StreamingResponse:
@@ -53,8 +58,4 @@ def workbook_response(sheets: list[dict], filename: str) -> StreamingResponse:
     output = BytesIO()
     wb.save(output)
     output.seek(0)
-    return StreamingResponse(
-        output,
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return xlsx_response(output, filename)

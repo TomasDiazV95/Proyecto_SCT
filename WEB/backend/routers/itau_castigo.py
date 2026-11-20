@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from auth.dependencies import require_module, require_roles
-from excel_export import XLSX_MEDIA_TYPE
+from excel_export import xlsx_response
 from services.itau_castigo_excel import build_excel
 from services.itau_castigo_service import get_filter_values, get_general, get_nuevos_convenios, get_producto, get_recupero_cobrador
+from routers._errores import error_500
 
 
 router = APIRouter(dependencies=[Depends(require_module("itau-castigo"))])
@@ -20,7 +21,7 @@ def filtros(fecha_carga: str | None = Query(default=None)) -> dict:
     try:
         return get_filter_values(fecha_carga)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/general")
@@ -31,7 +32,7 @@ def general(
     try:
         return get_general({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/producto")
@@ -42,7 +43,7 @@ def producto(
     try:
         return get_producto({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/recupero-cobrador")
@@ -53,7 +54,7 @@ def recupero_cobrador(
     try:
         return get_recupero_cobrador({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/nuevos-convenios")
@@ -64,7 +65,7 @@ def nuevos_convenios(
     try:
         return get_nuevos_convenios({"fecha_carga": fecha_carga, "ejecutivo": ejecutivo})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 # Descarga del detalle de todo lo medible de la fecha (todos los ejecutivos): solo super admin.
@@ -73,9 +74,5 @@ def export(fecha_carga: str | None = Query(default=None), _user: dict = Depends(
     try:
         output, filename = build_excel(fecha_carga)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return StreamingResponse(
-        output,
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+        raise error_500(exc) from exc
+    return xlsx_response(output, filename)

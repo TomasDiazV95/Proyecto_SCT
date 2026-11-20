@@ -12,7 +12,10 @@ import argparse
 
 import pandas as pd
 
-from recarga_gest_crm_mes import sqlserver
+from etl_comun import load_env_files, sqlserver
+
+
+load_env_files()
 
 
 TABLE = "dbo.tmp_sc_temprana_fpd"

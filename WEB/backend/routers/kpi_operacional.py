@@ -1,10 +1,11 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from auth.dependencies import current_user, require_module
 from auth.negocios_kpi import acotar_lista, filtrar_opciones, negocios_permitidos
 from services.kpi_operacional_service import SEGMENTACION, get_dashboard, get_filter_values
+from routers._errores import error_500
 
 
 router = APIRouter(dependencies=[Depends(require_module("kpi-operacional"))])
@@ -34,7 +35,7 @@ def filtros(
     try:
         data = get_filter_values(_filters(mandante, cartera, tramo, producto, None))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
     data["mandantes"] = filtrar_opciones(data["mandantes"], permitidos, clave="valor")
     data["sin_negocio"] = False
     return data
@@ -56,4 +57,4 @@ def dashboard(
         # hoy explicito: es parte de la clave de cache del dashboard.
         return get_dashboard(_filters(mandante, cartera, tramo, producto, zona, canal), hoy=date.today())
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc

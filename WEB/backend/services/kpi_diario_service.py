@@ -3,6 +3,7 @@ import re
 from dataclasses import dataclass
 
 from database import run_query
+from services._comunes import pct as _safe_div
 
 
 @dataclass
@@ -199,12 +200,6 @@ def _build_filters(filters: dict, cols: ColumnMap) -> tuple[str, list]:
         where_sql = "WHERE " + " AND ".join(clauses)
 
     return where_sql, params
-
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return (num / den) * 100.0
 
 
 def _cap_pct(value: float) -> float:

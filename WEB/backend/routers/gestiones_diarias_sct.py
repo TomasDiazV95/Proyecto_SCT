@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from auth.dependencies import require_module
 from services.gestiones_diarias_sct_service import get_detail_view, get_filter_values, get_summary_view
+from routers._errores import error_500
 
 
 router = APIRouter(dependencies=[Depends(require_module("gestiones-diarias-sct"))])
@@ -39,7 +40,7 @@ def filtros(
             }
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/detalle")
@@ -75,7 +76,7 @@ def detalle(
             }
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/resumen")
@@ -107,4 +108,4 @@ def resumen(
             }
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc

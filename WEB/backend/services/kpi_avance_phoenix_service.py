@@ -4,15 +4,10 @@ from collections import defaultdict
 import re
 
 from database import run_query
+from services._comunes import clean_text as _clean_text
 
 
 TABLE = "dbo.tmp_BENCH_CONTROL_DIARIO"
-
-
-def _clean_text(value: object) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def _normalize_period(value: object) -> str:

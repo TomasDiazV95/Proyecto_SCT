@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from cache import cached_view
 from database import run_query
 from feriados_chile import es_habil
+from services._comunes import cap_fraccion as _cap, clean_text as _clean_text, periodo_from_fecha as _periodo_from_fecha, razon as _safe_div
 
 
 DEFAULT_EXECUTIVE = "PHOENIX"
@@ -12,12 +13,6 @@ DEFAULT_EXECUTIVE = "PHOENIX"
 CRM_CARTERA = 522
 DIAS_HABILES_COBERTURA = 4
 GESTOR_PHOENIX = "PHOENIX"
-
-
-def _clean_text(value) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def _parse_fecha_carga(value: str | None) -> str:
@@ -78,10 +73,6 @@ def _contencion_cruce_fecha(periodo: str, fecha_carga: str) -> str | None:
     return _clean_text(rows[0].get("fecha_carga")) or None if rows else None
 
 
-def _periodo_from_fecha(fecha_carga: str) -> str:
-    parsed = date.fromisoformat(fecha_carga)
-    return parsed.replace(day=1).isoformat()
-
 def _dia_habil_del_mes(periodo: str, n: int) -> str:
     """Fecha ISO del n-esimo dia habil del mes del periodo."""
     cursor = date.fromisoformat(periodo)
@@ -92,15 +83,6 @@ def _dia_habil_del_mes(periodo: str, n: int) -> str:
             if habiles == n:
                 return cursor.isoformat()
         cursor += timedelta(days=1)
-
-
-def _cap(value: float, max_value: float = 1.3) -> float:
-    return max(0.0, min(value, max_value))
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return num / den
 
 
 def _cobrador_sql(expr: str) -> str:

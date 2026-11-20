@@ -1,5 +1,6 @@
 from cache import cached_view
 from database import run_query
+from services._comunes import cap_cumpl_meta as _cap_cumpl_meta, razon as _safe_div
 
 
 # Contencion guarda una foto por archivo: de cada periodo se usa solo la ultima cargada (mayor fecha_archivo).
@@ -184,16 +185,6 @@ WITH carterizado_unico AS (
         END
 )
 """
-
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return num / den
-
-
-def _cap_cumpl_meta(value: float) -> float:
-    return min(float(value or 0), 1.3)
 
 
 TRAMOS = ("30-90", "90+")

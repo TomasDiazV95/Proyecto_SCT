@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import StreamingResponse
 
 from auth.dependencies import require_module
-from excel_export import XLSX_MEDIA_TYPE, excel_response as _excel_response
+from excel_export import excel_response as _excel_response, xlsx_response
 from pydantic import BaseModel
 
 from services import negocios_service
@@ -22,6 +22,7 @@ from services.administrativas_itau_service import (
     get_cuotas_export_rows,
     get_periodos,
 )
+from routers._errores import error_500
 
 
 # Panel Administrativo: cada pagina tiene su propio modulo (hijos de "administrativas"; quien tiene el
@@ -38,7 +39,7 @@ def itau_periodos() -> dict:
     try:
         return get_periodos()
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @itau_router.get("/itau/cuotas/export")
@@ -47,7 +48,7 @@ def itau_cuotas_export(periodo: str = Query(...)) -> StreamingResponse:
         period_month, headers, rows = get_cuotas_export_rows(periodo)
         return _excel_response(headers, rows, "Cuotas", f"itau_cuotas_vencida_{period_month}.xlsx")
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @itau_router.get("/itau/asignacion/export")
@@ -56,7 +57,7 @@ def itau_asignacion_export(periodo: str = Query(...)) -> StreamingResponse:
         period_month, headers, rows = get_asignacion_export_rows(periodo)
         return _excel_response(headers, rows, "Asignacion", f"itau_asignacion_vencida_{period_month}.xlsx")
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @itau_router.get("/itau/cuotas-pagadas/export")
@@ -65,7 +66,7 @@ def itau_cuotas_pagadas_export(periodo: str = Query(...)) -> StreamingResponse:
         period_month, headers, rows = get_cuotas_pagadas_export_rows(periodo)
         return _excel_response(headers, rows, "Cuotas pagadas", f"itau_cuotas_pagadas_{period_month}.xlsx")
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 class MedibleRequest(BaseModel):
@@ -106,7 +107,7 @@ def _medibles_call(fn, *args) -> dict:
     except FiltroDuplicado as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @itau_router.get("/itau/medibles")
@@ -146,7 +147,7 @@ def _negocios_call(fn, *args):
     except negocios_service.ArchivoInvalido as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @negocios_router.get("/negocios/cargas")
@@ -157,11 +158,7 @@ def negocios_cargas() -> list[dict]:
 @negocios_router.get("/negocios/plantilla")
 def negocios_plantilla(negocio: str = Query(...)) -> StreamingResponse:
     nombre, contenido = _negocios_call(negocios_service.plantilla, negocio)
-    return StreamingResponse(
-        contenido,
-        media_type=XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
-    )
+    return xlsx_response(contenido, nombre)
 
 
 @negocios_router.post("/negocios/cargas")

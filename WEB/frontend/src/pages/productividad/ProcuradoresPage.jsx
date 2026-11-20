@@ -4,6 +4,7 @@ import { downloadProcuradoresExcel, fetchProcuradoresDetalle, fetchProcuradoresF
 import { useAuth } from "../../auth/AuthContext";
 import { Drawer, EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import useExcelDownload from "../../hooks/useExcelDownload";
 
 
 const VARIABLES = [
@@ -82,7 +83,7 @@ export default function ProcuradoresPage() {
   const { user } = useAuth();
   // Ingresar logros y descargar el Excel completo: solo super admin.
   const esSuperAdmin = user?.role === "super_admin";
-  const [descargando, setDescargando] = useState(false);
+  const [descargando, descargar] = useExcelDownload();
   const [periodo, setPeriodo] = useState("");
   const [periodos, setPeriodos] = useState([]);
   const [carteraFiltro, setCarteraFiltro] = useState("");
@@ -195,23 +196,7 @@ export default function ProcuradoresPage() {
   }
 
   async function descargarExcel() {
-    setDescargando(true);
-    setError("");
-    try {
-      const { blob, filename } = await downloadProcuradoresExcel(periodo);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar el Excel");
-    } finally {
-      setDescargando(false);
-    }
+    await descargar(() => downloadProcuradoresExcel(periodo), setError);
   }
 
   function renderCartera(item) {

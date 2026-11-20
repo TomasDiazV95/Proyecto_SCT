@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,7 +33,12 @@ from services.mail_service import send_temp_password_email, send_welcome_email
 
 router = APIRouter(dependencies=[Depends(require_module("admin"))])
 
-TEMP_PASSWORD = "Ph.2026"
+def _temp_password() -> str:
+    """Contrasena temporal de usuarios nuevos o restablecidos: TEMP_PASSWORD del .env o, si no esta, la de siempre.
+    Se lee al usarla porque el .env se carga con la primera conexion a la base."""
+    return os.getenv("TEMP_PASSWORD", "Ph.2026")
+
+
 # Roles que solo el super admin puede crear, asignar o modificar.
 ROLES_PROTEGIDOS = {"admin", "super_admin"}
 ROLES_ASIGNABLES = {"admin", "coordinador", "supervisor", "ejecutivo"}
@@ -116,10 +122,11 @@ def users_reset_password(user_id: int, user: dict = Depends(current_user)) -> di
     _ensure_can_modify(target, user)
     if _es_uno_mismo(user_id, user):
         raise HTTPException(status_code=400, detail="Para tu propia contraseña usa Cambiar contraseña")
-    update_password(user_id, hash_password(TEMP_PASSWORD), True)
+    temp_password = _temp_password()
+    update_password(user_id, hash_password(temp_password), True)
     insert_audit(int(user["id"]), "USER_PASSWORD_RESET", "user", user_id, None)
     try:
-        send_temp_password_email(str(target["email"]), str(target.get("full_name") or ""), TEMP_PASSWORD)
+        send_temp_password_email(str(target["email"]), str(target.get("full_name") or ""), temp_password)
     except Exception as exc:
         insert_audit(int(user["id"]), "USER_RESET_MAIL_FAIL", "user", user_id, str(exc))
         return {"ok": True, "email_sent": False, "email_error": str(exc)}
@@ -142,10 +149,11 @@ def users_create(payload: CreateUserRequest, user: dict = Depends(current_user))
     if role == "super_admin":
         raise HTTPException(status_code=403, detail="No se permite crear super_admin por API")
 
+    temp_password = _temp_password()
     new_user_id = create_user(
         email=payload.email.strip().lower(),
         full_name=payload.full_name.strip(),
-        password_hash=hash_password(TEMP_PASSWORD),
+        password_hash=hash_password(temp_password),
         role_code=role,
         created_by_user_id=int(user["id"]),
     )
@@ -158,7 +166,7 @@ def users_create(payload: CreateUserRequest, user: dict = Depends(current_user))
     email_sent = True
     email_error = ""
     try:
-        send_welcome_email(payload.email.strip().lower(), payload.full_name.strip(), TEMP_PASSWORD)
+        send_welcome_email(payload.email.strip().lower(), payload.full_name.strip(), temp_password)
     except Exception as exc:
         email_sent = False
         email_error = str(exc)

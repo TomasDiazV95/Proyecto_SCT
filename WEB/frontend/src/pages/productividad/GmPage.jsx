@@ -5,6 +5,7 @@ import NegociosCard from "../../components/productividad/NegociosCard";
 import NegociosDetalleCard from "../../components/productividad/NegociosDetalleCard";
 import { EmptyRow, Field, FilterBar, LoadingState, MetasBlock, MetasButton, MetasDrawer, PageHeader, SectionCard, Segmented, StatusLegend, ViewTabs, cumplimientoClass, cumplimientoLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
+import { saveDownload } from "../../utils/download";
 
 const initialFilters = {
   periodo: "",
@@ -200,14 +201,7 @@ export default function GmPage() {
     setError("");
     try {
       const { blob, filename } = await downloadGmExcel(filters.periodo);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      saveDownload(blob, filename);
     } catch (err) {
       setError(err.message || "No se pudo descargar el Excel");
     } finally {

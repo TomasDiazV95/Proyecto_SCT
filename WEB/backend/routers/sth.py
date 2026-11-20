@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from auth.dependencies import require_module, require_roles
-from excel_export import XLSX_MEDIA_TYPE
+from excel_export import xlsx_response
 from schemas import ApiEnvelope
 from services.negocios_service import get_conteo as get_negocios_conteo
 from services.negocios_service import get_detalle as get_negocios_detalle
 from services.sth_excel import build_excel
 from services.sth_service import get_detail_view, get_filter_values, get_general_view, get_metas, get_operations_detail_view
+from routers._errores import error_500
 
 
 router = APIRouter(dependencies=[Depends(require_module("sth"))])
@@ -23,7 +24,7 @@ def filtros(periodo: str | None = Query(default=None)) -> dict:
     try:
         return get_filter_values(periodo)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/metas", response_model=ApiEnvelope)
@@ -31,7 +32,7 @@ def metas(periodo: str | None = Query(default=None)) -> ApiEnvelope:
     try:
         return ApiEnvelope(data=get_metas({"periodo": periodo}))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/productividad/general", response_model=ApiEnvelope)
@@ -42,7 +43,7 @@ def productividad_general(
     try:
         return ApiEnvelope(data=get_general_view({"periodo": periodo, "ejecutivo": ejecutivo}))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/productividad/desglosada", response_model=ApiEnvelope)
@@ -53,7 +54,7 @@ def productividad_desglosada(
     try:
         return ApiEnvelope(data=get_detail_view({"periodo": periodo, "ejecutivo": ejecutivo}))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/detalle")
@@ -81,20 +82,16 @@ def detalle(
             }
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/export")
 def export(periodo: str = Query(...), _user: dict = Depends(require_roles("super_admin"))) -> StreamingResponse:
     try:
         output, filename = build_excel(periodo)
-        return StreamingResponse(
-            output,
-            media_type=XLSX_MEDIA_TYPE,
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+        return xlsx_response(output, filename)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/negocios")
@@ -105,7 +102,7 @@ def negocios(
     try:
         return get_negocios_conteo("sth", periodo, ejecutivo)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/negocios/detalle")
@@ -116,4 +113,4 @@ def negocios_detalle(
     try:
         return get_negocios_detalle("sth", periodo, ejecutivo)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc

@@ -26,6 +26,7 @@ from datetime import date, timedelta
 from cache import cached, cached_view
 from database import run_query, run_query_sets
 from feriados_chile import es_habil
+from services._comunes import clean as _clean
 
 
 SIN_PRODUCTO = "Sin producto"
@@ -127,10 +128,6 @@ TIPO_KPI = {
     "contactables_pendientes": ("int", "pct"),
     "avance_alcance": ("pct", "pp"),
 }
-
-
-def _clean(value: object) -> str:
-    return str(value or "").strip()
 
 
 def _safe_div(num: float, den: float) -> float | None:

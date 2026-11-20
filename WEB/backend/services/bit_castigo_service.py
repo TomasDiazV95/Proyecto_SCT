@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from cache import cached, cached_view
 from database import run_query, run_query_sets
 from feriados_chile import es_habil
+from services._comunes import cap_cumpl_meta as _cap_cumpl_meta, clean_text as _clean_text, razon as _safe_div
 
 
 # Cartera Banco Internacional en el CRM de gestiones (dbo.tmp_GEST_CRM).
@@ -24,12 +25,6 @@ def _dia_habil_del_mes(periodo: str, n: int) -> str:
         cursor += timedelta(days=1)
 
 
-def _clean_text(value: object) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
 def _safe_float(value: object) -> float:
     if value is None:
         return 0.0
@@ -37,16 +32,6 @@ def _safe_float(value: object) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
-
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return num / den
-
-
-def _cap_cumpl_meta(value: float) -> float:
-    return min(float(value or 0), 1.3)
 
 
 def _resolve_period(periodo: str | None) -> str:

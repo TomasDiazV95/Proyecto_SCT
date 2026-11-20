@@ -4,10 +4,9 @@ import { useAuth } from "../../auth/AuthContext";
 import { downloadLaAraucanaExcel, downloadLaAraucanaProductividadExcel, fetchLaAraucanaDetalle, fetchLaAraucanaFilters, fetchLaAraucanaNegocios, fetchLaAraucanaResumen } from "../../api";
 import { EjecutivoDetalleFilter, EmptyRow, Field, FilterBar, LoadingState, PageHeader, Pagination, SectionCard, StatusLegend, ViewTabs, aporteLegendItems, phoenixGrupalAlFinal, exportFileName } from "../../components/productividad/ui";
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
-
-function formatMoney(value) {
-  return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
-}
+import { saveDownload } from "../../utils/download";
+import useExcelDownload from "../../hooks/useExcelDownload";
+import { formatMoney } from "../../utils/format";
 
 // Deuda en millones para que la tabla quepa sin scroll horizontal.
 function formatMM(value) {
@@ -160,7 +159,7 @@ export default function LaAraucanaPage() {
   const [error, setError] = useState("");
   const canDownload = ["super_admin", "admin", "coordinador"].includes(user?.role || "");
   const esSuperAdmin = user?.role === "super_admin";
-  const [descargando, setDescargando] = useState(false);
+  const [descargando, descargar] = useExcelDownload();
   const rows = porEjecutivo(allRows, selected.ejecutivo);
   const [ejecutivoDetalle, setEjecutivoDetalle] = useState("");
   const negocios = {
@@ -351,14 +350,7 @@ export default function LaAraucanaPage() {
     setError("");
     try {
       const { blob, filename } = await downloadLaAraucanaExcel(selected.periodo, "");
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      saveDownload(blob, filename);
     } catch (err) {
       setError(err.message || "No se pudo descargar el Excel");
     } finally {
@@ -371,23 +363,7 @@ export default function LaAraucanaPage() {
     if (!selected.periodo) {
       return;
     }
-    setDescargando(true);
-    setError("");
-    try {
-      const { blob, filename } = await downloadLaAraucanaProductividadExcel(selected.periodo);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar el Excel");
-    } finally {
-      setDescargando(false);
-    }
+    await descargar(() => downloadLaAraucanaProductividadExcel(selected.periodo), setError);
   }
 
   // Un ejecutivo sin datos en una cartera se muestra en cero.

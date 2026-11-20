@@ -19,6 +19,7 @@ from services.rrhh_service import (
     get_periodos,
     get_planilla,
 )
+from routers._errores import error_500
 
 
 def negocios_permitidos(user: dict = Depends(current_user)) -> set[str]:
@@ -114,7 +115,7 @@ def negocios(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/planilla")
@@ -129,7 +130,7 @@ def planilla(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/export")
@@ -164,4 +165,4 @@ def export(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc

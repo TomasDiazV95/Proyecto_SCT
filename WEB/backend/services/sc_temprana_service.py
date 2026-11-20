@@ -4,6 +4,7 @@ from datetime import date
 
 from cache import cached, cached_view
 from database import run_query, run_query_sets
+from services._comunes import pct as _safe_div
 
 
 USER_TO_NAME = {
@@ -186,12 +187,6 @@ def _bench_source(periodo: str, version: str) -> str:
             WHERE ({VERSION_COL} IS NULL AND fld_fecha <> '{periodo}')
                OR ({VERSION_COL} = 'PRECIERRE' AND fld_fecha = '{periodo}')
         )"""
-
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return (num / den) * 100.0
 
 
 def _equipo_insert(periodo: str) -> str:

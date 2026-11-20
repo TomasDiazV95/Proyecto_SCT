@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from auth.dependencies import current_user, require_module
 from auth.negocios_kpi import exigir_negocio, filtrar_opciones, negocios_permitidos
 from services.kpi_avance_phoenix_service import get_comparison_view, get_filter_values
+from routers._errores import error_500
 
 
 router = APIRouter(dependencies=[Depends(require_module("kpi-diario"))])
@@ -19,7 +20,7 @@ def filtros(
     try:
         data = get_filter_values({"negocio": negocio, "segmento": segmento})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
     # Supervisores: solo los negocios de su productividad (auth/negocios_kpi.py).
     permitidos = negocios_permitidos(user, "bench")
     data["negocios"] = filtrar_opciones(data["negocios"], permitidos)
@@ -38,4 +39,4 @@ def comparacion(
     try:
         return get_comparison_view({"periodos": periodos, "negocio": negocio, "segmento": segmento})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc

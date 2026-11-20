@@ -7,13 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 import pyodbc
-from dotenv import load_dotenv
-
-
-def load_env_files() -> None:
-    root_dir = Path(__file__).resolve().parents[1]
-    load_dotenv(root_dir / ".env")
-    load_dotenv(root_dir / "ETL" / ".env")
+from etl_comun import load_env_files, sql_ident
 
 
 load_env_files()
@@ -133,10 +127,6 @@ def connect() -> pyodbc.Connection:
         "Encrypt=yes;"
     )
     return pyodbc.connect(conn_str)
-
-
-def sql_ident(name: str) -> str:
-    return "[" + str(name).replace("]", "]]" ) + "]"
 
 
 def clean_cell(value: object) -> str | None:

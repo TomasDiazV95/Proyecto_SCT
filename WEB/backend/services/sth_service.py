@@ -5,6 +5,7 @@ from datetime import date
 
 from cache import cached, cached_view
 from database import run_query
+from services._comunes import cap_pct as _cap, cumplimiento_meta as _cumplimiento_meta, pct as _safe_div
 
 
 PRODUCT_CONFIG = {
@@ -156,22 +157,6 @@ def _expand_grupal(rows: list[dict], integrantes: list[str]) -> list[dict]:
             if (nombre.lower(), int(row["ciclo"])) not in propias:
                 expanded.append({**row, "ejecutivo": nombre, "grupal": True})
     return expanded
-
-
-def _safe_div(num: float, den: float) -> float:
-    if den is None or den == 0:
-        return 0.0
-    return (num / den) * 100.0
-
-
-def _cap(value: float, max_value: float = 130.0) -> float:
-    return max(0.0, min(max_value, value))
-
-
-def _cumplimiento_meta(pct_real: float, meta: float) -> float:
-    if meta is None or meta <= 0:
-        return 0.0
-    return _cap(_safe_div(pct_real, meta))
 
 
 def _tramos_trabajados(tramos: list[str]) -> str:

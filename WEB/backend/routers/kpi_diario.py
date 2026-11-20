@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from auth.dependencies import current_user, require_module
 from auth.negocios_kpi import exigir_negocio, filtrar_opciones, negocios_permitidos
 
 from schemas import ApiEnvelope, FiltersResponse
-from service import get_cycle_view, get_filter_values, get_general_view
+from services.kpi_diario_service import get_cycle_view, get_filter_values, get_general_view
+from routers._errores import error_500
 
 
 router = APIRouter(dependencies=[Depends(require_module("kpi-diario"))])
@@ -22,7 +23,7 @@ def filtros(negocio: str | None = Query(default=None), user: dict = Depends(curr
     try:
         data = get_filter_values({"negocio": negocio})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
     # Supervisores: solo los negocios de su productividad (auth/negocios_kpi.py).
     data["negocios"] = filtrar_opciones(data.get("negocios") or [], negocios_permitidos(user, "bench"))
     return FiltersResponse(**data)
@@ -41,7 +42,7 @@ def productividad_general(
     try:
         return ApiEnvelope(data=get_general_view({"periodo": periodo, "zona": zona, "ejecutivo": ejecutivo, "negocio": negocio, "segmento": segmento}))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc
 
 
 @router.get("/productividad/ciclo", response_model=ApiEnvelope)
@@ -58,4 +59,4 @@ def productividad_ciclo(
     try:
         return ApiEnvelope(data=get_cycle_view({"periodo": periodo, "zona": zona, "ejecutivo": ejecutivo, "ciclo": ciclo, "negocio": negocio, "segmento": segmento}))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise error_500(exc) from exc

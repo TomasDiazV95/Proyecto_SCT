@@ -12,7 +12,7 @@ from tempfile import TemporaryDirectory
 import pandas as pd
 import pyodbc
 import requests
-from dotenv import load_dotenv
+from etl_comun import load_env_files
 
 
 CASTIGO_TABLE = "dbo.tmp_BIT_castigo"
@@ -73,12 +73,6 @@ class BitSources:
     asignacion: pd.DataFrame | None = None
     asignacion_source_file: str | None = None
     asignacion_period: str | None = None
-
-
-def load_env_files() -> None:
-    root_dir = Path(__file__).resolve().parents[1]
-    load_dotenv(root_dir / ".env")
-    load_dotenv(root_dir / "ETL" / ".env")
 
 
 def pick_driver() -> str:

@@ -6,10 +6,8 @@ import { EjecutivoDetalleFilter, EmptyRow, Field, FilterBar, LoadingState, Metas
 
 
 import useDataVersion, { fechaVigente } from "../../hooks/useDataVersion";
-function formatMoney(value) {
-  return new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }).format(Number(value || 0));
-}
-
+import useExcelDownload from "../../hooks/useExcelDownload";
+import { formatMoney } from "../../utils/format";
 
 function formatPct(value) {
   return `${(Number(value || 0) * 100).toFixed(2)}%`;
@@ -66,7 +64,7 @@ export default function BitCastigoPage() {
   // Descargar el Excel con el detalle de todo lo medible: solo super admin.
   const { user } = useAuth();
   const esSuperAdmin = user?.role === "super_admin";
-  const [descargando, setDescargando] = useState(false);
+  const [descargando, descargar] = useExcelDownload();
 
   useEffect(() => {
     async function loadFilters() {
@@ -124,23 +122,7 @@ export default function BitCastigoPage() {
   }
 
   async function descargarExcel() {
-    setDescargando(true);
-    setError("");
-    try {
-      const { blob, filename } = await downloadBitCastigoExcel(filters.periodo);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err.message || "No se pudo descargar el Excel");
-    } finally {
-      setDescargando(false);
-    }
+    await descargar(() => downloadBitCastigoExcel(filters.periodo), setError);
   }
 
   const totalRow = useMemo(() => {

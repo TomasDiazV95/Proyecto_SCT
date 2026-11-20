@@ -4,6 +4,7 @@ from datetime import date
 
 from cache import cached, cached_view
 from database import run_query, run_query_sets
+from services._comunes import clean_text as _clean_text
 
 
 # Altas cuantias: la meta mide C1 y C2 juntos (contencion y normalizacion, como C3);
@@ -85,12 +86,6 @@ def _zona_sql(column: str) -> str:
             WHEN 'NORTE CENTRO' THEN 'ZONA NORTE CENTRO'
             ELSE NULLIF(LTRIM(RTRIM({column})), '')
         END"""
-
-
-def _clean_text(value) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
 
 
 def _period_date(periodo: str | None, fuente: str = "terreno") -> str:
