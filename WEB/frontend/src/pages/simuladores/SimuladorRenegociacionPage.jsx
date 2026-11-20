@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader, SectionCard } from "../../components/productividad/ui";
 import {
   CAMPANAS,

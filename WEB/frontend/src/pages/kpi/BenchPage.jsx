@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchBenchFilters, fetchBenchKpi } from "../../api";
+import { SIN_NEGOCIO_KPI } from "./sinNegocio";
 
 
 import useDataVersion, { fechaVigente, mantenerSiExiste } from "../../hooks/useDataVersion";
@@ -291,8 +292,6 @@ function Chart({ series, companyColors }) {
 
 function buildInsight({ comparison, ranking, competitorAverage }) {
   const phoenix = ranking.find((item) => item.is_phoenix);
-  const competitorsAhead = ranking.filter((item) => !item.is_phoenix && item.debug_ultimo_dia > (phoenix?.debug_ultimo_dia || 0)).length;
-  const totalCompetitors = ranking.filter((item) => !item.is_phoenix).length;
   const leaderName = comparison.competitor_name || "lider";
   const leaderGap = Math.abs(Number(comparison.value || 0)).toFixed(1);
   const averageGap = Math.abs(Number(phoenix?.debug_ultimo_dia || 0) - Number(competitorAverage || 0)).toFixed(1);
@@ -389,7 +388,7 @@ export default function BenchPage() {
 
   useEffect(() => {
     async function loadData() {
-      if (!filters.periodo) {
+      if (!filters.periodo || options.sin_negocio) {
         return;
       }
       setLoading(true);
@@ -431,6 +430,23 @@ export default function BenchPage() {
   }, [sourceInfo.fecha_actualizacion]);
   const insight = useMemo(() => buildInsight({ comparison, ranking, competitorAverage }), [comparison, ranking, competitorAverage]);
   const companyColors = useMemo(() => buildCompanyColorMap(series, ranking), [series, ranking]);
+
+  // Supervisor sin productividad asignada: los KPI solo muestran su negocio (backend auth/negocios_kpi.py).
+  if (options.sin_negocio) {
+    return (
+      <div className="container-fluid py-4 app-shell bench-page bench-page-dark">
+        <div className="bench-breadcrumb">
+          <Link to="/" className="bench-breadcrumb-link">
+            <i className="fi fi-br-home" aria-hidden="true" />
+            <span>Inicio</span>
+          </Link>
+          <span className="bench-breadcrumb-separator">&gt;</span>
+          <span className="bench-breadcrumb-current">Cumplimiento diario y Ranking</span>
+        </div>
+        <div className="alert alert-info mt-3">{SIN_NEGOCIO_KPI}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="container-fluid py-4 app-shell bench-page bench-page-dark">

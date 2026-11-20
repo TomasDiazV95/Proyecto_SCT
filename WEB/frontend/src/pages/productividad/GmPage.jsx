@@ -1,4 +1,4 @@
-import React, { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { downloadGmExcel, fetchGmBucket, fetchGmCycle, fetchGmDetail, fetchGmFilters, fetchGmGeneral } from "../../api";
 import NegociosCard from "../../components/productividad/NegociosCard";

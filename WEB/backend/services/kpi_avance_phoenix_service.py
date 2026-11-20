@@ -7,7 +7,6 @@ from database import run_query
 
 
 TABLE = "dbo.tmp_BENCH_CONTROL_DIARIO"
-PHOENIX_NAME = "PHOENIX"
 
 
 def _clean_text(value: object) -> str:

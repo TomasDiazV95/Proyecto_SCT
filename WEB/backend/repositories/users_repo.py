@@ -199,12 +199,54 @@ def change_user_modules(user_ids: list[int], add: list[str], remove: list[str], 
 
 def list_users() -> list[dict]:
     sql = """
-    SELECT u.id, u.email, u.full_name, u.is_active, u.must_change_password, r.code AS role_code
+    SELECT u.id, u.email, u.full_name, u.is_active, u.must_change_password, r.code AS role_code,
+           u.last_login_at, u.created_at, u.locked_until, u.failed_login_attempts
     FROM dbo.users u
     INNER JOIN dbo.roles r ON r.id = u.role_id
     ORDER BY u.id DESC
     """
     return run_query(sql)
+
+
+def list_user_modules_map() -> dict[int, list[str]]:
+    """Modulos asignados a cada usuario, en una sola consulta: {user_id: [codes]}."""
+    sql = """
+    SELECT um.user_id, m.code
+    FROM dbo.user_modules um
+    INNER JOIN dbo.modules m ON m.id = um.module_id
+    WHERE m.is_active = 1
+    ORDER BY um.user_id, m.display_name
+    """
+    salida: dict[int, list[str]] = {}
+    for row in run_query(sql):
+        salida.setdefault(int(row["user_id"]), []).append(str(row["code"]))
+    return salida
+
+
+def update_user_profile(user_id: int, full_name: str, role_code: str) -> None:
+    with get_connection() as cn:
+        cur = cn.cursor()
+        cur.execute("SELECT id FROM dbo.roles WHERE code = ?", (role_code,))
+        role_row = cur.fetchone()
+        if not role_row:
+            raise ValueError(f"Rol no existe: {role_code}")
+        cur.execute(
+            "UPDATE dbo.users SET full_name = ?, role_id = ?, updated_at = SYSUTCDATETIME() WHERE id = ?",
+            (full_name, int(role_row[0]), user_id),
+        )
+        cn.commit()
+    cache.forget(user_cache_key(user_id))
+
+
+def unlock_user(user_id: int) -> None:
+    with get_connection() as cn:
+        cur = cn.cursor()
+        cur.execute(
+            "UPDATE dbo.users SET failed_login_attempts = 0, locked_until = NULL, updated_at = SYSUTCDATETIME() WHERE id = ?",
+            (user_id,),
+        )
+        cn.commit()
+    cache.forget(user_cache_key(user_id))
 
 
 def insert_audit(actor_user_id: int | None, action: str, target_type: str | None = None, target_id: int | None = None, detail: str | None = None) -> None:

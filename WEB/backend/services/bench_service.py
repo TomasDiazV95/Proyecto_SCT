@@ -163,22 +163,6 @@ def _build_where(filters: dict) -> tuple[str, list]:
     return " AND ".join(clauses), params
 
 
-def _resolve_phoenix_status(phoenix_latest_row: dict | None) -> dict:
-    if not phoenix_latest_row:
-        return {"label": "Pendiente", "code": "pending", "color": "neutral"}
-
-    label = str(phoenix_latest_row.get("estado_phoenix") or "").strip()
-    code = str(phoenix_latest_row.get("estado_codigo") or "").strip()
-    color = str(phoenix_latest_row.get("estado_color") or "").strip()
-    if label:
-        return {
-            "label": label,
-            "code": code or _normalize_text(label).replace(" ", "_").lower(),
-            "color": color or "neutral",
-        }
-    return {"label": "Pendiente", "code": "pending", "color": "neutral"}
-
-
 def get_kpi_view(filters: dict, user: dict | None = None) -> dict:
     periodo = _resolve_periodo(filters)
     filters_context = {

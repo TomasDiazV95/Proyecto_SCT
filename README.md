@@ -9,7 +9,7 @@ Proyecto de automatizacion, carga ETL y visualizacion web de productividades par
 - `DESCARGAS/`: scripts de descarga desde visor, FTP o SFTP.
 - `WEB/backend/`: API FastAPI que expone los indicadores para el frontend.
 - `WEB/frontend/`: aplicacion React + Bootstrap.
-- `WEB/automation/`: job diario para descargar BENCH mora tardia y ejecutar ETL.
+- `WEB/automation/`: tarea programada de carga del KPI Operacional (`run_kpi_operacional.bat`, `create_kpi_operacional_task.bat`).
 - `sql/`: scripts de apoyo para tablas, vistas y metas.
 - `archivos/`: archivos auxiliares usados por algunos procesos, como `orden_gest.txt`.
 
@@ -42,10 +42,9 @@ npm install
 cd ..\..
 ```
 
-Dependencias opcionales segun proceso:
+Dependencias opcionales segun proceso (descargas desde el visor con Playwright):
 
 ```powershell
-python -m pip install -r WEB\automation\requirements.txt
 python -m playwright install chromium
 python -m pip install paramiko
 ```
@@ -155,7 +154,8 @@ python ETL\etl_asigna_gm.py
 BIT:
 
 ```powershell
-python ETL\etl_bit.py --folder "C:\ruta\BIT" --periodo 2026-05
+python ETL\etl_bit.py --periodo 2026-05
+python ETL\etl_bit.py --file "C:\ruta\SEGUIMIENTO BIT.xlsx" --periodo 2026-05
 ```
 
 La Araucana:
@@ -199,34 +199,16 @@ Descarga cuotas y asignacion Itau Vencida desde SFTP (deja los CSV en `AUTOMATIZ
 python DESCARGAS\descarga_itau_vencida.py
 ```
 
-## Automatizacion diaria
+## Automatizacion
 
-Instalar dependencias:
+La descarga del BENCH desde el visor se hace con `DESCARGAS\descarga_SCT.py` (ver Descargas).
 
-```powershell
-python -m pip install -r WEB\automation\requirements.txt
-python -m playwright install chromium
-```
-
-Prueba manual:
+Carga horaria del KPI Operacional (`EXEC dbo.sp_kpi_operacional_cargar`):
 
 ```powershell
-WEB\automation\run_daily_job.bat
+WEB\automation\run_kpi_operacional.bat
+WEB\automation\create_kpi_operacional_task.bat
 ```
-
-Crear tarea programada de lunes a viernes a las 10:00:
-
-```powershell
-WEB\automation\create_scheduled_task.bat
-```
-
-Comportamiento del job diario:
-
-- Omite sabados y domingos.
-- Busca el archivo esperado segun fecha del dia.
-- Si no hay archivo nuevo, termina sin cargar.
-- Si el `source_file` ya existe en SQL Server, no reprocesa.
-- Si hay archivo nuevo, descarga y ejecuta el ETL de BENCH mora tardia.
 
 ## Scripts SQL
 
@@ -254,7 +236,6 @@ El proyecto crea o consulta, entre otras, las siguientes entidades:
 - `dbo.vw_BIT_data`
 - `dbo.tmp_LA_asignacion`
 - `dbo.tmp_LA_pagos`
-- `dbo.tmp_LA_performance_cache`
 - `dbo.tmp_asignacion_forum` (asignacion FORUM para el KPI Operacional; se carga con `python ETL\etl_asignacion_forum.py [YYYYMM]`, por defecto el mes actual y el archivo `ASIGNACION FORUM.xlsx` de la raiz, configurable con `ASIGNACION_FORUM_FOLDER` / `ASIGNACION_FORUM_FILENAME`)
 - `dbo.tmp_asignacion_veritus` (asignacion VERITUS, cartera castigo, para el KPI Operacional; se carga con `python ETL\etl_asignacion_veritus.py [archivo.xlsx] [YYYYMM]`, por defecto el `cartera_Firma_Phoenix_*.xlsx` mas reciente de la raiz y el mes de su FECHA_ASIGNACION, configurable con `ASIGNACION_VERITUS_FOLDER` / `ASIGNACION_VERITUS_PATTERN`)
 

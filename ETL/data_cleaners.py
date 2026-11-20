@@ -1,7 +1,7 @@
 import re
 import unicodedata
 import pandas as pd
-from thefuzz import fuzz, process
+from thefuzz import fuzz
 
 
 def normalize_text(text: str) -> str | None:

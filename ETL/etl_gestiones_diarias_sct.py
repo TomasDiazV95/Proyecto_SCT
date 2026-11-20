@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -75,9 +74,6 @@ def normalize_header(value: object) -> str:
     text = str(value or "").replace("\ufeff", "").replace("\x00", "").strip().upper()
     text = text.replace("Á", "A").replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U")
     return re.sub(r"[^A-Z0-9]+", "_", text).strip("_")
-
-
-EXPECTED_HEADER_KEYS = {normalize_header(header): (header, sql_name) for header, sql_name in EXPECTED_COLUMNS}
 
 
 def pick_driver() -> str:

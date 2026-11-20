@@ -1,4 +1,3 @@
-import React from "react";
 import { Link } from "react-router-dom";
 import "@fontsource-variable/montserrat";
 import nexusMark from "../../assets/logo/Logo_N.png";

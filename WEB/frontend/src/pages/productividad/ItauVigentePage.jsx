@@ -91,7 +91,6 @@ export default function ItauVigentePage() {
   const [castigo, setCastigo] = useState(null);
   // Meses con meta grupal (octubre 2026): todos los ejecutivos llevan el cumplimiento de la suma de sus casos.
   const [grupal, setGrupal] = useState(null);
-  const [fotosCuotas, setFotosCuotas] = useState(null);
   const [metasOpen, setMetasOpen] = useState(false);
   const [view, setView] = useState("resumen");
   const [metadata, setMetadata] = useState({ fecha_carga: "", periodo: "" });
@@ -147,7 +146,6 @@ export default function ItauVigentePage() {
         setMetas(data.metas || []);
         setCastigo(data.castigo || null);
         setGrupal(data.meta_grupal ? data.grupal || null : null);
-        setFotosCuotas(data.recupero_no_medible || null);
         setMetadata({
           fecha_carga: data.fecha_carga || filters.fecha_carga,
           periodo: data.periodo || "",

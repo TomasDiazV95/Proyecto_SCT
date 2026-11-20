@@ -1,4 +1,3 @@
-import React from "react";
 import AdminUsersPage from "../pages/admin/AdminUsersPage";
 import BenchPage from "../pages/kpi/BenchPage";
 import BitCastigoPage from "../pages/productividad/BitCastigoPage";

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth.dependencies import current_user, require_module
+from auth.negocios_kpi import exigir_negocio, filtrar_opciones, negocios_permitidos
 from services.bench_service import get_filter_values, get_kpi_view
 
 
@@ -18,10 +19,17 @@ def filtros(
     negocio: str | None = Query(default=None),
     user: dict = Depends(current_user),
 ) -> dict:
+    if negocio:
+        exigir_negocio(user, "bench", negocio)
     try:
-        return get_filter_values({"periodo": periodo, "negocio": negocio}, user=user)
+        data = get_filter_values({"periodo": periodo, "negocio": negocio}, user=user)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    # Supervisores: solo los negocios de su productividad (auth/negocios_kpi.py).
+    permitidos = negocios_permitidos(user, "bench")
+    data["negocios"] = filtrar_opciones(data["negocios"], permitidos)
+    data["sin_negocio"] = permitidos is not None and not permitidos
+    return data
 
 
 @router.get("/kpi")
@@ -31,6 +39,7 @@ def kpi(
     segmento: str | None = Query(default=None),
     user: dict = Depends(current_user),
 ) -> dict:
+    exigir_negocio(user, "bench", negocio)
     try:
         return get_kpi_view({"periodo": periodo, "negocio": negocio, "segmento": segmento}, user=user)
     except Exception as exc:

@@ -162,7 +162,7 @@ export const modulePanels = [
     accent: "info",
     modules: [
       {
-        code: "administrativas",
+        code: "administrativas-itau-vencida",
         title: "Itaú Vencida",
         description: "Descarga cuotas, asignación y cuotas pagadas, y define los casos medibles del mes.",
         path: "/administrativas/itau-vencida",
@@ -170,14 +170,13 @@ export const modulePanels = [
         buttonLabel: "Abrir Itaú Vencida",
       },
       {
-        code: "administrativas",
+        code: "administrativas-negocios",
         title: "Negocios",
         description: "Sube el Excel de negocios (reconducciones, refinanciamientos, novaciones, daciones, extensiones) de SC Terreno, SC Telefonía, GM y Santander Hipotecario.",
         path: "/administrativas/negocios",
         buttonLabel: "Abrir Negocios",
       },
       {
-        // Tiene permiso propio: el panel administrativo no lo abre.
         code: "gestiones-diarias-sct",
         title: "Gestiones Diarias SCT",
         description: "Carga, resumen y detalle de gestiones diarias Santander Consumer Terreno.",

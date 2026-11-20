@@ -13,32 +13,6 @@ class FiltersResponse(BaseModel):
     segmentos: list[str] = []
 
 
-class GeneralRow(BaseModel):
-    ejecutivo: str
-    zona: str | None
-    deuda_total: float
-    casos_asignados: int
-    cumplimiento_final: float
-    ciclos: dict[str, float]
-
-
-class CycleRow(BaseModel):
-    periodo: str | None
-    zona: str | None
-    tramo: str
-    apertura: str
-    ejecutivo: str
-    deuda_asignada: float
-    saldo_contenido: float
-    porcentaje_contenido: float
-    saldo_normalizado: float
-    porcentaje_normalizado: float
-    meta_contencion_pct: float
-    meta_normalizacion_pct: float
-    cumplimiento_final: float
-    casos_asignados: int
-
-
 class ApiEnvelope(BaseModel):
     data: list[Any]
 
@@ -73,6 +47,11 @@ class CreateUserRequest(BaseModel):
     full_name: str
     role: str
     module_codes: list[str] = []
+
+
+class UpdateUserRequest(BaseModel):
+    full_name: str
+    role: str
 
 
 class UpdateUserModulesRequest(BaseModel):

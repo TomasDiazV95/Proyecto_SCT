@@ -193,19 +193,6 @@ export function SectionCard({ title, description, actions, children, footer, bod
   );
 }
 
-export function KpiCard({ label, value, caption, icon }) {
-  return (
-    <div className="pd-card pd-kpi">
-      <div className="pd-kpi-head">
-        <span className="pd-kpi-label">{label}</span>
-        {icon && <i className={`bi ${icon} pd-kpi-icon`} aria-hidden="true" />}
-      </div>
-      <div className="pd-kpi-value">{value}</div>
-      {caption && <div className="pd-kpi-caption">{caption}</div>}
-    </div>
-  );
-}
-
 // items: [{ status: "success" | "warning" | "danger" | "neutral", label, range? }]
 export function StatusLegend({ title = "Cumplimiento", items }) {
   return (

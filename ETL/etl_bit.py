@@ -8,7 +8,6 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
 
 import pandas as pd
 import pyodbc
@@ -525,20 +524,6 @@ def get_table_columns(cur: pyodbc.Cursor, table_name: str) -> set[str]:
         (schema, table),
     )
     return {str(row[0]).upper() for row in cur.fetchall()}
-
-
-def is_table_column_nullable(cur: pyodbc.Cursor, table_name: str, column_name: str) -> bool:
-    schema, table = split_table_name(table_name)
-    cur.execute(
-        """
-        SELECT IS_NULLABLE
-        FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND UPPER(COLUMN_NAME) = UPPER(?)
-        """,
-        (schema, table, column_name),
-    )
-    row = cur.fetchone()
-    return bool(row and str(row[0]).strip().upper() == "YES")
 
 
 def sanitize_excel_columns(excel_columns: list[str]) -> list[str]:

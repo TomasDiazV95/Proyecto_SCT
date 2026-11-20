@@ -8,7 +8,7 @@ Este módulo contiene la aplicación web para la visualización y análisis de l
 
 - `backend/`: API FastAPI que consulta SQL Server y calcula vistas general/por ciclo.
 - `frontend/`: React + Bootstrap con filtros dinámicos y tablas de productividad.
-- `automation/`: Descarga automática del bench desde visor + ejecución ETL diaria.
+- `automation/`: Tarea programada de carga del KPI Operacional (`run_kpi_operacional.bat`, `create_kpi_operacional_task.bat`).
 - `start_web.bat`: Script para iniciar el backend y frontend simultáneamente (solo Windows).
 
 ---
@@ -94,47 +94,10 @@ Rutas de frontend:
 
 ---
 
-## Automatización diaria del BENCH
+## Automatización
 
-### 1) Instalar dependencias de automatización
-
-```bash
-python -m pip install -r WEB/automation/requirements.txt
-python -m playwright install chromium
-```
-
-### 2) Variables de entorno
-
-Las variables se leen desde `.env` raíz o `ETL/.env`:
-
-```env
-VISOR_URL=https://recuperaciones.santanderconsumer.cl/Login.aspx
-VISOR_USER=...
-VISOR_PASSWORD=...
-VISOR_HEADLESS=true
-
-BENCH_SEARCH_TEXT=BENCH MORA TARDIA
-BENCH_FILE_SUFFIX= - BENCH MORA TARDIA - PHOENIX.xlsx
-BENCH_SHEET_NAME=PHOENIX
-BENCH_DOWNLOAD_DIR=D:\Automatizacion\Santander Consumer Terreno\downloads
-```
-
-### 3) Ejecutar una prueba manual
-
-```bash
-WEB\automation\run_daily_job.bat
-```
-
-### 4) Programar lunes a viernes 10:00 AM
-
-```bash
-WEB\automation\create_scheduled_task.bat
-```
-
-Comportamiento del job:
-- Si no hay archivo nuevo en visor, termina sin cargar.
-- Si el archivo ya existe en base (`source_file`), no reprocesa.
-- Si hay archivo nuevo, lo descarga y ejecuta ETL automáticamente.
+La descarga del BENCH desde el visor se hace con `DESCARGAS/descarga_SCT.py` (ver README raíz).
+La carga horaria del KPI Operacional se programa con `WEB\automation\create_kpi_operacional_task.bat`.
 
 ---
 

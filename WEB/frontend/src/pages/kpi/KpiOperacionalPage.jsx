@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { fetchKpiOperacionalDashboard, fetchKpiOperacionalFilters } from "../../api";
 import "./kpiOperacional.css";
 import useDataVersion from "../../hooks/useDataVersion";
+import { SIN_NEGOCIO_KPI } from "./sinNegocio";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 const MONTHS_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -482,6 +483,14 @@ export default function KpiOperacionalPage() {
     };
   }, [filters.mandante, filters.cartera, filters.tramo, filters.producto, dataVersion]);
 
+  // Supervisor con un solo mandante (los KPI muestran solo su negocio): queda elegido, con su detalle por tramo.
+  useEffect(() => {
+    if (options.mandantes.length === 1 && filters.mandante.length === 0) {
+      const unico = options.mandantes[0];
+      setFilters((prev) => ({ ...prev, mandante: [typeof unico === "string" ? unico : unico.valor] }));
+    }
+  }, [options.mandantes, filters.mandante]);
+
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -579,6 +588,23 @@ export default function KpiOperacionalPage() {
         .reverse(),
     [meses, kpis],
   );
+
+  // Supervisor sin productividad asignada: los KPI solo muestran su negocio (backend auth/negocios_kpi.py).
+  if (options.sin_negocio) {
+    return (
+      <div className="kpo">
+        <header className="kpo-header">
+          <div>
+            <div className="kpo-eyebrow">
+              <Link to="/kpi">Panel KPI</Link> · Seguimiento operacional
+            </div>
+            <h1 className="kpo-title">KPI Operacional</h1>
+          </div>
+        </header>
+        <div className="kpo-empty">{SIN_NEGOCIO_KPI}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="kpo">

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchVeritusDeudor } from "../../api";
 import { PageHeader, SectionCard } from "../../components/productividad/ui";
 import { fecha, fechaAInput, pesos } from "./simuladorRenegociacion";

@@ -240,20 +240,6 @@ def normalize_text(value: object) -> str:
     return " ".join(text.upper().split())
 
 
-def pick_driver() -> str:
-    available = list(pyodbc.drivers())
-    preferred = [
-        os.getenv("DB_DRIVER"),
-        "ODBC Driver 18 for SQL Server",
-        "ODBC Driver 17 for SQL Server",
-        "SQL Server",
-    ]
-    for driver in preferred:
-        if driver and driver in available:
-            return driver
-    raise RuntimeError(f"No hay driver ODBC para SQL Server. Drivers encontrados: {available}")
-
-
 def encrypt_candidates() -> list[str | None]:
     encrypt_env = os.getenv("DB_ENCRYPT")
     if encrypt_env is not None and str(encrypt_env).strip():
@@ -300,32 +286,6 @@ def connect() -> pyodbc.Connection:
                 errors.append(f"{candidate_driver} / Encrypt={encrypt}: {exc}")
 
     raise RuntimeError("No se pudo conectar a SQL Server. Intentos: " + " | ".join(errors))
-
-
-def resolve_excel_path(file_path: str | None) -> Path:
-    raise RuntimeError("La fuente BENCH ahora es fija por Microsoft Graph y no usa rutas locales.")
-
-
-def discover_bench_file() -> Path | None:
-    search_roots: list[Path] = []
-    user_home = Path.home()
-    phoenix_service_root = user_home / "Phoenix Service"
-    if phoenix_service_root.exists() and phoenix_service_root.is_dir():
-        search_roots.append(phoenix_service_root)
-    for candidate in user_home.glob("OneDrive*"):
-        if candidate.exists() and candidate.is_dir():
-            search_roots.append(candidate)
-
-    matches: list[Path] = []
-    for root in search_roots:
-        with suppress(OSError, PermissionError):
-            matches.extend(root.rglob(BENCH_FILENAME))
-
-    files = [match for match in matches if match.is_file()]
-    if not files:
-        return None
-    files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
-    return files[0]
 
 
 def refresh_workbook_cache(path: Path) -> None:

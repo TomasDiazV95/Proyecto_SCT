@@ -45,13 +45,6 @@ def _safe_div(num: float, den: float) -> float:
     return num / den
 
 
-def _safe_avg(values: list[float]) -> float:
-    clean = [float(value) for value in values if value is not None]
-    if not clean:
-        return 0.0
-    return sum(clean) / len(clean)
-
-
 def _cap_cumpl_meta(value: float) -> float:
     return min(float(value or 0), 1.3)
 
@@ -118,14 +111,6 @@ def _optional_existing_column(table_name: str, candidates: list[str], contains_a
         return _first_existing_column(table_name, candidates, contains_any)
     except RuntimeError:
         return ""
-
-
-def _rut_key_sql(expr: str) -> str:
-    return (
-        "UPPER(LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(COALESCE(CONVERT(VARCHAR(50), "
-        f"{expr}"
-        "), ''), '.', ''), '-', ''), ' ', ''))))"
-    )
 
 
 def _rut_join_key_sql(expr: str) -> str:

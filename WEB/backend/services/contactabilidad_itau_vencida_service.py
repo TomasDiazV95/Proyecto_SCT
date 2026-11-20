@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from functools import lru_cache
 import logging
 from threading import Lock
@@ -22,7 +22,6 @@ TABLES = {
 }
 DEFAULT_GESTOR = "PHOENIX"
 CRM_CARTERA = 523
-CALL_ACTIONS = ("TELEFONICA", "TERRENO")
 SORT_COLUMNS = {
     "rut": "rut",
     "operacion": "operacion",

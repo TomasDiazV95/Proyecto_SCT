@@ -5,6 +5,7 @@ import {
   fetchKpiAvancePhoenixFilters,
 } from "../../api";
 import useDataVersion from "../../hooks/useDataVersion";
+import { SIN_NEGOCIO_KPI } from "./sinNegocio";
 
 const MONTH_NAMES = {
   "01": "Enero",
@@ -506,6 +507,7 @@ export default function KpiAvancePhoenixPage() {
           negocios: availableNegocios,
           segmentos: availableSegmentos,
           fecha_actualizacion: response.fecha_actualizacion || "",
+          sin_negocio: Boolean(response.sin_negocio),
         });
         setFilters((previous) => {
           const nextNegocio = availableNegocios.includes(previous.negocio)
@@ -561,7 +563,7 @@ export default function KpiAvancePhoenixPage() {
   const selectedPeriodsKey = filters.periodos.join("|");
 
   useEffect(() => {
-    if (!selectedPeriodsKey) {
+    if (!selectedPeriodsKey || options.sin_negocio) {
       setData({ series: [] });
       return undefined;
     }
@@ -589,7 +591,7 @@ export default function KpiAvancePhoenixPage() {
     return () => {
       active = false;
     };
-  }, [filters.negocio, filters.segmento, selectedPeriodsKey, dataVersion]);
+  }, [filters.negocio, filters.segmento, selectedPeriodsKey, dataVersion, options.sin_negocio]);
 
   function onNegocioChange(value) {
     setFilters((previous) => ({
@@ -686,6 +688,10 @@ export default function KpiAvancePhoenixPage() {
 
         {error && <div className="alert alert-danger">{error}</div>}
 
+        {/* Supervisor sin productividad asignada: los KPI solo muestran su negocio (backend auth/negocios_kpi.py). */}
+        {options.sin_negocio ? (
+          <div className="alert alert-info">{SIN_NEGOCIO_KPI}</div>
+        ) : (
         <div className="phoenix-kpi-card">
           {loadingOptions || loadingData ? (
             <div className="phoenix-empty-state">
@@ -701,6 +707,7 @@ export default function KpiAvancePhoenixPage() {
             </div>
           )}
         </div>
+        )}
       </div>
     </div>
   );

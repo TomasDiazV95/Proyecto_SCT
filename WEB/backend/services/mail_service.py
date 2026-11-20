@@ -18,6 +18,22 @@ def send_welcome_email(to_email: str, full_name: str, temp_password: str = "Ph.2
     send_mail_graph(to_email, subject, body)
 
 
+def send_temp_password_email(to_email: str, full_name: str, temp_password: str = "Ph.2026") -> None:
+    """Contrasena temporal que deja un administrador al restablecer el acceso de un usuario."""
+    web_base = os.getenv("WEB_APP_URL", "http://localhost:5173").rstrip("/")
+    login_url = f"{web_base}/login"
+    subject = "Restablecimiento de contraseña - Plataforma de Productividad"
+    body = f"""
+    <p>Hola {full_name or ""},</p>
+    <p>Un administrador restableció tu contraseña en la Plataforma de Productividad.</p>
+    <p><strong>Usuario:</strong> {to_email}</p>
+    <p><strong>Contraseña temporal:</strong> {temp_password}</p>
+    <p><strong>Ingreso:</strong> <a href=\"{login_url}\">{login_url}</a></p>
+    <p>Al ingresar se te pedirá cambiarla por una nueva.</p>
+    """
+    send_mail_graph(to_email, subject, body)
+
+
 def send_reset_password_email(to_email: str, reset_code: str, expires_minutes: int) -> None:
     web_base = os.getenv("WEB_APP_URL", "http://localhost:5173").rstrip("/")
     recovery_url = f"{web_base}/forgot-password"

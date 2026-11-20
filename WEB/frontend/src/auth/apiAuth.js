@@ -41,17 +41,6 @@ export async function authRefresh() {
   return res.json();
 }
 
-export async function authMe(accessToken) {
-  const res = await fetch(`${API_BASE}/api/auth/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) {
-    notifySessionExpired();
-    throw new Error("No se pudo validar sesión");
-  }
-  return res.json();
-}
-
 // Datos y accesos vigentes del usuario, sin cerrar la sesion si falla (token vencido, sin red):
 // quien llama decide; el resto de la app ya renueva el token por su cuenta.
 export async function authSessionUser(accessToken) {

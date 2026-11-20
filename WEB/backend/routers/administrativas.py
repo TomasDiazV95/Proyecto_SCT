@@ -24,10 +24,16 @@ from services.administrativas_itau_service import (
 )
 
 
-router = APIRouter(dependencies=[Depends(require_module("administrativas"))])
+# Panel Administrativo: cada pagina tiene su propio modulo (hijos de "administrativas"; quien tiene el
+# panel completo los abre todos, ver auth/permissions.py).
+MODULO_ITAU = "administrativas-itau-vencida"
+MODULO_NEGOCIOS = "administrativas-negocios"
+
+itau_router = APIRouter(dependencies=[Depends(require_module(MODULO_ITAU))])
+negocios_router = APIRouter(dependencies=[Depends(require_module(MODULO_NEGOCIOS))])
 
 
-@router.get("/itau/periodos")
+@itau_router.get("/itau/periodos")
 def itau_periodos() -> dict:
     try:
         return get_periodos()
@@ -35,7 +41,7 @@ def itau_periodos() -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/itau/cuotas/export")
+@itau_router.get("/itau/cuotas/export")
 def itau_cuotas_export(periodo: str = Query(...)) -> StreamingResponse:
     try:
         period_month, headers, rows = get_cuotas_export_rows(periodo)
@@ -44,7 +50,7 @@ def itau_cuotas_export(periodo: str = Query(...)) -> StreamingResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/itau/asignacion/export")
+@itau_router.get("/itau/asignacion/export")
 def itau_asignacion_export(periodo: str = Query(...)) -> StreamingResponse:
     try:
         period_month, headers, rows = get_asignacion_export_rows(periodo)
@@ -53,7 +59,7 @@ def itau_asignacion_export(periodo: str = Query(...)) -> StreamingResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/itau/cuotas-pagadas/export")
+@itau_router.get("/itau/cuotas-pagadas/export")
 def itau_cuotas_pagadas_export(periodo: str = Query(...)) -> StreamingResponse:
     try:
         period_month, headers, rows = get_cuotas_pagadas_export_rows(periodo)
@@ -103,29 +109,29 @@ def _medibles_call(fn, *args) -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/itau/medibles")
+@itau_router.get("/itau/medibles")
 def itau_medibles(periodo: str = Query(...)) -> dict:
     return _medibles_call(get_medibles, periodo)
 
 
-@router.post("/itau/medibles")
+@itau_router.post("/itau/medibles")
 def itau_medibles_add(payload: MedibleRequest) -> dict:
     return _medibles_call(add_medibles, payload.periodo, payload.columna, payload.valores)
 
 
-@router.put("/itau/medibles")
+@itau_router.put("/itau/medibles")
 def itau_medibles_replace(payload: ReemplazarMediblesRequest) -> dict:
     return _medibles_call(replace_medibles, payload.periodo, [f.model_dump() for f in payload.filtros])
 
 
-@router.post("/itau/medibles/sugerir")
+@itau_router.post("/itau/medibles/sugerir")
 def itau_medibles_sugerir(payload: SugerirMediblesRequest) -> dict:
     return _medibles_call(
         sugerir_medibles, payload.periodo, payload.fecha_carga, [m.model_dump() for m in payload.montos], payload.unidad
     )
 
 
-@router.delete("/itau/medibles")
+@itau_router.delete("/itau/medibles")
 def itau_medibles_delete(
     periodo: str = Query(...),
     columna: str = Query(...),
@@ -143,12 +149,12 @@ def _negocios_call(fn, *args):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/negocios/cargas")
+@negocios_router.get("/negocios/cargas")
 def negocios_cargas() -> list[dict]:
     return _negocios_call(negocios_service.listar_cargas)
 
 
-@router.get("/negocios/plantilla")
+@negocios_router.get("/negocios/plantilla")
 def negocios_plantilla(negocio: str = Query(...)) -> StreamingResponse:
     nombre, contenido = _negocios_call(negocios_service.plantilla, negocio)
     return StreamingResponse(
@@ -158,18 +164,23 @@ def negocios_plantilla(negocio: str = Query(...)) -> StreamingResponse:
     )
 
 
-@router.post("/negocios/cargas")
+@negocios_router.post("/negocios/cargas")
 def negocios_cargar(
     negocio: str = Form(...),
     archivo: UploadFile = File(...),
-    user: dict = Depends(require_module("administrativas")),
+    user: dict = Depends(require_module(MODULO_NEGOCIOS)),
 ) -> dict:
     # Un byte de mas basta para saber que supera el limite, sin leer el archivo completo.
     contenido = archivo.file.read(negocios_service.MAX_BYTES + 1)
     return _negocios_call(negocios_service.cargar, negocio, archivo.filename or "", contenido, user.get("email") or "")
 
 
-@router.delete("/negocios/cargas/{id_carga}")
+@negocios_router.delete("/negocios/cargas/{id_carga}")
 def negocios_eliminar(id_carga: int) -> dict:
     _negocios_call(negocios_service.eliminar_carga, id_carga)
     return {"ok": True}
+
+
+router = APIRouter()
+router.include_router(itau_router)
+router.include_router(negocios_router)

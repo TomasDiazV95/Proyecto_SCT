@@ -152,15 +152,6 @@ export async function fetchScTempranaFilters(periodo = "") {
   return res.json();
 }
 
-export async function fetchScTempranaGeneral(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/general`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista general de SC Temprana");
-  }
-  const body = await res.json();
-  return body.data || [];
-}
-
 export async function fetchScTempranaCycle(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/sc-temprana/productividad/ciclo`, filters));
   if (!res.ok) {
@@ -286,14 +277,6 @@ export async function fetchBitNegocios(filters) {
   return res.json();
 }
 
-export async function fetchBitDetalle(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/bit/detalle`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el detalle de BIT");
-  }
-  return res.json();
-}
-
 export async function fetchBitCastigoFilters(periodo = "") {
   const res = await apiFetch(withQuery(`${API_BASE}/api/bit-castigo/filtros`, { periodo }));
   if (!res.ok) {
@@ -380,22 +363,6 @@ export async function fetchItauCastigoGeneral(filters) {
   return res.json();
 }
 
-export async function fetchItauCastigoProducto(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/producto`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar la vista producto de Itaú Castigo");
-  }
-  return res.json();
-}
-
-export async function fetchItauCastigoRecuperoCobrador(filters) {
-  const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/recupero-cobrador`, filters));
-  if (!res.ok) {
-    throw new Error("No se pudo cargar el recupero por cobrador de Itaú Castigo");
-  }
-  return res.json();
-}
-
 export async function fetchItauCastigoNuevosConvenios(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/itau-castigo/nuevos-convenios`, filters));
   if (!res.ok) {
@@ -470,10 +437,16 @@ export async function fetchGmDetail(filters) {
   return body.data || [];
 }
 
+// Mensaje del backend (detail) si lo trae; si no, el generico. Ej.: el aviso de "solo tu negocio" en los KPI.
+async function detalleError(res, generico) {
+  const body = await res.json().catch(() => ({}));
+  return typeof body?.detail === "string" && body.detail ? body.detail : generico;
+}
+
 export async function fetchBenchFilters(filters = {}) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/bench/filtros`, filters));
   if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de BENCH");
+    throw new Error(await detalleError(res, "No se pudieron cargar los filtros de BENCH"));
   }
   return res.json();
 }
@@ -481,7 +454,7 @@ export async function fetchBenchFilters(filters = {}) {
 export async function fetchBenchKpi(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/bench/kpi`, filters));
   if (!res.ok) {
-    throw new Error("No se pudo cargar el panel BENCH");
+    throw new Error(await detalleError(res, "No se pudo cargar el panel BENCH"));
   }
   return res.json();
 }
@@ -489,7 +462,7 @@ export async function fetchBenchKpi(filters) {
 export async function fetchKpiAvancePhoenixFilters(filters = {}) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-avance-phoenix/filtros`, filters));
   if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros de KPI Phoenix");
+    throw new Error(await detalleError(res, "No se pudieron cargar los filtros de KPI Phoenix"));
   }
   return res.json();
 }
@@ -497,7 +470,7 @@ export async function fetchKpiAvancePhoenixFilters(filters = {}) {
 export async function fetchKpiAvancePhoenixComparison(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-avance-phoenix/comparacion`, filters));
   if (!res.ok) {
-    throw new Error("No se pudo cargar la comparación de KPI Phoenix");
+    throw new Error(await detalleError(res, "No se pudo cargar la comparación de KPI Phoenix"));
   }
   return res.json();
 }
@@ -505,7 +478,7 @@ export async function fetchKpiAvancePhoenixComparison(filters) {
 export async function fetchKpiOperacionalFilters(filters = {}) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-operacional/filtros`, filters));
   if (!res.ok) {
-    throw new Error("No se pudieron cargar los filtros del KPI Operacional");
+    throw new Error(await detalleError(res, "No se pudieron cargar los filtros del KPI Operacional"));
   }
   return res.json();
 }
@@ -513,7 +486,7 @@ export async function fetchKpiOperacionalFilters(filters = {}) {
 export async function fetchKpiOperacionalDashboard(filters) {
   const res = await apiFetch(withQuery(`${API_BASE}/api/kpi-operacional/dashboard`, filters));
   if (!res.ok) {
-    throw new Error("No se pudo cargar el KPI Operacional");
+    throw new Error(await detalleError(res, "No se pudo cargar el KPI Operacional"));
   }
   return res.json();
 }
@@ -643,6 +616,37 @@ export async function updateAdminUserStatus(userId, isActive) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     throw new Error(body?.detail || "No se pudo actualizar el estado");
+  }
+  return body;
+}
+
+export async function updateAdminUser(userId, { full_name, role }) {
+  const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ full_name, role }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudieron guardar los datos del usuario");
+  }
+  return body;
+}
+
+export async function resetAdminUserPassword(userId) {
+  const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}/reset-password`, { method: "POST" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo restablecer la contraseña");
+  }
+  return body;
+}
+
+export async function unlockAdminUser(userId) {
+  const res = await apiFetch(`${API_BASE}/api/admin/users/${userId}/unlock`, { method: "POST" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.detail || "No se pudo desbloquear el usuario");
   }
   return body;
 }
@@ -834,11 +838,6 @@ async function fetchContactabilidad(path, filters, options = {}) {
 }
 
 export const fetchContactabilidadItauDashboard = (filters, options) => fetchContactabilidad("dashboard", filters, options);
-export const fetchContactabilidadItauResumen = (filters) => fetchContactabilidad("resumen", filters);
-export const fetchContactabilidadItauEstado = (filters) => fetchContactabilidad("estado-contacto", filters);
-export const fetchContactabilidadItauTubo = (filters) => fetchContactabilidad("tubo", filters);
-export const fetchContactabilidadItauEvolucion = (filters) => fetchContactabilidad("evolucion", filters);
-export const fetchContactabilidadItauDetalle = (filters) => fetchContactabilidad("detalle", filters);
 
 export async function downloadContactabilidadItauDetalle(filters) {
   return downloadExcelFile(

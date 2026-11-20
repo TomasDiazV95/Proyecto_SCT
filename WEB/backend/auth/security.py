@@ -1,6 +1,5 @@
 import hashlib
 import secrets
-from datetime import datetime, timezone
 
 from passlib.context import CryptContext
 
@@ -22,7 +21,3 @@ def new_reset_code() -> str:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
